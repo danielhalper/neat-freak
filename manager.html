@@ -1,0 +1,44 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Neat Freak Manager</title>
+    <link rel="stylesheet" href="src/styles.css">
+  </head>
+  <body>
+    <main class="app-shell">
+      <header class="app-header">
+        <div>
+          <div class="brand-lockup">
+            <img src="assets/logo.svg" alt="" class="brand-logo">
+            <h1>Neat Freak</h1>
+          </div>
+          <p>Saved tab sessions, grouped for fast restore.</p>
+        </div>
+        <div class="header-actions">
+          <button class="primary-button" id="restore-everything" type="button">Restore all</button>
+          <button class="secondary-button" id="capture-now" type="button">Save all windows</button>
+          <button class="secondary-button" id="export-sessions" type="button">Export</button>
+          <button class="secondary-button" id="import-sessions" type="button">Import</button>
+          <button class="secondary-button" id="open-options" type="button">Settings</button>
+          <input id="import-file" type="file" accept="application/json" hidden>
+        </div>
+      </header>
+
+      <section class="manager-toolbar" aria-label="Session controls">
+        <label class="search-box">
+          <svg viewBox="0 0 24 24" aria-hidden="true">
+            <path d="m21 21-4.4-4.4"></path>
+            <circle cx="11" cy="11" r="7"></circle>
+          </svg>
+          <input id="session-search" type="search" placeholder="Search sessions, groups, tabs, domains">
+        </label>
+        <div id="manager-stats" class="manager-stats">Loading...</div>
+      </section>
+
+      <section id="sessions-container" class="sessions-container" aria-live="polite"></section>
+    </main>
+    <script type="module" src="src/manager.js"></script>
+  </body>
+</html>

@@ -1,0 +1,181 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Welcome to Neat Freak</title>
+    <link rel="stylesheet" href="src/styles.css">
+  </head>
+  <body class="welcome-body">
+    <main class="welcome-shell">
+      <header class="welcome-header">
+        <div class="brand-lockup">
+          <img src="assets/logo.svg" alt="" class="brand-logo">
+          <span class="welcome-wordmark">NEAT FREAK</span>
+        </div>
+        <ol class="welcome-stepper" aria-label="Onboarding progress">
+          <li data-step-indicator="1" class="active"><span>1</span><em>Welcome</em></li>
+          <li data-step-indicator="2"><span>2</span><em>How it works</em></li>
+          <li data-step-indicator="3"><span>3</span><em>AI grouping</em></li>
+        </ol>
+      </header>
+
+      <!-- ===== Step 1: Hero ===== -->
+      <section class="welcome-step" data-step="1">
+        <div class="welcome-hero">
+          <p class="welcome-eyebrow">YOU'RE IN</p>
+          <h1>Tidy your tabs.<br><em>Find your work.</em></h1>
+          <p class="welcome-lede">Save every tab into memory-light folders, grouped by what you're actually working on — and restore them in one click.</p>
+        </div>
+        <div class="welcome-actions">
+          <button class="primary-button" data-action="next">Show me how →</button>
+        </div>
+      </section>
+
+      <!-- ===== Step 2: How it works ===== -->
+      <section class="welcome-step" data-step="2" hidden>
+        <div class="welcome-section-head">
+          <p class="welcome-eyebrow">THREE JOBS. ONE CLICK.</p>
+          <h2>How Neat Freak works.</h2>
+        </div>
+        <div class="welcome-cards">
+          <article class="welcome-card">
+            <div class="welcome-card-top"></div>
+            <div class="welcome-card-icon" aria-hidden="true">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M21 8a2 2 0 0 0-1-1.73L13 2.27a2 2 0 0 0-2 0L4 6.27A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16Z"></path>
+                <path d="m3.27 6.96 8.73 5.04 8.73-5.04"></path>
+                <path d="M12 22V12"></path>
+              </svg>
+            </div>
+            <span class="welcome-card-num">1</span>
+            <h3>Save</h3>
+            <p>Snapshot every open tab into a memory-light session. Tabs close, RAM frees up.</p>
+          </article>
+          <article class="welcome-card">
+            <div class="welcome-card-top"></div>
+            <div class="welcome-card-icon" aria-hidden="true">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M15 4V2"></path>
+                <path d="M15 16v-2"></path>
+                <path d="M8 9h2"></path>
+                <path d="M20 9h2"></path>
+                <path d="m17.8 11.8 1.4 1.4"></path>
+                <path d="m10.8 4.8 1.4 1.4"></path>
+                <path d="m17.8 6.2 1.4-1.4"></path>
+                <path d="m3 21 9-9"></path>
+                <path d="m10.8 13.2 1.4-1.4"></path>
+              </svg>
+            </div>
+            <span class="welcome-card-num">2</span>
+            <h3>Group</h3>
+            <p>Tabs auto-organize into folders by topic — your active workstreams, not just by domain.</p>
+          </article>
+          <article class="welcome-card">
+            <div class="welcome-card-top"></div>
+            <div class="welcome-card-icon" aria-hidden="true">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <circle cx="11" cy="11" r="7"></circle>
+                <path d="m21 21-4.4-4.4"></path>
+              </svg>
+            </div>
+            <span class="welcome-card-num">3</span>
+            <h3>Find</h3>
+            <p>Search by name or ask in plain English. Restore one tab, one folder, or a whole session.</p>
+          </article>
+        </div>
+        <div class="welcome-actions">
+          <button class="secondary-button" data-action="back">← Back</button>
+          <button class="primary-button" data-action="next">Got it →</button>
+        </div>
+      </section>
+
+      <!-- ===== Step 3: Optional AI setup ===== -->
+      <section class="welcome-step" data-step="3" hidden>
+        <div class="welcome-section-head">
+          <p class="welcome-eyebrow">OPTIONAL · POWER-USER UPGRADE</p>
+          <h2>Want AI-smarter group names?</h2>
+          <p class="welcome-lede small">
+            Neat Freak's local grouping already works great. If you've got an OpenAI key,
+            we'll use <strong>gpt-5-mini</strong> to rename folders with workstream-aware labels
+            and power the natural-language search.
+          </p>
+        </div>
+        <form class="welcome-key-form" id="welcome-key-form">
+          <label class="welcome-key-input">
+            <span>Your OpenAI API key</span>
+            <input id="welcome-api-key" type="password" autocomplete="off" placeholder="sk-…">
+          </label>
+          <p class="welcome-fine-print">
+            Your key is stored only in this browser's local extension storage, never sent anywhere except OpenAI.
+            <a href="https://platform.openai.com/api-keys" target="_blank" rel="noreferrer">Get a key →</a>
+          </p>
+          <div class="welcome-actions">
+            <button class="secondary-button" data-action="back" type="button">← Back</button>
+            <button class="link-button" data-action="skip" type="button">Skip — I'll set this up later</button>
+            <button class="primary-button" type="submit">Save key & finish</button>
+          </div>
+          <p class="welcome-status" id="welcome-status" aria-live="polite"></p>
+        </form>
+      </section>
+
+      <!-- ===== Done state (with pin prompt) ===== -->
+      <section class="welcome-step" data-step="done" hidden>
+        <div class="welcome-done">
+          <div class="welcome-done-mark" aria-hidden="true">✓</div>
+          <h2 id="welcome-done-title">One last thing — pin Neat Freak.</h2>
+          <p class="welcome-lede" id="welcome-done-subtitle">So it's always one click away when your tabs get out of hand.</p>
+
+          <!-- Pin instruction with illustrated toolbar -->
+          <div class="welcome-pin-card" id="welcome-pin-card">
+            <div class="welcome-pin-illustration" aria-hidden="true">
+              <svg viewBox="0 0 320 80" xmlns="http://www.w3.org/2000/svg">
+                <!-- Toolbar bg -->
+                <rect x="0" y="10" width="320" height="40" rx="8" fill="#eef0ef" stroke="#d9e0dc" stroke-width="1"/>
+                <!-- Back/Forward/Reload -->
+                <circle cx="22" cy="30" r="6" fill="#b6bdb9"/>
+                <circle cx="42" cy="30" r="6" fill="#b6bdb9"/>
+                <circle cx="62" cy="30" r="6" fill="#b6bdb9"/>
+                <!-- URL bar -->
+                <rect x="80" y="22" width="150" height="16" rx="8" fill="#ffffff" stroke="#d9e0dc" stroke-width="1"/>
+                <!-- An adjacent extension icon (greyed) -->
+                <rect x="244" y="20" width="20" height="20" rx="4" fill="#cdd5d1"/>
+                <!-- Puzzle piece (highlighted target) -->
+                <g transform="translate(274, 18)">
+                  <rect x="0" y="0" width="24" height="24" rx="5" fill="#0f766e"/>
+                  <path d="M7 9.5a1.5 1.5 0 1 1 3 0V11h3.5a1.5 1.5 0 1 1 0 3H12v3.5a1.5 1.5 0 1 0-3 0V14H5.5a1.5 1.5 0 1 1 0-3H9V9.5z"
+                        transform="translate(2 0)" fill="#ffffff"/>
+                </g>
+                <!-- Pulsing highlight ring -->
+                <circle cx="286" cy="30" r="18" fill="none" stroke="#f4bd45" stroke-width="2.5" opacity="0.9">
+                  <animate attributeName="r" values="16;22;16" dur="1.6s" repeatCount="indefinite"/>
+                  <animate attributeName="opacity" values="0.95;0.35;0.95" dur="1.6s" repeatCount="indefinite"/>
+                </circle>
+                <!-- Arrow pointing up at the puzzle -->
+                <path d="M286 72 L286 60" stroke="#f4bd45" stroke-width="2" stroke-linecap="round"/>
+                <path d="M281 64 L286 59 L291 64" fill="none" stroke="#f4bd45" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+              </svg>
+            </div>
+            <ol class="welcome-pin-steps">
+              <li>Click the <strong>puzzle piece icon</strong> in your Chrome toolbar (top-right of your browser).</li>
+              <li>Find <strong>Neat Freak</strong> in the list.</li>
+              <li>Click the <strong>pin icon</strong> next to it.</li>
+            </ol>
+            <p class="welcome-pin-status" id="welcome-pin-status" data-state="waiting" aria-live="polite">
+              <span class="welcome-pin-dot"></span>
+              <span class="welcome-pin-label">Waiting for you to pin Neat Freak…</span>
+            </p>
+          </div>
+
+          <div class="welcome-actions">
+            <button class="primary-button" data-action="open-popup-hint" type="button">I'm done — close this tab</button>
+          </div>
+          <p class="welcome-fine-print" id="welcome-final-hint">
+            Once Neat Freak is pinned, click the icon to save and group your first session.
+          </p>
+        </div>
+      </section>
+    </main>
+    <script type="module" src="src/welcome.js"></script>
+  </body>
+</html>

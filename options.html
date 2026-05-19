@@ -1,0 +1,72 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Neat Freak Settings</title>
+    <link rel="stylesheet" href="src/styles.css">
+  </head>
+  <body>
+    <main class="settings-shell">
+      <header class="app-header simple">
+        <div>
+          <div class="brand-lockup">
+            <img src="assets/logo.svg" alt="" class="brand-logo">
+            <h1>Settings</h1>
+          </div>
+          <p>Configure capture defaults and LLM categorization.</p>
+        </div>
+      </header>
+
+      <form id="settings-form" class="settings-form">
+        <section class="settings-section">
+          <h2>Capture Defaults</h2>
+          <label class="field-row">
+            <span>Default scope</span>
+            <select id="default-scope">
+              <option value="currentWindow">Current window</option>
+              <option value="allWindows">All windows</option>
+            </select>
+          </label>
+          <label class="check-row">
+            <input type="checkbox" id="default-review">
+            <span>Review sessions before closing tabs</span>
+          </label>
+          <label class="check-row">
+            <input type="checkbox" id="default-include-pinned">
+            <span>Include pinned tabs by default</span>
+          </label>
+          <label class="check-row">
+            <input type="checkbox" id="collect-page-summaries">
+            <span>Collect short page summaries for better grouping</span>
+          </label>
+          <label class="field-row">
+            <span>Max page summary characters</span>
+            <input id="max-snippet-chars" type="number" min="160" max="1600" step="80">
+          </label>
+        </section>
+
+        <section class="settings-section">
+          <h2>LLM Grouping</h2>
+          <label class="check-row">
+            <input type="checkbox" id="llm-enabled">
+            <span>Use an LLM to create groups</span>
+          </label>
+          <label class="field-row">
+            <span>OpenAI API key</span>
+            <input id="api-key" type="password" autocomplete="off" placeholder="sk-...">
+          </label>
+          <p class="helper-text">Neat Freak uses <strong>gpt-5-mini</strong>. Your API key is stored only in Chrome local extension storage. When enabled, tab titles, URLs, domains, and short page summaries are sent to OpenAI.</p>
+        </section>
+
+        <div class="form-actions">
+          <button class="primary-button" type="submit">Save settings</button>
+          <button class="secondary-button" id="test-llm" type="button">Test LLM</button>
+          <button class="secondary-button" id="open-manager" type="button">Open manager</button>
+        </div>
+        <p id="settings-status" class="status-line"></p>
+      </form>
+    </main>
+    <script type="module" src="src/options.js"></script>
+  </body>
+</html>

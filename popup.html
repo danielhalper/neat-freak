@@ -1,0 +1,96 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Neat Freak</title>
+    <link rel="stylesheet" href="src/styles.css">
+  </head>
+  <body class="popup-body">
+    <main class="popup-shell">
+      <header class="popup-header">
+        <div>
+          <div class="brand-lockup">
+            <img src="assets/logo.svg" alt="" class="brand-logo">
+            <h1>Neat Freak</h1>
+          </div>
+          <p id="open-tab-summary">Scanning tabs...</p>
+        </div>
+        <button class="icon-button" id="open-options" type="button" title="Settings" aria-label="Open settings">
+          <svg viewBox="0 0 24 24" aria-hidden="true">
+            <path d="M12 15.4a3.4 3.4 0 1 0 0-6.8 3.4 3.4 0 0 0 0 6.8Z"></path>
+            <path d="M19.4 15a1.6 1.6 0 0 0 .3 1.8l.1.1a1.9 1.9 0 0 1-2.7 2.7l-.1-.1a1.6 1.6 0 0 0-1.8-.3 1.6 1.6 0 0 0-1 1.5V21a1.9 1.9 0 0 1-3.8 0v-.2a1.6 1.6 0 0 0-1-1.5 1.6 1.6 0 0 0-1.8.3l-.1.1a1.9 1.9 0 1 1-2.7-2.7l.1-.1a1.6 1.6 0 0 0 .3-1.8 1.6 1.6 0 0 0-1.5-1H3a1.9 1.9 0 0 1 0-3.8h.2a1.6 1.6 0 0 0 1.5-1 1.6 1.6 0 0 0-.3-1.8l-.1-.1a1.9 1.9 0 0 1 2.7-2.7l.1.1a1.6 1.6 0 0 0 1.8.3h.1a1.6 1.6 0 0 0 .9-1.5V3a1.9 1.9 0 0 1 3.8 0v.2a1.6 1.6 0 0 0 1 1.5 1.6 1.6 0 0 0 1.8-.3l.1-.1a1.9 1.9 0 1 1 2.7 2.7l-.1.1a1.6 1.6 0 0 0-.3 1.8v.1a1.6 1.6 0 0 0 1.5.9h.2a1.9 1.9 0 0 1 0 3.8h-.2a1.6 1.6 0 0 0-1.5 1Z"></path>
+          </svg>
+        </button>
+      </header>
+
+      <section class="popup-search" aria-label="Search saved tabs">
+        <label class="popup-search-input">
+          <svg viewBox="0 0 24 24" aria-hidden="true">
+            <path d="m21 21-4.4-4.4"></path>
+            <circle cx="11" cy="11" r="7"></circle>
+          </svg>
+          <input id="popup-search" type="search" placeholder="Search saved tabs, or ask a question…" autocomplete="off">
+          <button class="search-clear" id="popup-search-clear" type="button" aria-label="Clear search" hidden>×</button>
+        </label>
+        <p class="popup-search-hint" id="popup-search-hint">Press <kbd>↵</kbd> for smart search</p>
+      </section>
+
+      <section id="popup-search-results" class="popup-search-results" hidden aria-live="polite"></section>
+
+      <section class="panel tight" id="popup-controls">
+        <div class="scope-switch" role="group" aria-label="Tab capture scope">
+          <button class="segmented" id="scope-current" type="button" data-scope="currentWindow">Current window</button>
+          <button class="segmented active" id="scope-all" type="button" data-scope="allWindows">All windows</button>
+        </div>
+        <label class="check-row">
+          <input type="checkbox" id="review-before-close">
+          <span>Review before closing saved tabs</span>
+        </label>
+        <label class="check-row">
+          <input type="checkbox" id="include-pinned">
+          <span>Include pinned tabs</span>
+        </label>
+      </section>
+
+      <button class="primary-action" id="save-tabs" type="button">
+        <span>Tidy tabs</span>
+        <small id="save-mode-copy">Groups and closes saved tabs</small>
+      </button>
+
+      <section id="save-progress" class="save-progress" hidden aria-live="polite">
+        <div class="progress-orbit" aria-hidden="true">
+          <div class="orbit-ring"></div>
+          <div class="orbit-ring delay-1"></div>
+          <div class="orbit-ring delay-2"></div>
+          <div class="orbit-core"></div>
+        </div>
+        <ol class="progress-steps">
+          <li data-step="scanning"><span class="step-bullet"></span><span class="step-label">Scanning open tabs</span></li>
+          <li data-step="capturing"><span class="step-bullet"></span><span class="step-label">Capturing URLs</span></li>
+          <li data-step="grouping"><span class="step-bullet"></span><span class="step-label">Grouping</span></li>
+          <li data-step="saving"><span class="step-bullet"></span><span class="step-label">Saving</span></li>
+        </ol>
+        <p class="progress-hint">You can close this — Neat Freak will ping you when it's done.</p>
+      </section>
+
+      <section id="save-done" class="save-done" hidden>
+        <div class="done-mark" aria-hidden="true">✓</div>
+        <h2 id="done-title">All tucked away</h2>
+        <p id="done-subtitle" class="done-subtitle"></p>
+        <button class="primary-button" id="open-result" type="button">View groups</button>
+      </section>
+
+      <section id="default-state" class="panel">
+        <div class="panel-title-row">
+          <h2>Latest Sessions</h2>
+          <button class="link-button" id="open-manager" type="button">Open manager</button>
+        </div>
+        <div id="recent-sessions" class="recent-list"></div>
+      </section>
+
+      <p class="status-line" id="status-line">LLM grouping uses your configured API key.</p>
+    </main>
+    <script type="module" src="src/popup.js"></script>
+  </body>
+</html>

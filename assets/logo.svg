@@ -1,0 +1,31 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 160 160" role="img" aria-labelledby="title desc">
+  <title id="title">Neat Freak logo</title>
+  <desc id="desc">A wide-eyed tidy creature with an obsessive sparkle.</desc>
+  <rect width="160" height="160" rx="36" fill="#0f766e"/>
+
+  <!-- Furrowed eyebrows (focused intensity) -->
+  <path d="M30 56 L72 48" stroke="#093f3b" stroke-width="7" stroke-linecap="round"/>
+  <path d="M92 48 L130 58" stroke="#093f3b" stroke-width="7" stroke-linecap="round"/>
+
+  <!-- Left eye (smaller) -->
+  <circle cx="56" cy="82" r="22" fill="#f7f8f6"/>
+  <circle cx="63" cy="86" r="10" fill="#093f3b"/>
+  <circle cx="65" cy="83" r="3" fill="#ffffff"/>
+
+  <!-- Right eye (slightly bigger, more bug-eyed) -->
+  <circle cx="108" cy="84" r="25" fill="#f7f8f6"/>
+  <circle cx="100" cy="88" r="11" fill="#093f3b"/>
+  <circle cx="102" cy="85" r="3" fill="#ffffff"/>
+
+  <!-- Tight little grin -->
+  <path d="M64 128 Q80 138 96 128" fill="none" stroke="#093f3b" stroke-width="7" stroke-linecap="round"/>
+
+  <!-- Tiny tooth peeking out -->
+  <rect x="77" y="130" width="6" height="6" rx="1" fill="#f7f8f6"/>
+
+  <!-- Gold sparkle: cleanliness obsession -->
+  <path d="M134 28 L138 40 L150 44 L138 48 L134 60 L130 48 L118 44 L130 40 Z" fill="#f4bd45"/>
+
+  <!-- Bead of sweat -->
+  <path d="M24 96 Q22 102 26 106 Q30 102 28 96 Z" fill="#f4bd45" opacity="0.9"/>
+</svg>
