@@ -9,7 +9,7 @@ export const DEFAULT_SETTINGS = {
   defaultIncludePinned: false,
   defaultKeepCurrentTab: true,
   defaultReviewBeforeClose: false,
-  defaultScope: "allWindows",
+  defaultScope: "smart",
   llmEnabled: true,
   maxSnippetChars: 720,
   settingsVersion: 4
