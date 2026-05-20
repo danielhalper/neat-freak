@@ -193,18 +193,15 @@ svg {
   background: var(--surface-2);
   border: 1px solid #d3ded9;
   border-radius: 7px;
-  display: grid;
+  display: inline-flex;
   gap: 3px;
-  grid-template-columns: repeat(auto-fit, minmax(0, 1fr));
   padding: 3px;
 }
 
 .scope-switch.compact {
   border-radius: 999px;
   gap: 2px;
-  justify-self: start;
   padding: 2px;
-  width: fit-content;
 }
 
 .segmented {
