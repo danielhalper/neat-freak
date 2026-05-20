@@ -191,7 +191,7 @@ async function countSurvivingTabs(candidates) {
 }
 
 async function getCandidateTabs(options) {
-  const query = options.scope === "allWindows" ? {} : { currentWindow: true };
+  const query = (options.scope === "allWindows" || options.scope === "smart") ? {} : { currentWindow: true };
   const tabs = await queryTabs(query);
   const skipped = [];
   const candidates = [];
