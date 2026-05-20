@@ -68,6 +68,9 @@ async function routeMessage(message) {
       return handleClutterToastTidy();
     case "CLUTTER_TOAST_DISABLE":
       return handleClutterToastDisable();
+    case "DONE_TOAST_OPEN":
+      await openManager(message.sessionId || "");
+      return {};
     default:
       throw new Error("Unknown Neat Freak message.");
   }
@@ -188,6 +191,9 @@ async function saveTabs(options) {
 
   await addSession(session);
   notifySessionReady(session, meta);
+  // Inline toast as a reliable alternative to the OS notification. Both fire —
+  // whichever the user's environment supports gets through.
+  showDoneToast(session, meta, smartResult).catch(() => undefined);
   const folderSummaries = (categories || [])
     .filter((c) => (c.tabIds || []).length >= 2)
     .map((c) => ({ id: c.id, name: c.name, count: c.tabIds.length }));
@@ -722,6 +728,42 @@ function notifySessionReady(session, meta) {
     });
   } catch (err) {
     console.warn("[Neat Freak] Session-ready notification threw:", err?.message || err);
+  }
+}
+
+// Inline equivalent of notifySessionReady — same content-script injection
+// pattern as the clutter toast. Fires alongside the OS notification so users
+// who don't have macOS notifications enabled still get a confirmation.
+async function showDoneToast(session, meta, smartResult) {
+  const activeTabs = await queryTabs({ active: true, lastFocusedWindow: true });
+  const target = activeTabs[0];
+  if (!target?.id || !isInjectablePageUrl(target.url)) return false;
+
+  const categories = session.categories || [];
+  const groupCount = categories.filter((c) => (c.tabIds || []).length >= 2).length;
+  const looseCount = categories.filter((c) => (c.tabIds || []).length === 1).length;
+  const tabCount = (session.tabs || []).length;
+  const keepCount = smartResult ? (smartResult.keepSet?.length || 0) : 0;
+
+  try {
+    await chrome.storage.session?.set?.({
+      neatFreakDoneState: {
+        tabCount,
+        groupCount,
+        looseCount,
+        keepCount,
+        sessionId: session.id,
+        llm: Boolean(meta?.method?.includes("llm"))
+      }
+    });
+    await chrome.scripting.executeScript({
+      target: { tabId: target.id },
+      files: ["src/done-toast.js"]
+    });
+    return true;
+  } catch (err) {
+    console.warn("[Neat Freak] Done toast injection failed:", err?.message || err);
+    return false;
   }
 }
 
