@@ -64,6 +64,10 @@ async function routeMessage(message) {
       return searchSavedTabs(message.query || "", message.mode || "local");
     case "MARK_ONBOARDED":
       return markOnboarded();
+    case "CLUTTER_TOAST_TIDY":
+      return handleClutterToastTidy();
+    case "CLUTTER_TOAST_DISABLE":
+      return handleClutterToastDisable();
     default:
       throw new Error("Unknown Neat Freak message.");
   }
@@ -723,11 +727,8 @@ function notifySessionReady(session, meta) {
 
 if (chrome.notifications?.onClicked) {
   chrome.notifications.onClicked.addListener((notificationId) => {
-    if (notificationId === CLUTTER_NOTIFICATION_ID) {
-      openManager().catch(() => undefined);
-      chrome.notifications.clear(notificationId);
-      return;
-    }
+    // Only the session-ready notification uses chrome.notifications now.
+    // Clutter alerts run through the in-page toast, not the OS.
     if (!notificationId.startsWith(NOTIFICATION_PREFIX)) return;
     const sessionId = notificationId.slice(NOTIFICATION_PREFIX.length);
     openManager(sessionId).catch(() => undefined);
@@ -736,21 +737,20 @@ if (chrome.notifications?.onClicked) {
 }
 
 // ===== Clutter watcher =====
-// When the user has too many tabs open, fire a once-per-day "you're stressing
-// the monster" notification. Tab events are debounced so opening 30 tabs at
-// once only triggers one check.
+// Two surfaces, both inside Chrome (never OS-level):
+//   1. Icon badge — persistent count when the user is at or above the threshold.
+//      Always reactive to tab events, can't be denied by the OS.
+//   2. Toast — content script injected into the active tab on the FIRST crossing
+//      of the threshold. Stays quiet until the count drops back below the
+//      hysteresis floor and crosses up again — otherwise it would follow the user
+//      from tab to tab on every navigation.
 
 const CLUTTER_THRESHOLD = 20;
-// CLUTTER_NEXT_AFTER_KEY is a "don't try before this timestamp" gate. We used to
-// store "last notified at" and gate on 24h since — but that key got set BEFORE
-// the notification actually displayed, so an OS-denied attempt silenced us for
-// 24h with nothing to show. Now: set on the notification callback, longer on
-// success, shorter on failure so we keep retrying when the OS is misconfigured.
-const CLUTTER_NEXT_AFTER_KEY = "neatFreakClutterNextAttemptAfter";
+const CLUTTER_HYSTERESIS = 3; // count must dip to (threshold - this) before we'll alert again
 const CLUTTER_DISABLED_KEY = "neatFreakClutterDisabled";
-const CLUTTER_NOTIFICATION_ID = "neat-freak-clutter";
-const CLUTTER_SUCCESS_COOLDOWN_MS = 24 * 60 * 60 * 1000; // 24h
-const CLUTTER_FAILURE_COOLDOWN_MS = 60 * 60 * 1000;      // 1h
+const CLUTTER_ALERTED_KEY = "neatFreakClutterAlerted"; // session-scoped: were we already at/over threshold?
+const CLUTTER_COUNT_KEY = "neatFreakClutterCount";     // session-scoped: count to render in the toast
+const CLUTTER_BADGE_COLOR = "#dc2626";
 const CLUTTER_CHECK_DEBOUNCE_MS = 3000;
 const CLUTTER_ALARM_NAME = "neat-freak-clutter-check";
 const CLUTTER_ALARM_PERIOD_MIN = 30;
@@ -761,70 +761,144 @@ function scheduleClutterCheck() {
   clutterCheckTimer = setTimeout(checkClutter, CLUTTER_CHECK_DEBOUNCE_MS);
 }
 
+function setBadge(tabCount) {
+  if (!chrome.action?.setBadgeText) return;
+  const shouldShow = tabCount >= CLUTTER_THRESHOLD;
+  chrome.action.setBadgeText({ text: shouldShow ? String(tabCount) : "" });
+  if (shouldShow && chrome.action.setBadgeBackgroundColor) {
+    chrome.action.setBadgeBackgroundColor({ color: CLUTTER_BADGE_COLOR });
+  }
+}
+
+async function isClutterDisabled() {
+  const stored = await new Promise((resolve) => {
+    chrome.storage.local.get([CLUTTER_DISABLED_KEY], (result) => resolve(result || {}));
+  });
+  return Boolean(stored[CLUTTER_DISABLED_KEY]);
+}
+
+// Fast-path: update the badge immediately on tab events without waiting for the
+// 3-second debounced clutter check. The badge should feel reactive even if the
+// toast is intentionally throttled.
+async function updateBadgeFromTabs() {
+  try {
+    const disabled = await isClutterDisabled();
+    if (disabled) { setBadge(0); return; }
+    const tabs = await queryTabs({});
+    setBadge(tabs.length);
+  } catch {
+    // Best-effort.
+  }
+}
+
+async function showClutterToast(tabCount) {
+  // Find the active tab in the focused window. If there isn't one we can inject
+  // into (chrome://, web store, no focused window), we skip the toast — the badge
+  // is still doing its job.
+  const activeTabs = await queryTabs({ active: true, lastFocusedWindow: true });
+  const target = activeTabs[0];
+  if (!target?.id || !isInjectablePageUrl(target.url)) return false;
+
+  try {
+    // Stash the count where the content script can read it before rendering.
+    await chrome.storage.session?.set?.({ [CLUTTER_COUNT_KEY]: tabCount });
+    await chrome.scripting.executeScript({
+      target: { tabId: target.id },
+      files: ["src/clutter-toast.js"]
+    });
+    return true;
+  } catch (err) {
+    // Injection can fail on restricted pages we didn't predict (PDFs, view-source:, etc.).
+    console.warn("[Neat Freak] Clutter toast injection failed:", err?.message || err);
+    return false;
+  }
+}
+
+function isInjectablePageUrl(url) {
+  if (!url) return false;
+  // chrome.scripting.executeScript only works on regular web pages. Skip
+  // privileged URLs Chrome will reject anyway.
+  return /^https?:/.test(url);
+}
+
 async function checkClutter() {
   try {
+    const disabled = await isClutterDisabled();
     const tabs = await queryTabs({});
-    if (tabs.length < CLUTTER_THRESHOLD) return;
-    if (!chrome.notifications?.create) return;
+    const tabCount = tabs.length;
 
-    const stored = await new Promise((resolve) => {
-      chrome.storage.local.get([CLUTTER_NEXT_AFTER_KEY, CLUTTER_DISABLED_KEY], (result) => resolve(result || {}));
-    });
-    if (stored[CLUTTER_DISABLED_KEY]) return; // User opted out permanently.
-    const nextAfter = Number(stored[CLUTTER_NEXT_AFTER_KEY]) || 0;
-    if (Date.now() < nextAfter) return;
+    setBadge(disabled ? 0 : tabCount);
 
-    chrome.notifications.create(CLUTTER_NOTIFICATION_ID, {
-      type: "basic",
-      iconUrl: chrome.runtime.getURL("assets/mascot-stressed-128.png"),
-      title: "Neat Freak is feeling overwhelmed",
-      message: `${tabs.length} tabs open — maybe close a few? You're making the little guy nervous.`,
-      priority: 1,
-      requireInteraction: false,
-      buttons: [
-        { title: "Tidy now" },
-        { title: "Don't show this again" }
-      ]
-    }, () => {
-      const error = chrome.runtime.lastError;
-      const cooldown = error ? CLUTTER_FAILURE_COOLDOWN_MS : CLUTTER_SUCCESS_COOLDOWN_MS;
-      if (error) {
-        console.warn(
-          "[Neat Freak] Clutter notification failed:", error.message,
-          "— check macOS System Settings → Notifications → Google Chrome → Allow Notifications, and chrome://settings/content/notifications."
-        );
+    if (disabled) return;
+
+    const sessionState = (await chrome.storage.session?.get?.(CLUTTER_ALERTED_KEY)) || {};
+    const alreadyAlerted = Boolean(sessionState[CLUTTER_ALERTED_KEY]);
+
+    if (tabCount < CLUTTER_THRESHOLD) {
+      // Once we've dropped enough below threshold, clear the alerted flag so the
+      // next time the user climbs back above we'll show the toast again.
+      if (alreadyAlerted && tabCount < CLUTTER_THRESHOLD - CLUTTER_HYSTERESIS) {
+        await chrome.storage.session?.set?.({ [CLUTTER_ALERTED_KEY]: false });
       }
-      chrome.storage.local.set({ [CLUTTER_NEXT_AFTER_KEY]: Date.now() + cooldown });
-    });
+      return;
+    }
+
+    if (alreadyAlerted) return; // edge-triggered: don't re-show until they dip and climb again
+
+    const shown = await showClutterToast(tabCount);
+    if (shown) {
+      await chrome.storage.session?.set?.({ [CLUTTER_ALERTED_KEY]: true });
+    }
+    // If we couldn't show the toast (privileged page), DON'T set alerted —
+    // we'll try again on the next event when the user switches to a regular tab.
   } catch (err) {
     // Best-effort — the clutter watcher should never break the rest of the extension.
     console.warn("[Neat Freak] Clutter watcher threw:", err?.message || err);
   }
 }
 
-if (chrome.notifications?.onButtonClicked) {
-  chrome.notifications.onButtonClicked.addListener((notificationId, buttonIndex) => {
-    if (notificationId !== CLUTTER_NOTIFICATION_ID) return;
-    if (buttonIndex === 0) {
-      openManager().catch(() => undefined);
-    } else if (buttonIndex === 1) {
-      chrome.storage.local.set({ [CLUTTER_DISABLED_KEY]: true });
+// "Tidy now" from the toast — try to open the popup directly. Falls back to the
+// manager if openPopup isn't available or the gesture context is wrong.
+async function handleClutterToastTidy() {
+  try {
+    if (chrome.action?.openPopup) {
+      await chrome.action.openPopup();
+      return {};
     }
-    chrome.notifications.clear(notificationId);
+  } catch {
+    // Fall through to manager fallback.
+  }
+  await openManager();
+  return {};
+}
+
+async function handleClutterToastDisable() {
+  await new Promise((resolve) => {
+    chrome.storage.local.set({ [CLUTTER_DISABLED_KEY]: true }, () => resolve());
   });
+  // Clear the badge immediately so the user sees the disable take effect.
+  setBadge(0);
+  return {};
+}
+
+// The badge updates synchronously off tab events (no 3s wait) so it feels
+// reactive. The toast check is still debounced via scheduleClutterCheck.
+function onTabCountChanged() {
+  updateBadgeFromTabs();
+  scheduleClutterCheck();
 }
 
 if (chrome.tabs?.onCreated) {
-  chrome.tabs.onCreated.addListener(scheduleClutterCheck);
+  chrome.tabs.onCreated.addListener(onTabCountChanged);
 }
 if (chrome.tabs?.onRemoved) {
-  chrome.tabs.onRemoved.addListener(scheduleClutterCheck);
+  chrome.tabs.onRemoved.addListener(onTabCountChanged);
 }
 if (chrome.runtime?.onStartup) {
-  chrome.runtime.onStartup.addListener(() => scheduleClutterCheck());
+  chrome.runtime.onStartup.addListener(() => onTabCountChanged());
 }
-// Also check on initial service worker boot (covers extension reload + first install).
-scheduleClutterCheck();
+// Initial paint on SW boot (covers extension reload + first install).
+onTabCountChanged();
 
 // chrome.alarms wakes the MV3 service worker on a schedule, even if it's gone
 // idle and the setTimeout-based debounce got killed. This is the reliable

@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Neat Freak",
-  "version": "1.2.0",
+  "version": "1.2.1",
   "description": "Tidy your tabs. Save every open tab into memory-light folders, grouped by what you're working on. Restore in one click.",
   "permissions": [
     "storage",
@@ -35,5 +35,11 @@
     "48": "assets/icon-48.png",
     "128": "assets/icon-128.png"
   },
-  "options_page": "options.html"
+  "options_page": "options.html",
+  "web_accessible_resources": [
+    {
+      "resources": ["assets/mascot-stressed-128.png"],
+      "matches": ["<all_urls>"]
+    }
+  ]
 }
