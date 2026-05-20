@@ -461,6 +461,22 @@ svg {
   text-transform: uppercase;
 }
 
+.beta-pill {
+  display: inline-block;
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  color: var(--amber);
+  background: rgba(244, 189, 69, 0.18);
+  padding: 2px 7px;
+  border-radius: 99px;
+  vertical-align: middle;
+  margin-left: 6px;
+  position: relative;
+  top: -1px;
+  text-transform: uppercase;
+}
+
 .recent-list {
   display: grid;
   gap: 8px;

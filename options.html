@@ -16,7 +16,7 @@
             </button>
             <h1>Settings</h1>
           </div>
-          <p>Configure capture defaults and LLM categorization.</p>
+          <p>Configure capture defaults and AI features.</p>
         </div>
       </header>
 
@@ -54,10 +54,10 @@
         </section>
 
         <section class="settings-section">
-          <h2>LLM Grouping</h2>
+          <h2>AI features <span class="beta-pill">Beta</span></h2>
           <label class="check-row">
             <input type="checkbox" id="llm-enabled">
-            <span>Use an LLM to create groups</span>
+            <span>Use AI for smart tab selection, folder names, and search</span>
           </label>
           <label class="field-row">
             <span>OpenAI API key</span>
@@ -67,7 +67,7 @@
             <span></span>
             <button class="secondary-button" id="open-openai" type="button">Get an OpenAI key →</button>
           </div>
-          <p class="helper-text">Neat Freak uses <strong>gpt-5.4-mini</strong>. Your API key is stored only in Chrome local extension storage. When enabled, tab titles, URLs, domains, and short page summaries are sent to OpenAI.</p>
+          <p class="helper-text">When enabled, AI handles three things: picking which tabs to save in Smart scope, naming folders by workstream, and natural-language search. Tab titles, URLs, domains, and short page summaries are sent to OpenAI. Your API key is stored only in this browser's local extension storage. Still in beta — expect rough edges.</p>
         </section>
 
         <div class="form-actions">
