@@ -1,0 +1,67 @@
+import test from "node:test";
+import assert from "node:assert/strict";
+import { applySmartHeuristic } from "../src/smart-scope.js";
+
+const NOW = 1_700_000_000_000;
+const minutesAgo = (mins) => NOW - mins * 60_000;
+const tab = (id, mins) => ({ id, lastAccessed: minutesAgo(mins) });
+
+test("stale cluster (no tab in last hour) closes anything > 3h old", () => {
+  // No tab in last 60 min → cluster is stale → cutoff = 180min (3h).
+  // a (120min) ≤ 180 → keep. b (200), c (500) > 180 → save.
+  const tabs = [tab("a", 120), tab("b", 200), tab("c", 500)];
+  const clusters = [{ id: "c1", tabIds: ["a", "b", "c"] }];
+  const { saveIds, keepIds } = applySmartHeuristic(tabs, clusters, NOW);
+  assert.deepEqual(saveIds.sort(), ["b", "c"]);
+  assert.deepEqual(keepIds, ["a"]);
+});
+
+test("active cluster (≥1 tab in last hour) closes anything > 8h old", () => {
+  // a (30min) is in last 60 → cluster is active → cutoff = 480min (8h).
+  // a, b (200), c (400) all ≤ 480 → keep. d (700) > 480 → save.
+  const tabs = [tab("a", 30), tab("b", 200), tab("c", 400), tab("d", 700)];
+  const clusters = [{ id: "c1", tabIds: ["a", "b", "c", "d"] }];
+  const { saveIds, keepIds } = applySmartHeuristic(tabs, clusters, NOW);
+  assert.deepEqual(saveIds, ["d"]);
+  assert.deepEqual(keepIds.sort(), ["a", "b", "c"]);
+});
+
+test("multiple clusters evaluated independently", () => {
+  // c1: a=10 → active → cutoff 480. b=200 ≤ 480 → keep.
+  // c2: c=200, d=500 → no recent → stale → cutoff 180. Both > 180 → save.
+  const tabs = [
+    tab("a", 10), tab("b", 200),
+    tab("c", 200), tab("d", 500),
+  ];
+  const clusters = [
+    { id: "c1", tabIds: ["a", "b"] },
+    { id: "c2", tabIds: ["c", "d"] },
+  ];
+  const { saveIds, keepIds } = applySmartHeuristic(tabs, clusters, NOW);
+  assert.deepEqual(saveIds.sort(), ["c", "d"]);
+  assert.deepEqual(keepIds.sort(), ["a", "b"]);
+});
+
+test("tab with no lastAccessed treated as ancient", () => {
+  // c1: a=30 → active → cutoff 480. a kept (30 ≤ 480). b has no lastAccessed → Infinity → save.
+  const tabs = [tab("a", 30), { id: "b" }];
+  const clusters = [{ id: "c1", tabIds: ["a", "b"] }];
+  const { saveIds, keepIds } = applySmartHeuristic(tabs, clusters, NOW);
+  assert.deepEqual(saveIds, ["b"]);
+  assert.deepEqual(keepIds, ["a"]);
+});
+
+test("empty tab list returns empty sets", () => {
+  const { saveIds, keepIds } = applySmartHeuristic([], [], NOW);
+  assert.deepEqual(saveIds, []);
+  assert.deepEqual(keepIds, []);
+});
+
+test("tab not assigned to any cluster is kept", () => {
+  // Defensive — shouldn't happen in practice but should not crash.
+  const tabs = [tab("a", 30), tab("orphan", 999)];
+  const clusters = [{ id: "c1", tabIds: ["a"] }];
+  const { saveIds, keepIds } = applySmartHeuristic(tabs, clusters, NOW);
+  assert.deepEqual(keepIds.sort(), ["a", "orphan"]);
+  assert.deepEqual(saveIds, []);
+});
