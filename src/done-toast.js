@@ -30,6 +30,11 @@
     ? `${tabCount} tab${tabCount === 1 ? "" : "s"} tucked away`
     : "All caught up";
 
+  // The popup's done state uses mascot-calm.svg — mirror that for brand
+  // consistency. Stressed mascot is for the clutter toast (too many tabs),
+  // calm mascot is for done (you cleaned up, mascot is happy).
+  const mascotUrl = chrome.runtime.getURL("assets/mascot-calm.svg");
+
   const host = document.createElement("div");
   host.id = HOST_ID;
   host.style.cssText = [
@@ -69,13 +74,7 @@
       }
       .card.leaving { animation: slideout 0.18s ease-in forwards; }
       .row { display: flex; gap: 12px; align-items: flex-start; }
-      .check {
-        width: 36px; height: 36px; flex-shrink: 0;
-        background: #0f766e; color: #ffffff;
-        border-radius: 50%;
-        display: flex; align-items: center; justify-content: center;
-        font-size: 19px; font-weight: 700; line-height: 1;
-      }
+      .mascot { width: 44px; height: 44px; flex-shrink: 0; border-radius: 8px; }
       .body { flex: 1; min-width: 0; }
       .title { font-size: 14px; font-weight: 600; margin: 0 0 2px; line-height: 1.25; }
       .sub { font-size: 13px; color: #4a5651; margin: 0; line-height: 1.35; }
@@ -96,7 +95,7 @@
     </style>
     <div class="card" role="status" aria-live="polite">
       <div class="row">
-        <div class="check" aria-hidden="true">&check;</div>
+        <img class="mascot" src="${mascotUrl}" alt="">
         <div class="body">
           <p class="title">${title}</p>
           <p class="sub">${detail}</p>

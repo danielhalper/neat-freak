@@ -2092,6 +2092,20 @@ li[data-state="done"] .step-label {
   text-align: right;
 }
 
+/* Pill that shows how many saved records collapsed into one row when their URLs match. */
+.dup-count {
+  display: inline-block;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--muted);
+  background: rgba(0, 0, 0, 0.06);
+  padding: 1px 7px;
+  border-radius: 99px;
+  margin-left: 6px;
+  vertical-align: 1px;
+  font-variant-numeric: tabular-nums;
+}
+
 .folder-actions {
   display: flex;
   gap: 4px;

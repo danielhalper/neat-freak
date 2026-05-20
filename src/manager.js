@@ -111,9 +111,9 @@ function bindEvents() {
     event.stopPropagation();
     button.dataset.loading = "true";
     button.setAttribute("aria-busy", "true");
-    const { action, sessionId, categoryId, tabId, categoryName, tabCount } = button.dataset;
+    const { action, sessionId, categoryId, tabId, categoryName, tabCount, dupIds } = button.dataset;
     try {
-      await handleAction(action, { sessionId, categoryId, tabId, categoryName, tabCount });
+      await handleAction(action, { sessionId, categoryId, tabId, categoryName, tabCount, dupIds });
     } finally {
       // refresh() typically replaces the DOM, but clear the flag in case the button persisted.
       button.removeAttribute("aria-busy");
@@ -305,8 +305,26 @@ function renderSession(session, highlightedId) {
   `;
 }
 
+// Group tabs by exact URL. Multiple records with the same URL collapse into a
+// single visual row; the representative is the first occurrence and the rest
+// are tracked as dupIds so delete can remove all of them at once.
+function groupTabsByUrl(tabs) {
+  const groups = new Map();
+  for (const t of tabs) {
+    const key = t.url || `__no-url__${t.id}`;
+    const existing = groups.get(key);
+    if (existing) {
+      existing.dupIds.push(t.id);
+    } else {
+      groups.set(key, { tab: t, dupIds: [] });
+    }
+  }
+  return [...groups.values()];
+}
+
 function renderFolder(session, category, tabMap) {
   const tabs = (category.tabIds || []).map((tabId) => tabMap.get(tabId)).filter(Boolean);
+  const groups = groupTabsByUrl(tabs);
   return `
     <details class="folder">
       <summary class="folder-header">
@@ -328,7 +346,7 @@ function renderFolder(session, category, tabMap) {
         </span>
       </summary>
       <div class="folder-children">
-        ${tabs.map((tab) => renderTabRow(session.id, category.id, tab)).join("")}
+        ${groups.map(({ tab, dupIds }) => renderTabRow(session.id, category.id, tab, { dupIds })).join("")}
       </div>
     </details>
   `;
@@ -343,18 +361,27 @@ function renderTabRow(sessionId, categoryId, tab, opts = {}) {
     ? `<img src="${escapeAttribute(tab.favIconUrl)}" alt="">`
     : `<span>${escapeHtml(faviconFallback(tab.domain))}</span>`;
   const standaloneClass = opts.standalone ? " standalone" : "";
+  const dupIds = Array.isArray(opts.dupIds) ? opts.dupIds : [];
+  const totalCount = dupIds.length + 1;
+  const dupBadge = totalCount > 1
+    ? ` <span class="dup-count" title="${totalCount} saved tabs with this URL collapsed into one row">×${totalCount}</span>`
+    : "";
+  // data-dup-ids carries the additional record IDs to delete alongside the
+  // primary tabId when the user clicks the trash icon. Restore stays single —
+  // opening the same URL multiple times would just recreate the duplicate.
+  const dupAttr = dupIds.length ? ` data-dup-ids="${escapeAttribute(dupIds.join(","))}"` : "";
   return `
     <div class="tab-row${standaloneClass}" data-category-id="${escapeHtml(categoryId)}">
       <div class="favicon">${favicon}</div>
       <div class="tab-main">
-        <a href="${escapeAttribute(tab.url)}" target="_blank" rel="noreferrer">${escapeHtml(tab.title || tab.url)}</a>
+        <a href="${escapeAttribute(tab.url)}" target="_blank" rel="noreferrer">${escapeHtml(tab.title || tab.url)}${dupBadge}</a>
         <small>${escapeHtml(tab.domain || tab.url)}</small>
       </div>
       <div class="tab-row-actions hover-only">
         <button class="icon-button small" title="Open tab" aria-label="Open tab" data-action="restore-tab" data-session-id="${escapeHtml(sessionId)}" data-tab-id="${escapeHtml(tab.id)}" type="button">
           <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M14 3h7v7"></path><path d="M21 3 12 12"></path><path d="M5 5h6"></path><path d="M5 19h14v-6"></path></svg>
         </button>
-        <button class="icon-button small danger" title="Delete saved tab" aria-label="Delete saved tab" data-action="delete-tab" data-session-id="${escapeHtml(sessionId)}" data-tab-id="${escapeHtml(tab.id)}" type="button">
+        <button class="icon-button small danger" title="${totalCount > 1 ? `Delete all ${totalCount} duplicates` : "Delete saved tab"}" aria-label="Delete saved tab" data-action="delete-tab" data-session-id="${escapeHtml(sessionId)}" data-tab-id="${escapeHtml(tab.id)}"${dupAttr} type="button">
           <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 7h12"></path><path d="M9 7V5h6v2"></path><path d="M9 11v6"></path><path d="M15 11v6"></path><path d="M8 7l1 13h6l1-13"></path></svg>
         </button>
       </div>
@@ -369,6 +396,7 @@ async function handleAction(action, detail) {
     "restore-group": ["RESTORE_GROUP", { sessionId: detail.sessionId, categoryId: detail.categoryId }],
     "restore-tab": ["RESTORE_TAB", { sessionId: detail.sessionId, tabId: detail.tabId }],
     "delete-tab": ["DELETE_TAB", { sessionId: detail.sessionId, tabId: detail.tabId }],
+    // delete-tab-multi handled below — needs to fan out to N DELETE_TAB calls.
     "recategorize": ["RECATEGORIZE_SESSION", { sessionId: detail.sessionId }]
   };
 
@@ -389,6 +417,20 @@ async function handleAction(action, detail) {
     if (!confirm(`Delete the "${name}" group and its ${tabLabel}? Open tabs in your browser aren't affected.`)) return;
     const response = await send("DELETE_GROUP", { sessionId: detail.sessionId, categoryId: detail.categoryId });
     if (!response.ok) showToast(response.error, "error");
+    await refresh();
+    return;
+  }
+
+  // Delete-tab when the row collapsed multiple records with the same URL:
+  // fan out to one DELETE_TAB per record, then refresh once at the end.
+  if (action === "delete-tab" && detail.dupIds) {
+    const extras = String(detail.dupIds).split(",").filter(Boolean);
+    const allIds = [detail.tabId, ...extras];
+    const results = await Promise.all(allIds.map((id) =>
+      send("DELETE_TAB", { sessionId: detail.sessionId, tabId: id })
+    ));
+    const failed = results.find((r) => !r.ok);
+    if (failed) showToast(failed.error, "error");
     await refresh();
     return;
   }
