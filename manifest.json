@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Neat Freak",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "Tidy your tabs. Save every open tab into memory-light folders, grouped by what you're working on. Restore in one click.",
   "permissions": [
     "storage",
