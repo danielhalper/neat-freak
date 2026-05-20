@@ -195,7 +195,7 @@ svg {
   border-radius: 7px;
   display: grid;
   gap: 3px;
-  grid-template-columns: 1fr 1fr;
+  grid-template-columns: repeat(auto-fit, minmax(0, 1fr));
   padding: 3px;
 }
 
