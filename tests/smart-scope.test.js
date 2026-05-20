@@ -65,3 +65,41 @@ test("tab not assigned to any cluster is kept", () => {
   assert.deepEqual(keepIds.sort(), ["a", "orphan"]);
   assert.deepEqual(saveIds, []);
 });
+
+import { runSmartScope } from "../src/smart-scope.js";
+
+test("runSmartScope with heuristic — splits tabs and returns categories", async () => {
+  const now = NOW;
+  const tabs = [
+    { id: "a", title: "Mastery doc", url: "https://docs.google.com/document/a", domain: "docs.google.com", lastAccessed: minutesAgo(10) },
+    { id: "b", title: "Mastery sheet", url: "https://docs.google.com/spreadsheets/b", domain: "docs.google.com", lastAccessed: minutesAgo(300) },
+    { id: "c", title: "Random old article", url: "https://example.com/post-c", domain: "example.com", lastAccessed: minutesAgo(900) },
+  ];
+  // No LLM key → heuristic path.
+  const result = await runSmartScope(tabs, { llmEnabled: false, apiKey: "" }, { now });
+  assert.equal(result.mode, "heuristic");
+
+  const savedIds = result.saveSet.map((t) => t.id);
+  const keptIds = result.keepSet.map((t) => t.id);
+
+  // 'c' is 900 min old, in some cluster — must be saved regardless of cluster activity (900 > 480).
+  assert.ok(savedIds.includes("c"), `expected 'c' to be saved, got ${savedIds.join(",")}`);
+  // 'a' is 10 min old — recent → kept.
+  assert.ok(keptIds.includes("a"), `expected 'a' to be kept, got ${keptIds.join(",")}`);
+  // Categories only cover saved tabs.
+  const categorizedIds = result.categories.flatMap((c) => c.tabIds);
+  for (const id of savedIds) {
+    assert.ok(categorizedIds.includes(id), `expected category to include saved tab ${id}`);
+  }
+  for (const id of keptIds) {
+    assert.ok(!categorizedIds.includes(id), `expected category to NOT include kept tab ${id}`);
+  }
+});
+
+test("runSmartScope with empty tab list returns empty sets", async () => {
+  const result = await runSmartScope([], { llmEnabled: false, apiKey: "" }, { now: NOW });
+  assert.deepEqual(result.saveSet, []);
+  assert.deepEqual(result.keepSet, []);
+  assert.deepEqual(result.categories, []);
+  assert.equal(result.mode, "heuristic");
+});

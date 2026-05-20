@@ -54,3 +54,48 @@ export function applySmartHeuristic(tabs, clusters, now) {
 
   return { saveIds, keepIds };
 }
+
+import { buildAssociationGraph, graphCategorize } from "./categorizer.js";
+
+/**
+ * Top-level entry point. Decides save vs keep, returns saveSet, keepSet, and
+ * a categories array (folder structure for saveSet).
+ *
+ * @param {Array<object>} tabs — candidate tabs (already filtered by pinned/current per scope)
+ * @param {object} settings — extension settings (apiKey, llmEnabled)
+ * @param {object} [opts]
+ * @param {number} [opts.now] — epoch ms for tests
+ * @returns {Promise<{ saveSet: object[], keepSet: object[], categories: object[], mode: "llm"|"heuristic", error?: string }>}
+ */
+export async function runSmartScope(tabs, settings, opts = {}) {
+  const now = opts.now ?? Date.now();
+  if (!tabs.length) {
+    return { saveSet: [], keepSet: [], categories: [], mode: "heuristic" };
+  }
+  const graph = buildAssociationGraph(tabs);
+  // LLM path lands in Task 6. For now, always heuristic.
+  return runHeuristicPath(tabs, graph, now);
+}
+
+function runHeuristicPath(tabs, graph, now) {
+  const clusters = graph.clusters.map((c) => ({ id: c.id, tabIds: c.tabIds }));
+  const { saveIds, keepIds } = applySmartHeuristic(tabs, clusters, now);
+  const saveIdSet = new Set(saveIds);
+  const saveSet = tabs.filter((t) => saveIdSet.has(t.id));
+  const keepSet = tabs.filter((t) => !saveIdSet.has(t.id));
+  const categories = computeSmartCategories(tabs, graph, saveIdSet);
+  return { saveSet, keepSet, categories, mode: "heuristic" };
+}
+
+function computeSmartCategories(tabs, graph, saveIdSet) {
+  // Filter graph clusters to only saveSet tab IDs, drop emptied clusters,
+  // then run them through graphCategorize.
+  const filteredClusters = graph.clusters
+    .map((c) => ({ ...c, tabIds: c.tabIds.filter((id) => saveIdSet.has(id)) }))
+    .filter((c) => c.tabIds.length > 0);
+  if (!filteredClusters.length) return [];
+  const filteredGraph = { ...graph, clusters: filteredClusters };
+  const savableTabs = tabs.filter((t) => saveIdSet.has(t.id));
+  const result = graphCategorize(savableTabs, filteredGraph);
+  return result.categories || [];
+}
