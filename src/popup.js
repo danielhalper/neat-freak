@@ -218,7 +218,12 @@ async function saveTabs() {
     llm: session?.categorization?.method?.includes("llm"),
     folders: folderObjs,
     pendingCount: session?.pendingTabIds?.length || 0,
-    reviewMode: session?.closeStatus === "review"
+    reviewMode: session?.closeStatus === "review",
+    keepCount: session?.categorization?.keepCount || 0,
+    smartMode: session?.categorization?.method?.startsWith("smart-")
+      ? (session.categorization.method === "smart-llm" ? "llm" : "heuristic")
+      : null,
+    smartError: session?.categorization?.error || ""
   });
 }
 
@@ -279,7 +284,10 @@ function handleProgress(message) {
       llm: Boolean(message.llm),
       folders: Array.isArray(message.folders) ? message.folders : [],
       pendingCount: message.pendingCount || 0,
-      reviewMode: Boolean(message.reviewMode)
+      reviewMode: Boolean(message.reviewMode),
+      keepCount: message.keepCount || 0,
+      smartMode: message.smartMode || null,
+      smartError: message.smartError || ""
     });
     return;
   }
@@ -309,17 +317,26 @@ function handleProgress(message) {
   }
 }
 
-function showDoneState({ sessionId, tabCount, groupCount, looseCount, llm, folders, pendingCount, reviewMode }) {
+function showDoneState({ sessionId, tabCount, groupCount, looseCount, llm, folders, pendingCount, reviewMode, keepCount = 0, smartMode = null, smartError = "" }) {
   lastResultSessionId = sessionId || "";
   progressEl.setAttribute("hidden", "");
   defaultStateEl.setAttribute("hidden", "");
   doneEl.removeAttribute("hidden");
 
-  doneTitleEl.textContent = `${tabCount} tab${tabCount === 1 ? "" : "s"} tucked away`;
-  const folderText = `${groupCount} folder${groupCount === 1 ? "" : "s"}`;
-  const looseText = looseCount ? ` · ${looseCount} loose` : "";
-  const llmText = llm ? " · gpt-5-mini" : "";
-  doneSubtitleEl.textContent = `${folderText}${looseText}${llmText}`;
+  if (smartMode && tabCount === 0 && keepCount > 0) {
+    doneTitleEl.textContent = "Nothing's stale yet";
+    doneSubtitleEl.textContent = "All your tabs look fresh — no cleanup needed right now.";
+  } else {
+    doneTitleEl.textContent = `${tabCount} tab${tabCount === 1 ? "" : "s"} tucked away`;
+    const parts = [];
+    parts.push(`${groupCount} folder${groupCount === 1 ? "" : "s"}`);
+    if (looseCount) parts.push(`${looseCount} loose`);
+    if (smartMode === "heuristic" && smartError) parts.push("heuristic (LLM unavailable)");
+    else if (smartMode === "heuristic") parts.push("heuristic");
+    else if (smartMode === "llm" || llm) parts.push("gpt-5-mini");
+    if (keepCount) parts.push(`${keepCount} kept open`);
+    doneSubtitleEl.textContent = parts.join(" · ");
+  }
 
   const folderList = Array.isArray(folders) ? folders : [];
   if (folderList.length) {
@@ -347,6 +364,8 @@ function showDoneState({ sessionId, tabCount, groupCount, looseCount, llm, folde
 function renderPreview(preview) {
   const count = preview?.count || 0;
   const skipped = preview?.skippedCount || 0;
+  const isSmart = selectedScope === "smart";
+
   if (count === 0) {
     saveButtonLabel.textContent = "Nothing to tidy";
     if (skipped) {
@@ -354,6 +373,9 @@ function renderPreview(preview) {
     } else {
       saveModeCopy.textContent = "No open tabs are eligible to save";
     }
+  } else if (isSmart) {
+    saveButtonLabel.textContent = "Tidy my tabs";
+    saveModeCopy.textContent = `${count} tab${count === 1 ? "" : "s"} eligible — Smart will pick`;
   } else {
     saveButtonLabel.textContent = "Tidy my tabs";
     let copy = `${count} tab${count === 1 ? "" : "s"} to save`;
