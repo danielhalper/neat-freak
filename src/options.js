@@ -3,6 +3,7 @@ const statusEl = document.querySelector("#settings-status");
 
 const fields = {
   apiKey: document.querySelector("#api-key"),
+  clutterThreshold: document.querySelector("#clutter-threshold"),
   collectPageSummaries: document.querySelector("#collect-page-summaries"),
   defaultIncludePinned: document.querySelector("#default-include-pinned"),
   defaultKeepCurrentTab: document.querySelector("#default-keep-current-tab"),
@@ -49,6 +50,7 @@ async function openOpenAiPlatform() {
 
 function populate(settings) {
   fields.apiKey.value = settings.apiKey || "";
+  fields.clutterThreshold.value = Number(settings.clutterThreshold) || 20;
   fields.collectPageSummaries.checked = Boolean(settings.collectPageSummaries);
   fields.defaultIncludePinned.checked = Boolean(settings.defaultIncludePinned);
   fields.defaultKeepCurrentTab.checked = Boolean(settings.defaultKeepCurrentTab);
@@ -83,6 +85,7 @@ async function testLlm() {
 function readSettings() {
   return {
     apiKey: fields.apiKey.value.trim(),
+    clutterThreshold: Number(fields.clutterThreshold.value || 20),
     collectPageSummaries: fields.collectPageSummaries.checked,
     defaultIncludePinned: fields.defaultIncludePinned.checked,
     defaultKeepCurrentTab: fields.defaultKeepCurrentTab.checked,

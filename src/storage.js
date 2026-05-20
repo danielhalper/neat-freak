@@ -5,6 +5,7 @@ export const SESSIONS_KEY = "tabAtlasSessions";
 
 export const DEFAULT_SETTINGS = {
   apiKey: "",
+  clutterThreshold: 20,
   collectPageSummaries: true,
   defaultIncludePinned: false,
   defaultKeepCurrentTab: true,
@@ -12,8 +13,11 @@ export const DEFAULT_SETTINGS = {
   defaultScope: "smart",
   llmEnabled: true,
   maxSnippetChars: 720,
-  settingsVersion: 5
+  settingsVersion: 6
 };
+
+const MIN_CLUTTER_THRESHOLD = 5;
+const MAX_CLUTTER_THRESHOLD = 200;
 
 function getLocal(keys) {
   return new Promise((resolve, reject) => {
@@ -41,6 +45,12 @@ function setLocal(value) {
   });
 }
 
+function clampThreshold(value) {
+  const n = Number(value);
+  if (!Number.isFinite(n)) return DEFAULT_SETTINGS.clutterThreshold;
+  return Math.max(MIN_CLUTTER_THRESHOLD, Math.min(MAX_CLUTTER_THRESHOLD, Math.round(n)));
+}
+
 export async function getSettings() {
   const result = await getLocal({ [SETTINGS_KEY]: DEFAULT_SETTINGS });
   const stored = result[SETTINGS_KEY] || {};
@@ -52,7 +62,9 @@ export async function getSettings() {
   if ((rest.settingsVersion || 0) < 5) {
     merged.defaultScope = "smart";
   }
-  return { ...merged, settingsVersion: 5 };
+  // v6 added clutterThreshold. Missing → default. Out-of-range → clamp.
+  merged.clutterThreshold = clampThreshold(merged.clutterThreshold);
+  return { ...merged, settingsVersion: 6 };
 }
 
 export async function saveSettings(settings) {
@@ -61,8 +73,9 @@ export async function saveSettings(settings) {
   const next = {
     ...current,
     ...incoming,
+    clutterThreshold: clampThreshold(incoming.clutterThreshold ?? current.clutterThreshold),
     maxSnippetChars: Number(incoming.maxSnippetChars || current.maxSnippetChars),
-    settingsVersion: 5
+    settingsVersion: 6
   };
   await setLocal({ [SETTINGS_KEY]: next });
   return next;

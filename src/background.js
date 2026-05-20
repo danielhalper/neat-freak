@@ -809,8 +809,8 @@ if (chrome.notifications?.onClicked) {
 //      hysteresis floor and crosses up again — otherwise it would follow the user
 //      from tab to tab on every navigation.
 
-const CLUTTER_THRESHOLD = 20;
 const CLUTTER_HYSTERESIS = 3; // count must dip to (threshold - this) before we'll alert again
+const CLUTTER_THRESHOLD_FALLBACK = 20; // used only if reading settings fails
 const CLUTTER_DISABLED_KEY = "neatFreakClutterDisabled";
 const CLUTTER_ALERTED_KEY = "neatFreakClutterAlerted"; // session-scoped: were we already at/over threshold?
 const CLUTTER_COUNT_KEY = "neatFreakClutterCount";     // session-scoped: count to render in the toast
@@ -825,9 +825,9 @@ function scheduleClutterCheck() {
   clutterCheckTimer = setTimeout(checkClutter, CLUTTER_CHECK_DEBOUNCE_MS);
 }
 
-function setBadge(tabCount) {
+function setBadge(tabCount, threshold) {
   if (!chrome.action?.setBadgeText) return;
-  const shouldShow = tabCount >= CLUTTER_THRESHOLD;
+  const shouldShow = tabCount >= threshold;
   chrome.action.setBadgeText({ text: shouldShow ? String(tabCount) : "" });
   if (shouldShow && chrome.action.setBadgeBackgroundColor) {
     chrome.action.setBadgeBackgroundColor({ color: CLUTTER_BADGE_COLOR });
@@ -841,15 +841,26 @@ async function isClutterDisabled() {
   return Boolean(stored[CLUTTER_DISABLED_KEY]);
 }
 
+async function getClutterThreshold() {
+  try {
+    const settings = await getSettings();
+    const value = Number(settings?.clutterThreshold);
+    return Number.isFinite(value) && value > 0 ? value : CLUTTER_THRESHOLD_FALLBACK;
+  } catch {
+    return CLUTTER_THRESHOLD_FALLBACK;
+  }
+}
+
 // Fast-path: update the badge immediately on tab events without waiting for the
 // 3-second debounced clutter check. The badge should feel reactive even if the
 // toast is intentionally throttled.
 async function updateBadgeFromTabs() {
   try {
     const disabled = await isClutterDisabled();
-    if (disabled) { setBadge(0); return; }
+    const threshold = await getClutterThreshold();
+    if (disabled) { setBadge(0, threshold); return; }
     const tabs = await queryTabs({});
-    setBadge(tabs.length);
+    setBadge(tabs.length, threshold);
   } catch {
     // Best-effort.
   }
@@ -888,20 +899,21 @@ function isInjectablePageUrl(url) {
 async function checkClutter() {
   try {
     const disabled = await isClutterDisabled();
+    const threshold = await getClutterThreshold();
     const tabs = await queryTabs({});
     const tabCount = tabs.length;
 
-    setBadge(disabled ? 0 : tabCount);
+    setBadge(disabled ? 0 : tabCount, threshold);
 
     if (disabled) return;
 
     const sessionState = (await chrome.storage.session?.get?.(CLUTTER_ALERTED_KEY)) || {};
     const alreadyAlerted = Boolean(sessionState[CLUTTER_ALERTED_KEY]);
 
-    if (tabCount < CLUTTER_THRESHOLD) {
+    if (tabCount < threshold) {
       // Once we've dropped enough below threshold, clear the alerted flag so the
       // next time the user climbs back above we'll show the toast again.
-      if (alreadyAlerted && tabCount < CLUTTER_THRESHOLD - CLUTTER_HYSTERESIS) {
+      if (alreadyAlerted && tabCount < threshold - CLUTTER_HYSTERESIS) {
         await chrome.storage.session?.set?.({ [CLUTTER_ALERTED_KEY]: false });
       }
       return;
@@ -941,7 +953,7 @@ async function handleClutterToastDisable() {
     chrome.storage.local.set({ [CLUTTER_DISABLED_KEY]: true }, () => resolve());
   });
   // Clear the badge immediately so the user sees the disable take effect.
-  setBadge(0);
+  setBadge(0, Number.POSITIVE_INFINITY);
   return {};
 }
 

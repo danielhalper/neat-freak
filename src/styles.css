@@ -780,6 +780,72 @@ svg {
   outline: none;
 }
 
+/* Onboarding threshold step. Preset buttons in a row, custom input below. */
+.welcome-threshold {
+  display: grid;
+  gap: 14px;
+  margin-top: 4px;
+}
+
+.welcome-threshold-presets {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.threshold-preset {
+  flex: 1 1 0;
+  min-width: 64px;
+  padding: 14px 0;
+  background: #fff;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  font-family: inherit;
+  font-size: 18px;
+  font-weight: 600;
+  color: var(--text);
+  cursor: pointer;
+  transition: border-color 120ms ease, background-color 120ms ease, color 120ms ease;
+}
+
+.threshold-preset:hover {
+  border-color: var(--accent);
+}
+
+.threshold-preset.active {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+}
+
+.welcome-threshold-custom {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.welcome-threshold-custom span {
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.welcome-threshold-custom input {
+  width: 96px;
+  background: #fff;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 10px 12px;
+  font-size: 15px;
+  font-family: inherit;
+  font-variant-numeric: tabular-nums;
+}
+
+.welcome-threshold-custom input:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px rgba(15, 118, 110, 0.14);
+  outline: none;
+}
+
 .welcome-fine-print {
   color: var(--muted);
   font-size: 12px;

@@ -16,7 +16,8 @@
         <ol class="welcome-stepper" aria-label="Onboarding progress">
           <li data-step-indicator="1" class="active"><span>1</span><em>Welcome</em></li>
           <li data-step-indicator="2"><span>2</span><em>How it works</em></li>
-          <li data-step-indicator="3"><span>3</span><em>AI features</em></li>
+          <li data-step-indicator="3"><span>3</span><em>Nudge</em></li>
+          <li data-step-indicator="4"><span>4</span><em>AI features</em></li>
         </ol>
       </header>
 
@@ -90,8 +91,40 @@
         </div>
       </section>
 
-      <!-- ===== Step 3: Optional AI setup ===== -->
+      <!-- ===== Step 3: Clutter threshold ===== -->
       <section class="welcome-step" data-step="3" hidden>
+        <div class="welcome-section-head">
+          <p class="welcome-eyebrow">QUICK CHECK</p>
+          <h2>How many tabs is too many?</h2>
+          <p class="welcome-lede small">
+            When you cross this number, Neat Freak shows a red badge on the
+            toolbar and a small reminder in the top corner of the page. Pick
+            what feels right — you can change it later in settings.
+          </p>
+        </div>
+        <div class="welcome-threshold">
+          <div class="welcome-threshold-presets" id="welcome-threshold-presets">
+            <button type="button" class="threshold-preset" data-value="15">15</button>
+            <button type="button" class="threshold-preset active" data-value="20">20</button>
+            <button type="button" class="threshold-preset" data-value="30">30</button>
+            <button type="button" class="threshold-preset" data-value="50">50</button>
+          </div>
+          <label class="welcome-threshold-custom">
+            <span>or set your own</span>
+            <input id="welcome-threshold-input" type="number" min="5" max="200" step="1" value="20">
+          </label>
+          <p class="welcome-fine-print">
+            Hoarder? Set it high. Minimalist? Set it low. We won't judge.
+          </p>
+          <div class="welcome-actions">
+            <button class="secondary-button" data-action="back" type="button">← Back</button>
+            <button class="primary-button" data-action="next" type="button">Continue →</button>
+          </div>
+        </div>
+      </section>
+
+      <!-- ===== Step 4: Optional AI setup ===== -->
+      <section class="welcome-step" data-step="4" hidden>
         <div class="welcome-section-head">
           <p class="welcome-eyebrow">OPTIONAL · BETA</p>
           <h2>Want AI-smarter tabs?</h2>

@@ -10,15 +10,24 @@ const pinStatusEl = document.querySelector("#welcome-pin-status");
 const pinStatusLabelEl = pinStatusEl?.querySelector(".welcome-pin-label");
 const finalHintEl = document.querySelector("#welcome-final-hint");
 
-const ORDER = ["1", "2", "3", "done"];
+const thresholdPresetsEl = document.querySelector("#welcome-threshold-presets");
+const thresholdInputEl = document.querySelector("#welcome-threshold-input");
+
+const ORDER = ["1", "2", "3", "4", "done"];
+const FINAL_NUMERIC_STEP = "4";
+const MIN_THRESHOLD = 5;
+const MAX_THRESHOLD = 200;
 let currentStep = "1";
 let pinPoll = null;
+let selectedThreshold = 20;
 
 init();
 
 function init() {
   prefillKeyFromSettings();
+  prefillThresholdFromSettings();
   bindEvents();
+  bindThresholdControls();
   showStep(currentStep);
 }
 
@@ -63,7 +72,7 @@ function showStep(step) {
   stepEls.forEach((el) => {
     el.toggleAttribute("hidden", el.dataset.step !== step);
   });
-  const activeNumeric = step === "done" ? "3" : step;
+  const activeNumeric = step === "done" ? FINAL_NUMERIC_STEP : step;
   stepperEls.forEach((el) => {
     el.classList.toggle("active", el.dataset.stepIndicator === activeNumeric);
     const idx = ORDER.indexOf(el.dataset.stepIndicator);
@@ -133,7 +142,11 @@ function setPinUi(isPinned) {
   }
 }
 
-function goNext() {
+async function goNext() {
+  // Leaving the threshold step → persist the chosen value before advancing.
+  if (currentStep === "3") {
+    await persistThreshold();
+  }
   const idx = ORDER.indexOf(currentStep);
   if (idx < 0 || idx >= ORDER.length - 1) return;
   showStep(ORDER[idx + 1]);
@@ -153,6 +166,63 @@ async function prefillKeyFromSettings() {
     }
   } catch {
     // Settings unavailable; user can still continue.
+  }
+}
+
+async function prefillThresholdFromSettings() {
+  try {
+    const response = await send("GET_SETTINGS");
+    if (response?.ok && Number.isFinite(Number(response.settings?.clutterThreshold))) {
+      setThreshold(Number(response.settings.clutterThreshold));
+    }
+  } catch {
+    // Defaults are already shown.
+  }
+}
+
+function bindThresholdControls() {
+  if (thresholdPresetsEl) {
+    thresholdPresetsEl.addEventListener("click", (event) => {
+      const button = event.target.closest(".threshold-preset");
+      if (!button) return;
+      const value = Number(button.dataset.value);
+      if (!Number.isFinite(value)) return;
+      setThreshold(value);
+    });
+  }
+  if (thresholdInputEl) {
+    thresholdInputEl.addEventListener("input", () => {
+      const value = Number(thresholdInputEl.value);
+      if (Number.isFinite(value)) selectedThreshold = clampThreshold(value);
+      syncPresetActiveState();
+    });
+  }
+}
+
+function clampThreshold(value) {
+  const n = Math.round(Number(value));
+  if (!Number.isFinite(n)) return 20;
+  return Math.max(MIN_THRESHOLD, Math.min(MAX_THRESHOLD, n));
+}
+
+function setThreshold(value) {
+  selectedThreshold = clampThreshold(value);
+  if (thresholdInputEl) thresholdInputEl.value = String(selectedThreshold);
+  syncPresetActiveState();
+}
+
+function syncPresetActiveState() {
+  if (!thresholdPresetsEl) return;
+  thresholdPresetsEl.querySelectorAll(".threshold-preset").forEach((btn) => {
+    btn.classList.toggle("active", Number(btn.dataset.value) === selectedThreshold);
+  });
+}
+
+async function persistThreshold() {
+  try {
+    await send("SAVE_SETTINGS", { settings: { clutterThreshold: selectedThreshold } });
+  } catch {
+    // If saving fails, the default stays in place — not blocking onboarding.
   }
 }
 
