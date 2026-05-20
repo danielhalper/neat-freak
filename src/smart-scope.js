@@ -6,7 +6,7 @@ const ACTIVE_GROUP_CUTOFF_MIN = 480;  // 8h
 const ACTIVE_CLUSTER_WINDOW_MIN = 60; // a cluster is "active" if any tab was accessed in the last hour
 
 const OPENAI_CHAT_COMPLETIONS_URL = "https://api.openai.com/v1/chat/completions";
-const LLM_MODEL = "gpt-5-mini";
+const LLM_MODEL = "gpt-5.4-mini";
 
 /**
  * Decide which tabs to save and which to keep, using the 3h/8h heuristic.
@@ -132,6 +132,8 @@ async function runLlmPath(tabs, graph, settings, now) {
 
   const body = {
     model: LLM_MODEL,
+    reasoning_effort: "minimal",
+    prompt_cache_key: "neat-freak-smart-scope",
     response_format: {
       type: "json_schema",
       json_schema: {

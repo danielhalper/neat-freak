@@ -2,7 +2,7 @@ import { getDomain, slugify, truncateText } from "./utils.js";
 
 const OPENAI_CHAT_COMPLETIONS_URL = "https://api.openai.com/v1/chat/completions";
 const ASSOCIATION_THRESHOLD = 0.74;
-const LLM_MODEL = "gpt-5-mini";
+const LLM_MODEL = "gpt-5.4-mini";
 
 const STOP_WORDS = new Set([
   "about", "access", "account", "admin", "after", "all", "and", "are", "best", "blocked", "calendar",
@@ -224,6 +224,8 @@ async function categorizeWithOpenAI(tabs, settings, associationGraph) {
     },
     body: JSON.stringify({
       model: LLM_MODEL,
+      reasoning_effort: "minimal",
+      prompt_cache_key: "neat-freak-categorizer",
       response_format: {
         type: "json_schema",
         json_schema: {

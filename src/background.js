@@ -561,7 +561,9 @@ async function smartSearchTabs(query, candidates, settings) {
   }));
 
   const body = {
-    model: "gpt-5-mini",
+    model: "gpt-5.4-mini",
+    reasoning_effort: "minimal",
+    prompt_cache_key: "neat-freak-search",
     response_format: {
       type: "json_schema",
       json_schema: {
@@ -691,7 +693,7 @@ function notifySessionReady(session, meta) {
   ].join(" · ");
 
   const message = llm
-    ? "Grouped with gpt-5-mini. Click to open the manager."
+    ? "Grouped with gpt-5.4-mini. Click to open the manager."
     : "Grouped locally. Click to open the manager.";
 
   try {
