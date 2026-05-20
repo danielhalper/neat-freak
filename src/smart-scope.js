@@ -1,8 +1,15 @@
 import { buildAssociationGraph, graphCategorize } from "./categorizer.js";
 import { truncateText, getDomain } from "./utils.js";
 
-const STALE_GROUP_CUTOFF_MIN = 120;   // 2h
-const ACTIVE_GROUP_CUTOFF_MIN = 360;  // 6h
+// Aggressive defaults. The user clicks Smart because they want clutter gone;
+// saved tabs are one click away from restoring, so the failure mode is "had to
+// restore something" not "lost work". Bias toward saving.
+//
+// With STALE_GROUP_CUTOFF_MIN == ACTIVE_CLUSTER_WINDOW_MIN, the heuristic for a
+// cold cluster is "save everything" — anything in a stale cluster is by
+// definition older than the active window.
+const STALE_GROUP_CUTOFF_MIN = 60;    // 1h — cold clusters: save the whole thing
+const ACTIVE_GROUP_CUTOFF_MIN = 180;  // 3h — active clusters: save anything older than 3h
 const ACTIVE_CLUSTER_WINDOW_MIN = 60; // a cluster is "active" if any tab was accessed in the last hour
 
 const OPENAI_CHAT_COMPLETIONS_URL = "https://api.openai.com/v1/chat/completions";
@@ -187,15 +194,18 @@ async function runLlmPath(tabs, graph, settings, now) {
         content: [
           "You are deciding which open Chrome tabs to save+close and which to keep open, plus how to group the ones you're closing into folders by workstream.",
           "",
-          "For each tab, set action: 'save' (close+tuck into a folder) or 'keep' (leave the tab alone).",
+          "For each tab, set action: 'save' (close+tuck into a folder, restorable in one click) or 'keep' (leave the tab alone).",
           "",
-          "DEFAULT TO 'keep'. Only choose 'save' when a tab is clearly stale AND clearly not in active use. When in doubt, keep it.",
+          "The user clicked Smart because they want clutter cleared. DEFAULT TO 'save'. Aim to save the majority of tabs — most people only need 3-5 focus tabs open at a time. Closing too few is a worse failure than closing too many; saved tabs restore in one click.",
           "",
-          "Decide using:",
-          "- Recency: lastAccessedMinutesAgo is how long ago the user last looked at the tab. Anything under ~2 hours should almost always be kept. lastAccessedMinutesAgo: null means the tab was opened in the background or restored from a session and has never been activated — treat it as just-opened and KEEP it. Do not interpret null as 'ancient'.",
-          "- Group context: if a whole cluster has been cold for hours and none of its tabs were touched recently, those tabs can be saved together. If a cluster is active (any tab touched in the last hour), be conservative — keep the recent tabs, and only save the genuinely old ones (6h+).",
-          "- Content: protect tabs that look like work-in-progress — open forms, partially-written drafts, unfinished checkouts, docs the user is likely writing in. Keep these open even if they look stale.",
-          "- Distribution: if everything is recent, save almost nothing. The goal is to clear clutter, not to aggressively close.",
+          "KEEP only when there is clear signal of active focus:",
+          "- Work-in-progress: an open form being filled in, a partially-written draft, an unfinished checkout, a document the user is composing in (Google Docs, Notion, Linear, etc.).",
+          "- A primary work surface touched in the last 60 minutes (not a reference link skimmed once).",
+          "- The kind of tab someone would notice immediately if it disappeared mid-task.",
+          "",
+          "SAVE everything else — yes, even tabs touched recently if they look like skim-once content: articles, blog posts, news, Stack Overflow answers, GitHub issues, search-results pages, old chat threads. The user can restore them from the saved folder.",
+          "",
+          "lastAccessedMinutesAgo: null means the tab was opened in the background or restored from a session and has never been activated — treat as just-opened and KEEP it. Do not interpret null as 'ancient'.",
           "",
           "Also return `groups`: workstream-aware folder names for the SAVED tabs only. Each saved tab must appear in exactly one group's tabIds. If you save nothing, return an empty groups array.",
           "Keep group names under 52 characters."
