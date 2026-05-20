@@ -562,7 +562,7 @@ async function smartSearchTabs(query, candidates, settings) {
 
   const body = {
     model: "gpt-5.4-mini",
-    reasoning_effort: "minimal",
+    reasoning_effort: "none",
     prompt_cache_key: "neat-freak-search",
     response_format: {
       type: "json_schema",

@@ -132,7 +132,7 @@ async function runLlmPath(tabs, graph, settings, now) {
 
   const body = {
     model: LLM_MODEL,
-    reasoning_effort: "minimal",
+    reasoning_effort: "none",
     prompt_cache_key: "neat-freak-smart-scope",
     response_format: {
       type: "json_schema",

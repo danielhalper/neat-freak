@@ -224,7 +224,7 @@ async function categorizeWithOpenAI(tabs, settings, associationGraph) {
     },
     body: JSON.stringify({
       model: LLM_MODEL,
-      reasoning_effort: "minimal",
+      reasoning_effort: "none",
       prompt_cache_key: "neat-freak-categorizer",
       response_format: {
         type: "json_schema",
