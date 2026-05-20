@@ -741,11 +741,19 @@ if (chrome.notifications?.onClicked) {
 // once only triggers one check.
 
 const CLUTTER_THRESHOLD = 20;
-const CLUTTER_NOTIFY_KEY = "neatFreakClutterNotifiedAt";
+// CLUTTER_NEXT_AFTER_KEY is a "don't try before this timestamp" gate. We used to
+// store "last notified at" and gate on 24h since — but that key got set BEFORE
+// the notification actually displayed, so an OS-denied attempt silenced us for
+// 24h with nothing to show. Now: set on the notification callback, longer on
+// success, shorter on failure so we keep retrying when the OS is misconfigured.
+const CLUTTER_NEXT_AFTER_KEY = "neatFreakClutterNextAttemptAfter";
 const CLUTTER_DISABLED_KEY = "neatFreakClutterDisabled";
 const CLUTTER_NOTIFICATION_ID = "neat-freak-clutter";
-const CLUTTER_DAY_MS = 24 * 60 * 60 * 1000;
-const CLUTTER_CHECK_DEBOUNCE_MS = 8000;
+const CLUTTER_SUCCESS_COOLDOWN_MS = 24 * 60 * 60 * 1000; // 24h
+const CLUTTER_FAILURE_COOLDOWN_MS = 60 * 60 * 1000;      // 1h
+const CLUTTER_CHECK_DEBOUNCE_MS = 3000;
+const CLUTTER_ALARM_NAME = "neat-freak-clutter-check";
+const CLUTTER_ALARM_PERIOD_MIN = 30;
 let clutterCheckTimer = null;
 
 function scheduleClutterCheck() {
@@ -760,15 +768,11 @@ async function checkClutter() {
     if (!chrome.notifications?.create) return;
 
     const stored = await new Promise((resolve) => {
-      chrome.storage.local.get([CLUTTER_NOTIFY_KEY, CLUTTER_DISABLED_KEY], (result) => resolve(result || {}));
+      chrome.storage.local.get([CLUTTER_NEXT_AFTER_KEY, CLUTTER_DISABLED_KEY], (result) => resolve(result || {}));
     });
     if (stored[CLUTTER_DISABLED_KEY]) return; // User opted out permanently.
-    const lastNotified = Number(stored[CLUTTER_NOTIFY_KEY]) || 0;
-    if (Date.now() - lastNotified < CLUTTER_DAY_MS) return;
-
-    await new Promise((resolve) => {
-      chrome.storage.local.set({ [CLUTTER_NOTIFY_KEY]: Date.now() }, () => resolve());
-    });
+    const nextAfter = Number(stored[CLUTTER_NEXT_AFTER_KEY]) || 0;
+    if (Date.now() < nextAfter) return;
 
     chrome.notifications.create(CLUTTER_NOTIFICATION_ID, {
       type: "basic",
@@ -783,9 +787,14 @@ async function checkClutter() {
       ]
     }, () => {
       const error = chrome.runtime.lastError;
+      const cooldown = error ? CLUTTER_FAILURE_COOLDOWN_MS : CLUTTER_SUCCESS_COOLDOWN_MS;
       if (error) {
-        console.warn("[Neat Freak] Clutter notification failed:", error.message);
+        console.warn(
+          "[Neat Freak] Clutter notification failed:", error.message,
+          "— check macOS System Settings → Notifications → Google Chrome → Allow Notifications, and chrome://settings/content/notifications."
+        );
       }
+      chrome.storage.local.set({ [CLUTTER_NEXT_AFTER_KEY]: Date.now() + cooldown });
     });
   } catch (err) {
     // Best-effort — the clutter watcher should never break the rest of the extension.
@@ -816,6 +825,23 @@ if (chrome.runtime?.onStartup) {
 }
 // Also check on initial service worker boot (covers extension reload + first install).
 scheduleClutterCheck();
+
+// chrome.alarms wakes the MV3 service worker on a schedule, even if it's gone
+// idle and the setTimeout-based debounce got killed. This is the reliable
+// safety net — tab events kick a fast check (3s debounce), alarms catch the
+// case where the SW died mid-debounce or tabs were already at the threshold
+// when the SW spun down.
+if (chrome.alarms?.create) {
+  chrome.alarms.create(CLUTTER_ALARM_NAME, {
+    delayInMinutes: 1,
+    periodInMinutes: CLUTTER_ALARM_PERIOD_MIN
+  });
+}
+if (chrome.alarms?.onAlarm) {
+  chrome.alarms.onAlarm.addListener((alarm) => {
+    if (alarm.name === CLUTTER_ALARM_NAME) scheduleClutterCheck();
+  });
+}
 
 const ONBOARDED_KEY = "neatFreakOnboardedAt";
 
