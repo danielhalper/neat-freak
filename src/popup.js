@@ -43,6 +43,17 @@ let lastMode = "local";
 let progressWatchdog = null;
 const PROGRESS_WATCHDOG_MS = 90 * 1000;
 
+// Long-lived port so the background can detect whether this popup is still
+// open. Chrome auto-disconnects when the popup closes; the background watches
+// for that to decide whether to fire the in-page "done" toast (which would be
+// redundant when the popup is open and already showing the done state).
+try {
+  chrome.runtime.connect({ name: "popup-alive" });
+} catch {
+  // If the connect fails for any reason, background falls back to firing the
+  // toast — worst case is a redundant notification, not a missed one.
+}
+
 init();
 
 async function init() {

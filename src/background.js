@@ -18,6 +18,24 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   return true;
 });
 
+// Track whether the Chrome action popup is open. The popup opens a long-lived
+// "popup-alive" port on load; Chrome auto-disconnects it when the popup closes
+// (focus moves outside). We count active ports so two simultaneous popup
+// instances (rare but possible during edge transitions) don't corrupt state.
+let activePopupPorts = 0;
+function isPopupOpen() {
+  return activePopupPorts > 0;
+}
+if (chrome.runtime?.onConnect) {
+  chrome.runtime.onConnect.addListener((port) => {
+    if (port.name !== "popup-alive") return;
+    activePopupPorts += 1;
+    port.onDisconnect.addListener(() => {
+      activePopupPorts = Math.max(0, activePopupPorts - 1);
+    });
+  });
+}
+
 async function routeMessage(message) {
   switch (message?.type) {
     case "GET_POPUP_STATE":
@@ -191,9 +209,13 @@ async function saveTabs(options) {
 
   await addSession(session);
   notifySessionReady(session, meta);
-  // Inline toast as a reliable alternative to the OS notification. Both fire —
-  // whichever the user's environment supports gets through.
-  showDoneToast(session, meta, smartResult).catch(() => undefined);
+  // In-page toast — but only if the popup isn't already showing the done state.
+  // When the user keeps the popup open through the save, the popup renders done
+  // internally; a toast on top of that feels like "a separate new thing" and
+  // muddies the continuity the user expects.
+  if (!isPopupOpen()) {
+    showDoneToast(session, meta, smartResult).catch(() => undefined);
+  }
   const folderSummaries = (categories || [])
     .filter((c) => (c.tabIds || []).length >= 2)
     .map((c) => ({ id: c.id, name: c.name, count: c.tabIds.length }));
