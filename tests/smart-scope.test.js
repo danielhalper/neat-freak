@@ -6,29 +6,30 @@ const NOW = 1_700_000_000_000;
 const minutesAgo = (mins) => NOW - mins * 60_000;
 const tab = (id, mins) => ({ id, lastAccessed: minutesAgo(mins) });
 
-test("stale cluster (no tab in last hour) closes anything > 3h old", () => {
-  // No tab in last 60 min → cluster is stale → cutoff = 180min (3h).
-  // a (120min) ≤ 180 → keep. b (200), c (500) > 180 → save.
-  const tabs = [tab("a", 120), tab("b", 200), tab("c", 500)];
+test("stale cluster (no tab in last hour) closes anything > 2h old", () => {
+  // No tab in last 60 min → cluster is stale → cutoff = 120min (2h).
+  // a (90min) is > 60 so cluster is stale, ≤ 120 so a is kept.
+  // b (200), c (500) > 120 → save.
+  const tabs = [tab("a", 90), tab("b", 200), tab("c", 500)];
   const clusters = [{ id: "c1", tabIds: ["a", "b", "c"] }];
   const { saveIds, keepIds } = applySmartHeuristic(tabs, clusters, NOW);
   assert.deepEqual(saveIds.sort(), ["b", "c"]);
   assert.deepEqual(keepIds, ["a"]);
 });
 
-test("active cluster (≥1 tab in last hour) closes anything > 8h old", () => {
-  // a (30min) is in last 60 → cluster is active → cutoff = 480min (8h).
-  // a, b (200), c (400) all ≤ 480 → keep. d (700) > 480 → save.
+test("active cluster (≥1 tab in last hour) closes anything > 6h old", () => {
+  // a (30min) is in last 60 → cluster is active → cutoff = 360min (6h).
+  // a, b (200) ≤ 360 → keep. c (400), d (700) > 360 → save.
   const tabs = [tab("a", 30), tab("b", 200), tab("c", 400), tab("d", 700)];
   const clusters = [{ id: "c1", tabIds: ["a", "b", "c", "d"] }];
   const { saveIds, keepIds } = applySmartHeuristic(tabs, clusters, NOW);
-  assert.deepEqual(saveIds, ["d"]);
-  assert.deepEqual(keepIds.sort(), ["a", "b", "c"]);
+  assert.deepEqual(saveIds.sort(), ["c", "d"]);
+  assert.deepEqual(keepIds.sort(), ["a", "b"]);
 });
 
 test("multiple clusters evaluated independently", () => {
-  // c1: a=10 → active → cutoff 480. b=200 ≤ 480 → keep.
-  // c2: c=200, d=500 → no recent → stale → cutoff 180. Both > 180 → save.
+  // c1: a=10 → active → cutoff 360. b=200 ≤ 360 → keep.
+  // c2: c=200, d=500 → no recent → stale → cutoff 120. Both > 120 → save.
   const tabs = [
     tab("a", 10), tab("b", 200),
     tab("c", 200), tab("d", 500),
@@ -43,7 +44,7 @@ test("multiple clusters evaluated independently", () => {
 });
 
 test("tab with no lastAccessed treated as just-opened (kept)", () => {
-  // c1: a=30 → active → cutoff 480.
+  // c1: a=30 → active → cutoff 360.
   // b has no lastAccessed (e.g. cmd-click opened in background, never activated)
   // → treated as "now" → kept. Protects fresh background tabs from being
   // mistaken for ancient abandoned ones.
@@ -85,7 +86,7 @@ test("runSmartScope with heuristic — splits tabs and returns categories", asyn
   const savedIds = result.saveSet.map((t) => t.id);
   const keptIds = result.keepSet.map((t) => t.id);
 
-  // 'c' is 900 min old, in some cluster — must be saved regardless of cluster activity (900 > 480).
+  // 'c' is 900 min old, in some cluster — must be saved regardless of cluster activity (900 > 360).
   assert.ok(savedIds.includes("c"), `expected 'c' to be saved, got ${savedIds.join(",")}`);
   // 'a' is 10 min old — recent → kept.
   assert.ok(keptIds.includes("a"), `expected 'a' to be kept, got ${keptIds.join(",")}`);

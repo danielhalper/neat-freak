@@ -697,7 +697,7 @@ function notifySessionReady(session, meta) {
   ].join(" · ");
 
   const message = llm
-    ? "Grouped with gpt-5.4-mini. Click to open the manager."
+    ? "Grouped with AI. Click to open the manager."
     : "Grouped locally. Click to open the manager.";
 
   try {

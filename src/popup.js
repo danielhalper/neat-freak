@@ -311,7 +311,7 @@ function handleProgress(message) {
   if (message.step === "capturing" && Number(message.tabCount) > 0) {
     activeLabel.textContent = `Capturing ${message.tabCount} URL${message.tabCount === 1 ? "" : "s"}`;
   } else if (message.step === "grouping") {
-    activeLabel.textContent = message.llm ? "Asking gpt-5.4-mini" : "Grouping locally";
+    activeLabel.textContent = message.llm ? "Grouping with AI" : "Grouping locally";
   } else {
     activeLabel.textContent = STEP_LABELS[message.step] || message.step;
   }
@@ -331,9 +331,10 @@ function showDoneState({ sessionId, tabCount, groupCount, looseCount, llm, folde
     const parts = [];
     parts.push(`${groupCount} folder${groupCount === 1 ? "" : "s"}`);
     if (looseCount) parts.push(`${looseCount} loose`);
-    if (smartMode === "heuristic" && smartError) parts.push("heuristic (LLM unavailable)");
+    // We label heuristic mode so users know to add an API key for smarter grouping.
+    // LLM success is the expected case — no need to brag about the model in the done state.
+    if (smartMode === "heuristic" && smartError) parts.push("heuristic (AI unavailable)");
     else if (smartMode === "heuristic") parts.push("heuristic");
-    else if (smartMode === "llm" || llm) parts.push("gpt-5.4-mini");
     if (keepCount) parts.push(`${keepCount} kept open`);
     doneSubtitleEl.textContent = parts.join(" · ");
   }
@@ -475,7 +476,7 @@ async function runSearch(rawQuery, mode) {
   recentEl.setAttribute("hidden", "");
   searchResultsEl.removeAttribute("hidden");
   if (mode === "smart") {
-    searchHint.textContent = "Asking gpt-5.4-mini…";
+    searchHint.textContent = "Asking AI…";
     searchResultsEl.innerHTML = renderSearchLoading();
   } else if (!searchResultsEl.innerHTML) {
     searchResultsEl.innerHTML = `<p class="search-empty">Searching…</p>`;
@@ -512,7 +513,7 @@ async function runSearch(rawQuery, mode) {
 }
 
 function renderSearchLoading() {
-  return `<p class="search-empty">Asking gpt-5.4-mini to rerank…</p>`;
+  return `<p class="search-empty">Asking AI to rerank…</p>`;
 }
 
 function renderSearchResult(tab, mode) {

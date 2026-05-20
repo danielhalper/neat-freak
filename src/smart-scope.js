@@ -1,8 +1,8 @@
 import { buildAssociationGraph, graphCategorize } from "./categorizer.js";
 import { truncateText, getDomain } from "./utils.js";
 
-const STALE_GROUP_CUTOFF_MIN = 180;   // 3h
-const ACTIVE_GROUP_CUTOFF_MIN = 480;  // 8h
+const STALE_GROUP_CUTOFF_MIN = 120;   // 2h
+const ACTIVE_GROUP_CUTOFF_MIN = 360;  // 6h
 const ACTIVE_CLUSTER_WINDOW_MIN = 60; // a cluster is "active" if any tab was accessed in the last hour
 
 const OPENAI_CHAT_COMPLETIONS_URL = "https://api.openai.com/v1/chat/completions";
@@ -192,8 +192,8 @@ async function runLlmPath(tabs, graph, settings, now) {
           "DEFAULT TO 'keep'. Only choose 'save' when a tab is clearly stale AND clearly not in active use. When in doubt, keep it.",
           "",
           "Decide using:",
-          "- Recency: lastAccessedMinutesAgo is how long ago the user last looked at the tab. Anything under ~3 hours should almost always be kept. lastAccessedMinutesAgo: null means the tab was opened in the background or restored from a session and has never been activated — treat it as just-opened and KEEP it. Do not interpret null as 'ancient'.",
-          "- Group context: if a whole cluster has been cold for hours and none of its tabs were touched recently, those tabs can be saved together. If a cluster is active (any tab touched in the last hour), be conservative — keep the recent tabs, and only save the genuinely old ones (8h+).",
+          "- Recency: lastAccessedMinutesAgo is how long ago the user last looked at the tab. Anything under ~2 hours should almost always be kept. lastAccessedMinutesAgo: null means the tab was opened in the background or restored from a session and has never been activated — treat it as just-opened and KEEP it. Do not interpret null as 'ancient'.",
+          "- Group context: if a whole cluster has been cold for hours and none of its tabs were touched recently, those tabs can be saved together. If a cluster is active (any tab touched in the last hour), be conservative — keep the recent tabs, and only save the genuinely old ones (6h+).",
           "- Content: protect tabs that look like work-in-progress — open forms, partially-written drafts, unfinished checkouts, docs the user is likely writing in. Keep these open even if they look stale.",
           "- Distribution: if everything is recent, save almost nothing. The goal is to clear clutter, not to aggressively close.",
           "",

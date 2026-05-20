@@ -196,8 +196,8 @@ async function runSearch(rawQuery, mode) {
   container.setAttribute("hidden", "");
 
   if (mode === "smart") {
-    searchHintEl.textContent = "Asking gpt-5.4-mini…";
-    searchResultsEl.innerHTML = `<p class="manager-search-empty">Asking gpt-5.4-mini to rerank matches…</p>`;
+    searchHintEl.textContent = "Asking AI…";
+    searchResultsEl.innerHTML = `<p class="manager-search-empty">Asking AI to rerank matches…</p>`;
   } else if (!searchResultsEl.innerHTML) {
     searchResultsEl.innerHTML = `<p class="manager-search-empty">Searching…</p>`;
   }
@@ -231,7 +231,7 @@ async function runSearch(rawQuery, mode) {
 }
 
 function renderManagerSearchHeader(count, mode) {
-  const label = mode === "smart" ? "gpt-5.4-mini ranked" : "Best matches";
+  const label = mode === "smart" ? "AI ranked" : "Best matches";
   return `<div class="manager-search-meta">${count} result${count === 1 ? "" : "s"} · ${escapeHtml(label)}</div>`;
 }
 
@@ -466,11 +466,12 @@ function handleSaveProgress(message) {
     const groupCount = message.groupCount || 0;
     const looseCount = message.looseCount || 0;
     const llm = message.llm;
+    // Don't tack on the model name — the user knows they enabled AI.
     const detail = [
       `${groupCount} folder${groupCount === 1 ? "" : "s"}`,
-      looseCount ? `${looseCount} loose` : null,
-      llm ? "gpt-5.4-mini" : null
+      looseCount ? `${looseCount} loose` : null
     ].filter(Boolean).join(" · ");
+    void llm; // kept on `message` for parity with other consumers; not displayed
 
     saveBannerEl.classList.remove("loading");
     saveBannerEl.classList.add("done");
@@ -494,7 +495,7 @@ function handleSaveProgress(message) {
   if (message.step === "capturing" && Number(message.tabCount) > 0) {
     label = `Capturing ${message.tabCount} URL${message.tabCount === 1 ? "" : "s"}…`;
   } else if (message.step === "grouping") {
-    label = message.llm ? "Asking gpt-5.4-mini to group your tabs…" : "Building groups locally…";
+    label = message.llm ? "Asking AI to group your tabs…" : "Building groups locally…";
   }
 
   saveBannerEl.classList.add("loading");
