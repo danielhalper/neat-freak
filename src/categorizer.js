@@ -294,7 +294,7 @@ async function categorizeWithOpenAI(tabs, settings, associationGraph) {
   };
 }
 
-function graphCategorize(tabs, associationGraph) {
+export function graphCategorize(tabs, associationGraph) {
   const categories = associationGraph.clusters.map((cluster) => ({
     id: slugify(cluster.provisionalName),
     name: cluster.provisionalName,
@@ -315,7 +315,7 @@ function graphCategorize(tabs, associationGraph) {
   };
 }
 
-function buildAssociationGraph(tabs) {
+export function buildAssociationGraph(tabs) {
   const profiles = tabs.map((tab, index) => createTabProfile(tab, index));
   const unionFind = new UnionFind(profiles.map((profile) => profile.id));
   const edges = [];
