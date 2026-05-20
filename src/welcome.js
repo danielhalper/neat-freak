@@ -31,6 +31,7 @@ function bindEvents() {
     else if (action === "back") goBack();
     else if (action === "skip") completeOnboarding({ savedKey: false });
     else if (action === "open-popup-hint") closeTab();
+    else if (action === "open-openai") openOpenAiPlatform();
   });
 
   keyForm.addEventListener("submit", async (event) => {
@@ -182,5 +183,21 @@ async function closeTab() {
     if (tab?.id) chrome.tabs.remove(tab.id);
   } catch {
     window.close();
+  }
+}
+
+async function openOpenAiPlatform() {
+  const url = "https://platform.openai.com/login";
+  try {
+    const currentTab = await chrome.tabs.getCurrent();
+    await chrome.tabs.create({
+      url,
+      active: true,
+      openerTabId: currentTab?.id,
+      index: currentTab ? currentTab.index + 1 : undefined
+    });
+  } catch {
+    // Last-resort fallback: standard new tab.
+    window.open(url, "_blank", "noopener,noreferrer");
   }
 }

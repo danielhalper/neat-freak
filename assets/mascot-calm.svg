@@ -1,0 +1,25 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 160 160" role="img" aria-labelledby="title desc">
+  <title id="title">Neat Freak — calm</title>
+  <desc id="desc">The Neat Freak creature, eyes closed, peacefully resting after tidying up.</desc>
+  <rect width="160" height="160" rx="36" fill="#0f766e"/>
+
+  <!-- Relaxed eyebrows (gentle arcs, no longer furrowed) -->
+  <path d="M40 60 Q56 56 72 60" stroke="#093f3b" stroke-width="5" stroke-linecap="round" fill="none" opacity="0.55"/>
+  <path d="M88 60 Q104 56 120 60" stroke="#093f3b" stroke-width="5" stroke-linecap="round" fill="none" opacity="0.55"/>
+
+  <!-- Closed sleeping eyes (downward arcs with lashes hint) -->
+  <path d="M40 84 Q56 96 72 84" stroke="#093f3b" stroke-width="7" stroke-linecap="round" fill="none"/>
+  <path d="M88 84 Q104 96 120 84" stroke="#093f3b" stroke-width="7" stroke-linecap="round" fill="none"/>
+
+  <!-- Soft smile -->
+  <path d="M62 122 Q80 132 98 122" stroke="#093f3b" stroke-width="6" stroke-linecap="round" fill="none"/>
+
+  <!-- Sleeping Z's, layered -->
+  <text x="118" y="42" font-family="Georgia, serif" font-size="20" font-weight="700" fill="#f4bd45" opacity="0.9">z</text>
+  <text x="130" y="58" font-family="Georgia, serif" font-size="14" font-weight="700" fill="#f4bd45" opacity="0.7">z</text>
+  <text x="139" y="70" font-family="Georgia, serif" font-size="10" font-weight="700" fill="#f4bd45" opacity="0.5">z</text>
+
+  <!-- Tiny cheek blush -->
+  <circle cx="46" cy="112" r="5" fill="#f4bd45" opacity="0.18"/>
+  <circle cx="114" cy="112" r="5" fill="#f4bd45" opacity="0.18"/>
+</svg>

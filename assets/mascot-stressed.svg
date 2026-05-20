@@ -1,0 +1,31 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 160 160" role="img" aria-labelledby="title desc">
+  <title id="title">Neat Freak — stressed</title>
+  <desc id="desc">The Neat Freak creature with frantic, bug-eyed expression, sweat drops, and a shocked mouth — when too many tabs are open.</desc>
+  <rect width="160" height="160" rx="36" fill="#0f766e"/>
+
+  <!-- Exclamation mark above head -->
+  <rect x="17" y="10" width="5" height="14" rx="2" fill="#f4bd45"/>
+  <circle cx="19.5" cy="30" r="2.8" fill="#f4bd45"/>
+
+  <!-- Sharp, deeply furrowed brows -->
+  <path d="M22 54 L72 42" stroke="#093f3b" stroke-width="8" stroke-linecap="round"/>
+  <path d="M88 42 L138 54" stroke="#093f3b" stroke-width="8" stroke-linecap="round"/>
+
+  <!-- Very wide bug-eyes -->
+  <circle cx="54" cy="84" r="26" fill="#f7f8f6"/>
+  <circle cx="63" cy="89" r="13" fill="#093f3b"/>
+  <circle cx="66" cy="86" r="3" fill="#ffffff"/>
+
+  <circle cx="110" cy="84" r="28" fill="#f7f8f6"/>
+  <circle cx="99" cy="89" r="14" fill="#093f3b"/>
+  <circle cx="102" cy="86" r="3" fill="#ffffff"/>
+
+  <!-- Shocked little "O" mouth -->
+  <ellipse cx="80" cy="128" rx="9" ry="7" fill="#093f3b"/>
+  <ellipse cx="80" cy="126" rx="6" ry="4" fill="#3a1414" opacity="0.6"/>
+
+  <!-- Multiple sweat drops -->
+  <path d="M134 36 Q132 42 136 46 Q140 42 138 36 Z" fill="#a3d9ff"/>
+  <path d="M22 102 Q20 108 24 112 Q28 108 26 102 Z" fill="#a3d9ff"/>
+  <path d="M140 108 Q138 114 142 118 Q146 114 144 108 Z" fill="#a3d9ff"/>
+</svg>

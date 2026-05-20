@@ -9,13 +9,10 @@
   <body class="popup-body">
     <main class="popup-shell">
       <header class="popup-header">
-        <div>
-          <div class="brand-lockup">
-            <img src="assets/logo.svg" alt="" class="brand-logo">
-            <h1>Neat Freak</h1>
-          </div>
-          <p id="open-tab-summary">Scanning tabs...</p>
-        </div>
+        <button class="brand-lockup brand-lockup-button" id="brand-home" type="button" title="Open the Manager" aria-label="Open the Neat Freak Manager">
+          <img src="assets/logo.svg" alt="" class="brand-logo">
+          <h1 class="brand-wordmark"><span>Neat</span> <span class="brand-word-accent">Freak</span></h1>
+        </button>
         <button class="icon-button" id="open-options" type="button" title="Settings" aria-label="Open settings">
           <svg viewBox="0 0 24 24" aria-hidden="true">
             <path d="M12 15.4a3.4 3.4 0 1 0 0-6.8 3.4 3.4 0 0 0 0 6.8Z"></path>
@@ -24,47 +21,41 @@
         </button>
       </header>
 
-      <section class="popup-search" aria-label="Search saved tabs">
-        <label class="popup-search-input">
-          <svg viewBox="0 0 24 24" aria-hidden="true">
-            <path d="m21 21-4.4-4.4"></path>
-            <circle cx="11" cy="11" r="7"></circle>
-          </svg>
-          <input id="popup-search" type="search" placeholder="Search saved tabs, or ask a question…" autocomplete="off">
-          <button class="search-clear" id="popup-search-clear" type="button" aria-label="Clear search" hidden>×</button>
-        </label>
-        <p class="popup-search-hint" id="popup-search-hint">Press <kbd>↵</kbd> for smart search</p>
-      </section>
-
-      <section id="popup-search-results" class="popup-search-results" hidden aria-live="polite"></section>
-
-      <section class="panel tight" id="popup-controls">
-        <div class="scope-switch" role="group" aria-label="Tab capture scope">
-          <button class="segmented" id="scope-current" type="button" data-scope="currentWindow">Current window</button>
-          <button class="segmented active" id="scope-all" type="button" data-scope="allWindows">All windows</button>
+      <section class="capture-area" id="popup-controls">
+        <p class="capture-description" id="capture-description">Stash open tabs into folders, free up RAM.</p>
+        <div class="capture-controls-row">
+          <div class="scope-switch compact" role="group" aria-label="Tab capture scope">
+            <button class="segmented active" id="scope-all" type="button" data-scope="allWindows">All windows</button>
+            <button class="segmented" id="scope-current" type="button" data-scope="currentWindow">Current</button>
+          </div>
+          <button class="link-button" id="toggle-capture-options" type="button" aria-expanded="false" aria-controls="capture-options">
+            <span class="toggle-label">More options</span>
+            <span class="toggle-caret" aria-hidden="true">⌄</span>
+          </button>
         </div>
-        <label class="check-row">
-          <input type="checkbox" id="review-before-close">
-          <span>Review before closing saved tabs</span>
-        </label>
-        <label class="check-row">
-          <input type="checkbox" id="include-pinned">
-          <span>Include pinned tabs</span>
-        </label>
-      </section>
+        <div class="capture-options" id="capture-options" hidden>
+          <label class="check-row">
+            <input type="checkbox" id="keep-current-tab">
+            <span>Keep the current tab open</span>
+          </label>
+          <label class="check-row">
+            <input type="checkbox" id="review-before-close">
+            <span>Review before closing saved tabs</span>
+          </label>
+          <label class="check-row">
+            <input type="checkbox" id="include-pinned">
+            <span>Include pinned tabs</span>
+          </label>
+        </div>
 
-      <button class="primary-action" id="save-tabs" type="button">
-        <span>Tidy tabs</span>
-        <small id="save-mode-copy">Groups and closes saved tabs</small>
-      </button>
+        <button class="primary-action" id="save-tabs" type="button">
+          <span id="save-button-label">Tidy my tabs</span>
+          <small id="save-mode-copy">Scanning tabs…</small>
+        </button>
+      </section>
 
       <section id="save-progress" class="save-progress" hidden aria-live="polite">
-        <div class="progress-orbit" aria-hidden="true">
-          <div class="orbit-ring"></div>
-          <div class="orbit-ring delay-1"></div>
-          <div class="orbit-ring delay-2"></div>
-          <div class="orbit-core"></div>
-        </div>
+        <img src="assets/mascot-stressed.svg" alt="" class="progress-mascot">
         <ol class="progress-steps">
           <li data-step="scanning"><span class="step-bullet"></span><span class="step-label">Scanning open tabs</span></li>
           <li data-step="capturing"><span class="step-bullet"></span><span class="step-label">Capturing URLs</span></li>
@@ -75,10 +66,14 @@
       </section>
 
       <section id="save-done" class="save-done" hidden>
-        <div class="done-mark" aria-hidden="true">✓</div>
+        <img src="assets/mascot-calm.svg" alt="" class="done-mascot">
         <h2 id="done-title">All tucked away</h2>
         <p id="done-subtitle" class="done-subtitle"></p>
-        <button class="primary-button" id="open-result" type="button">View groups</button>
+        <ul id="done-folders" class="done-folders" aria-label="Saved folders"></ul>
+        <div class="done-actions">
+          <button class="attention-button" id="close-live-tabs" type="button" hidden>Close live tabs</button>
+          <button class="primary-button" id="open-result" type="button">View groups</button>
+        </div>
       </section>
 
       <section id="default-state" class="panel">
@@ -86,6 +81,16 @@
           <h2>Latest Sessions</h2>
           <button class="link-button" id="open-manager" type="button">Open manager</button>
         </div>
+        <label class="popup-search-input">
+          <svg viewBox="0 0 24 24" aria-hidden="true">
+            <path d="m21 21-4.4-4.4"></path>
+            <circle cx="11" cy="11" r="7"></circle>
+          </svg>
+          <input id="popup-search" type="search" placeholder="Search saved tabs, or ask a question…" autocomplete="off">
+          <button class="search-clear" id="popup-search-clear" type="button" aria-label="Clear search" hidden>×</button>
+        </label>
+        <p class="popup-search-hint" id="popup-search-hint">Press <kbd>↵</kbd> for smart search</p>
+        <div id="popup-search-results" class="popup-search-results" hidden aria-live="polite"></div>
         <div id="recent-sessions" class="recent-list"></div>
       </section>
 

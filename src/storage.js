@@ -7,11 +7,12 @@ export const DEFAULT_SETTINGS = {
   apiKey: "",
   collectPageSummaries: true,
   defaultIncludePinned: false,
+  defaultKeepCurrentTab: true,
   defaultReviewBeforeClose: false,
   defaultScope: "allWindows",
   llmEnabled: true,
   maxSnippetChars: 720,
-  settingsVersion: 3
+  settingsVersion: 4
 };
 
 function getLocal(keys) {
@@ -44,7 +45,7 @@ export async function getSettings() {
   const result = await getLocal({ [SETTINGS_KEY]: DEFAULT_SETTINGS });
   const stored = result[SETTINGS_KEY] || {};
   const { model: _legacyModel, ...rest } = stored;
-  return { ...DEFAULT_SETTINGS, ...rest, settingsVersion: 3 };
+  return { ...DEFAULT_SETTINGS, ...rest, settingsVersion: 4 };
 }
 
 export async function saveSettings(settings) {
@@ -54,7 +55,7 @@ export async function saveSettings(settings) {
     ...current,
     ...incoming,
     maxSnippetChars: Number(incoming.maxSnippetChars || current.maxSnippetChars),
-    settingsVersion: 3
+    settingsVersion: 4
   };
   await setLocal({ [SETTINGS_KEY]: next });
   return next;

@@ -11,7 +11,9 @@
       <header class="app-header simple">
         <div>
           <div class="brand-lockup">
-            <img src="assets/logo.svg" alt="" class="brand-logo">
+            <button class="brand-logo-button" id="brand-home" type="button" title="Open the Manager" aria-label="Open the Neat Freak Manager">
+              <img src="assets/logo.svg" alt="" class="brand-logo">
+            </button>
             <h1>Settings</h1>
           </div>
           <p>Configure capture defaults and LLM categorization.</p>
@@ -27,6 +29,10 @@
               <option value="currentWindow">Current window</option>
               <option value="allWindows">All windows</option>
             </select>
+          </label>
+          <label class="check-row">
+            <input type="checkbox" id="default-keep-current-tab">
+            <span>Keep the current tab open by default</span>
           </label>
           <label class="check-row">
             <input type="checkbox" id="default-review">
@@ -56,6 +62,10 @@
             <span>OpenAI API key</span>
             <input id="api-key" type="password" autocomplete="off" placeholder="sk-...">
           </label>
+          <div class="field-row inline">
+            <span></span>
+            <button class="secondary-button" id="open-openai" type="button">Get an OpenAI key →</button>
+          </div>
           <p class="helper-text">Neat Freak uses <strong>gpt-5-mini</strong>. Your API key is stored only in Chrome local extension storage. When enabled, tab titles, URLs, domains, and short page summaries are sent to OpenAI.</p>
         </section>
 

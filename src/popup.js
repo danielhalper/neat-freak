@@ -1,13 +1,16 @@
 import { formatDateTime } from "./utils.js";
 
-const summaryEl = document.querySelector("#open-tab-summary");
 const recentEl = document.querySelector("#recent-sessions");
 const statusEl = document.querySelector("#status-line");
 const saveButton = document.querySelector("#save-tabs");
 const saveModeCopy = document.querySelector("#save-mode-copy");
+const saveButtonLabel = document.querySelector("#save-button-label");
 const reviewInput = document.querySelector("#review-before-close");
 const pinnedInput = document.querySelector("#include-pinned");
+const keepCurrentTabInput = document.querySelector("#keep-current-tab");
 const scopeButtons = [...document.querySelectorAll("[data-scope]")];
+const captureOptionsToggle = document.querySelector("#toggle-capture-options");
+const captureOptionsEl = document.querySelector("#capture-options");
 const defaultStateEl = document.querySelector("#default-state");
 const progressEl = document.querySelector("#save-progress");
 const progressStepEls = [...progressEl.querySelectorAll("[data-step]")];
@@ -15,6 +18,8 @@ const progressHintEl = progressEl.querySelector(".progress-hint");
 const doneEl = document.querySelector("#save-done");
 const doneTitleEl = document.querySelector("#done-title");
 const doneSubtitleEl = document.querySelector("#done-subtitle");
+const doneFoldersEl = document.querySelector("#done-folders");
+const closeLiveBtn = document.querySelector("#close-live-tabs");
 const openResultButton = document.querySelector("#open-result");
 
 const STEP_ORDER = ["scanning", "capturing", "grouping", "saving"];
@@ -29,19 +34,54 @@ const searchInput = document.querySelector("#popup-search");
 const searchClear = document.querySelector("#popup-search-clear");
 const searchHint = document.querySelector("#popup-search-hint");
 const searchResultsEl = document.querySelector("#popup-search-results");
-const controlsEl = document.querySelector("#popup-controls");
 
 let selectedScope = "allWindows";
 let lastResultSessionId = "";
 let searchDebounce = null;
 let lastQuery = "";
 let lastMode = "local";
+let progressWatchdog = null;
+const PROGRESS_WATCHDOG_MS = 90 * 1000;
 
 init();
 
 async function init() {
   bindEvents();
   await refresh();
+  await recoverInFlightSave();
+}
+
+async function recoverInFlightSave() {
+  try {
+    const session = chrome.storage?.session;
+    if (!session) return;
+    const { neatFreakSaveState: state } = await session.get("neatFreakSaveState");
+    if (!state) return;
+    const elapsed = Date.now() - (state.t || 0);
+
+    if (state.step === "done") {
+      // Only re-show "done" if it was very recent — otherwise we'd flash a stale message.
+      if (elapsed > 30 * 1000) return;
+      showDoneState({
+        sessionId: state.sessionId,
+        tabCount: state.tabCount || 0,
+        groupCount: state.groupCount || 0,
+        looseCount: state.looseCount || 0,
+        llm: Boolean(state.llm),
+        folders: Array.isArray(state.folders) ? state.folders : [],
+        pendingCount: state.pendingCount || 0,
+        reviewMode: Boolean(state.reviewMode)
+      });
+      return;
+    }
+
+    // For in-progress steps, only show progress if the save is still active.
+    if (elapsed > 5 * 60 * 1000) return;
+    enterProgressState();
+    handleProgress(state);
+  } catch {
+    // No-op — recovery is best-effort.
+  }
 }
 
 function bindEvents() {
@@ -54,8 +94,14 @@ function bindEvents() {
   });
 
   pinnedInput.addEventListener("change", refreshPreview);
-  reviewInput.addEventListener("change", updateSaveModeCopy);
+  keepCurrentTabInput.addEventListener("change", refreshPreview);
+  reviewInput.addEventListener("change", () => undefined);
   saveButton.addEventListener("click", saveTabs);
+  captureOptionsToggle.addEventListener("click", toggleCaptureOptions);
+  document.querySelector("#brand-home").addEventListener("click", () => {
+    send("OPEN_MANAGER");
+    window.close();
+  });
   document.querySelector("#open-manager").addEventListener("click", () => send("OPEN_MANAGER"));
   document.querySelector("#open-options").addEventListener("click", () => send("OPEN_OPTIONS"));
   openResultButton.addEventListener("click", () => {
@@ -65,6 +111,21 @@ function bindEvents() {
       send("OPEN_MANAGER");
     }
     window.close();
+  });
+
+  closeLiveBtn.addEventListener("click", async () => {
+    if (!lastResultSessionId) return;
+    closeLiveBtn.disabled = true;
+    closeLiveBtn.textContent = "Closing…";
+    const response = await send("CLOSE_SAVED_TABS", { sessionId: lastResultSessionId });
+    if (!response.ok) {
+      closeLiveBtn.disabled = false;
+      closeLiveBtn.textContent = "Close live tabs";
+      setStatus(response.error || "Couldn't close live tabs.", "error");
+      return;
+    }
+    closeLiveBtn.setAttribute("hidden", "");
+    setStatus("Live tabs closed. Original tabs are now in the saved session.");
   });
 
   chrome.runtime.onMessage.addListener((message) => {
@@ -101,9 +162,9 @@ async function refresh() {
   selectedScope = settings.defaultScope || "allWindows";
   reviewInput.checked = Boolean(settings.defaultReviewBeforeClose);
   pinnedInput.checked = Boolean(settings.defaultIncludePinned);
+  keepCurrentTabInput.checked = Boolean(settings.defaultKeepCurrentTab);
   scopeButtons.forEach((button) => button.classList.toggle("active", button.dataset.scope === selectedScope));
   renderPreview(preview);
-  updateSaveModeCopy();
   renderRecentSessions(sessions || []);
   setStatus(settings.apiKey ? "LLM grouping is ready." : "Add an API key in settings for LLM grouping.");
 }
@@ -112,6 +173,7 @@ async function refreshPreview() {
   const response = await send("PREVIEW_TABS", {
     options: {
       includePinned: pinnedInput.checked,
+      keepCurrentTab: keepCurrentTabInput.checked,
       scope: selectedScope
     }
   });
@@ -125,9 +187,10 @@ async function saveTabs() {
   const response = await send("SAVE_TABS", {
     options: {
       includePinned: pinnedInput.checked,
+      keepCurrentTab: keepCurrentTabInput.checked,
       reviewBeforeClose: reviewInput.checked,
       scope: selectedScope,
-      openManager: false
+      openManager: true
     }
   });
 
@@ -143,14 +206,19 @@ async function saveTabs() {
   if (!doneEl.hasAttribute("hidden")) return;
   const session = response.session;
   const categories = session?.categories || [];
-  const folders = categories.filter((c) => (c.tabIds || []).length >= 2).length;
+  const folderObjs = categories
+    .filter((c) => (c.tabIds || []).length >= 2)
+    .map((c) => ({ id: c.id, name: c.name, count: c.tabIds.length }));
   const loose = categories.filter((c) => (c.tabIds || []).length === 1).length;
   showDoneState({
     sessionId: session?.id,
     tabCount: session?.tabs?.length || 0,
-    groupCount: folders,
+    groupCount: folderObjs.length,
     looseCount: loose,
-    llm: session?.categorization?.method?.includes("llm")
+    llm: session?.categorization?.method?.includes("llm"),
+    folders: folderObjs,
+    pendingCount: session?.pendingTabIds?.length || 0,
+    reviewMode: session?.closeStatus === "review"
   });
 }
 
@@ -165,22 +233,53 @@ function enterProgressState() {
     if (label) label.textContent = STEP_LABELS[el.dataset.step] || el.dataset.step;
   });
   progressHintEl.textContent = "You can close this — Neat Freak will ping you when it's done.";
+  armWatchdog();
 }
 
 function exitProgressState() {
+  clearWatchdog();
   progressEl.setAttribute("hidden", "");
   doneEl.setAttribute("hidden", "");
   defaultStateEl.removeAttribute("hidden");
 }
 
+function armWatchdog() {
+  clearWatchdog();
+  progressWatchdog = setTimeout(showStuckRecovery, PROGRESS_WATCHDOG_MS);
+}
+
+function clearWatchdog() {
+  if (progressWatchdog) {
+    clearTimeout(progressWatchdog);
+    progressWatchdog = null;
+  }
+}
+
+function showStuckRecovery() {
+  progressHintEl.innerHTML = `Taking longer than usual. <button type="button" class="link-button inline-link" id="stuck-open-manager">Open manager →</button>`;
+  const btn = document.querySelector("#stuck-open-manager");
+  if (btn) {
+    btn.addEventListener("click", () => {
+      send("OPEN_MANAGER");
+      window.close();
+    });
+  }
+}
+
 function handleProgress(message) {
+  // Reset the watchdog on every progress event — save is making real progress.
+  armWatchdog();
   if (message.step === "done") {
+    clearWatchdog();
     showDoneState({
       sessionId: message.sessionId,
       tabCount: message.tabCount || 0,
       groupCount: message.groupCount || 0,
       looseCount: message.looseCount || 0,
-      llm: Boolean(message.llm)
+      llm: Boolean(message.llm),
+      folders: Array.isArray(message.folders) ? message.folders : [],
+      pendingCount: message.pendingCount || 0,
+      reviewMode: Boolean(message.reviewMode)
     });
     return;
   }
@@ -210,7 +309,7 @@ function handleProgress(message) {
   }
 }
 
-function showDoneState({ sessionId, tabCount, groupCount, looseCount, llm }) {
+function showDoneState({ sessionId, tabCount, groupCount, looseCount, llm, folders, pendingCount, reviewMode }) {
   lastResultSessionId = sessionId || "";
   progressEl.setAttribute("hidden", "");
   defaultStateEl.setAttribute("hidden", "");
@@ -221,13 +320,54 @@ function showDoneState({ sessionId, tabCount, groupCount, looseCount, llm }) {
   const looseText = looseCount ? ` · ${looseCount} loose` : "";
   const llmText = llm ? " · gpt-5-mini" : "";
   doneSubtitleEl.textContent = `${folderText}${looseText}${llmText}`;
+
+  const folderList = Array.isArray(folders) ? folders : [];
+  if (folderList.length) {
+    doneFoldersEl.innerHTML = folderList.map((folder) => `
+      <li class="done-folder">
+        <span class="done-folder-name">${escapeHtml(folder.name || "Folder")}</span>
+        <span class="done-folder-count">${folder.count} tab${folder.count === 1 ? "" : "s"}</span>
+      </li>
+    `).join("");
+    doneFoldersEl.removeAttribute("hidden");
+  } else {
+    doneFoldersEl.innerHTML = "";
+    doneFoldersEl.setAttribute("hidden", "");
+  }
+
+  if (reviewMode && pendingCount > 0) {
+    closeLiveBtn.textContent = `Close ${pendingCount} live tab${pendingCount === 1 ? "" : "s"}`;
+    closeLiveBtn.disabled = false;
+    closeLiveBtn.removeAttribute("hidden");
+  } else {
+    closeLiveBtn.setAttribute("hidden", "");
+  }
 }
 
 function renderPreview(preview) {
   const count = preview?.count || 0;
   const skipped = preview?.skippedCount || 0;
-  const domainText = preview?.domains?.length ? ` from ${preview.domains.join(", ")}` : "";
-  summaryEl.textContent = `${count} savable tab${count === 1 ? "" : "s"}${domainText}${skipped ? `; ${skipped} skipped` : ""}`;
+  if (count === 0) {
+    saveButtonLabel.textContent = "Nothing to tidy";
+    if (skipped) {
+      saveModeCopy.textContent = `${skipped} tab${skipped === 1 ? "" : "s"} skipped (pinned, current, or unsupported)`;
+    } else {
+      saveModeCopy.textContent = "No open tabs are eligible to save";
+    }
+  } else {
+    saveButtonLabel.textContent = "Tidy my tabs";
+    let copy = `${count} tab${count === 1 ? "" : "s"} to save`;
+    if (skipped) copy += `, ${skipped} skipped`;
+    saveModeCopy.textContent = copy;
+  }
+  saveButton.toggleAttribute("disabled", count === 0);
+}
+
+function toggleCaptureOptions() {
+  const isOpen = !captureOptionsEl.hasAttribute("hidden");
+  captureOptionsEl.toggleAttribute("hidden", isOpen);
+  captureOptionsToggle.setAttribute("aria-expanded", String(!isOpen));
+  captureOptionsToggle.classList.toggle("open", !isOpen);
 }
 
 function renderRecentSessions(sessions) {
@@ -237,7 +377,6 @@ function renderRecentSessions(sessions) {
   }
 
   recentEl.innerHTML = sessions.map((session) => {
-    const method = session.categorization?.method?.includes("llm") ? "LLM" : session.categorization?.method?.includes("graph") ? "Graph" : "Local";
     const tabCount = session.tabs?.length || 0;
     return `
       <button class="recent-session" type="button" data-session-id="${escapeHtml(session.id)}">
@@ -245,7 +384,6 @@ function renderRecentSessions(sessions) {
           <strong>${escapeHtml(formatDateTime(session.createdAt))}</strong>
           <small>${tabCount} tab${tabCount === 1 ? "" : "s"}</small>
         </span>
-        <em>${method}</em>
       </button>
     `;
   }).join("");
@@ -253,12 +391,6 @@ function renderRecentSessions(sessions) {
   recentEl.querySelectorAll("[data-session-id]").forEach((button) => {
     button.addEventListener("click", () => send("OPEN_MANAGER", { sessionId: button.dataset.sessionId }));
   });
-}
-
-function updateSaveModeCopy() {
-  saveModeCopy.textContent = reviewInput.checked
-    ? "Groups first, then review before closing"
-    : "Groups and closes saved tabs";
 }
 
 function setStatus(message, tone = "normal") {
@@ -303,8 +435,7 @@ function clearSearch() {
 function clearSearchUi() {
   searchResultsEl.setAttribute("hidden", "");
   searchResultsEl.innerHTML = "";
-  controlsEl.removeAttribute("hidden");
-  defaultStateEl.removeAttribute("hidden");
+  recentEl.removeAttribute("hidden");
   searchHint.textContent = "Press ↵ for smart search";
   lastQuery = "";
   lastMode = "local";
@@ -319,8 +450,7 @@ async function runSearch(rawQuery, mode) {
 
   lastQuery = query;
   lastMode = mode;
-  controlsEl.setAttribute("hidden", "");
-  defaultStateEl.setAttribute("hidden", "");
+  recentEl.setAttribute("hidden", "");
   searchResultsEl.removeAttribute("hidden");
   if (mode === "smart") {
     searchHint.textContent = "Asking gpt-5-mini…";

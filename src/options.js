@@ -5,6 +5,7 @@ const fields = {
   apiKey: document.querySelector("#api-key"),
   collectPageSummaries: document.querySelector("#collect-page-summaries"),
   defaultIncludePinned: document.querySelector("#default-include-pinned"),
+  defaultKeepCurrentTab: document.querySelector("#default-keep-current-tab"),
   defaultReviewBeforeClose: document.querySelector("#default-review"),
   defaultScope: document.querySelector("#default-scope"),
   llmEnabled: document.querySelector("#llm-enabled"),
@@ -27,12 +28,30 @@ function bindEvents() {
   form.addEventListener("submit", save);
   document.querySelector("#test-llm").addEventListener("click", testLlm);
   document.querySelector("#open-manager").addEventListener("click", () => send("OPEN_MANAGER"));
+  document.querySelector("#open-openai").addEventListener("click", openOpenAiPlatform);
+  document.querySelector("#brand-home").addEventListener("click", () => send("OPEN_MANAGER"));
+}
+
+async function openOpenAiPlatform() {
+  const url = "https://platform.openai.com/login";
+  try {
+    const currentTab = await chrome.tabs.getCurrent();
+    await chrome.tabs.create({
+      url,
+      active: true,
+      openerTabId: currentTab?.id,
+      index: currentTab ? currentTab.index + 1 : undefined
+    });
+  } catch {
+    window.open(url, "_blank", "noopener,noreferrer");
+  }
 }
 
 function populate(settings) {
   fields.apiKey.value = settings.apiKey || "";
   fields.collectPageSummaries.checked = Boolean(settings.collectPageSummaries);
   fields.defaultIncludePinned.checked = Boolean(settings.defaultIncludePinned);
+  fields.defaultKeepCurrentTab.checked = Boolean(settings.defaultKeepCurrentTab);
   fields.defaultReviewBeforeClose.checked = Boolean(settings.defaultReviewBeforeClose);
   fields.defaultScope.value = settings.defaultScope || "allWindows";
   fields.llmEnabled.checked = Boolean(settings.llmEnabled);
@@ -66,6 +85,7 @@ function readSettings() {
     apiKey: fields.apiKey.value.trim(),
     collectPageSummaries: fields.collectPageSummaries.checked,
     defaultIncludePinned: fields.defaultIncludePinned.checked,
+    defaultKeepCurrentTab: fields.defaultKeepCurrentTab.checked,
     defaultReviewBeforeClose: fields.defaultReviewBeforeClose.checked,
     defaultScope: fields.defaultScope.value,
     llmEnabled: fields.llmEnabled.checked,

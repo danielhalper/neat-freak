@@ -12,19 +12,64 @@
         <div>
           <div class="brand-lockup">
             <img src="assets/logo.svg" alt="" class="brand-logo">
-            <h1>Neat Freak</h1>
+            <h1 class="brand-wordmark"><span>Neat</span> <span class="brand-word-accent">Freak</span></h1>
           </div>
           <p>Saved tab sessions, grouped for fast restore.</p>
         </div>
         <div class="header-actions">
-          <button class="primary-button" id="restore-everything" type="button">Restore all</button>
-          <button class="secondary-button" id="capture-now" type="button">Save all windows</button>
-          <button class="secondary-button" id="export-sessions" type="button">Export</button>
-          <button class="secondary-button" id="import-sessions" type="button">Import</button>
-          <button class="secondary-button" id="open-options" type="button">Settings</button>
+          <button class="primary-button" id="capture-now" type="button">Tidy tabs</button>
+          <div class="header-popover-wrapper">
+            <button class="icon-button" id="open-backup" type="button" title="Backup (export &amp; import)" aria-label="Backup" aria-haspopup="true" aria-expanded="false">
+              <svg viewBox="0 0 24 24" aria-hidden="true">
+                <path d="M12 3v10"></path>
+                <path d="m8 9 4-4 4 4"></path>
+                <path d="M5 14v5h14v-5"></path>
+              </svg>
+            </button>
+            <div class="header-popover" id="backup-popover" role="menu" hidden>
+              <button class="popover-item" id="export-sessions" type="button" role="menuitem">
+                <svg viewBox="0 0 24 24" aria-hidden="true">
+                  <path d="M12 4v12"></path>
+                  <path d="m7 11 5 5 5-5"></path>
+                  <path d="M5 20h14"></path>
+                </svg>
+                <span>Export sessions…</span>
+              </button>
+              <button class="popover-item" id="import-sessions" type="button" role="menuitem">
+                <svg viewBox="0 0 24 24" aria-hidden="true">
+                  <path d="M12 20V8"></path>
+                  <path d="m7 13 5-5 5 5"></path>
+                  <path d="M5 4h14"></path>
+                </svg>
+                <span>Import sessions…</span>
+              </button>
+            </div>
+          </div>
+          <button class="icon-button" id="open-options" type="button" title="Settings" aria-label="Settings">
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M12 15.4a3.4 3.4 0 1 0 0-6.8 3.4 3.4 0 0 0 0 6.8Z"></path>
+              <path d="M19.4 15a1.6 1.6 0 0 0 .3 1.8l.1.1a1.9 1.9 0 0 1-2.7 2.7l-.1-.1a1.6 1.6 0 0 0-1.8-.3 1.6 1.6 0 0 0-1 1.5V21a1.9 1.9 0 0 1-3.8 0v-.2a1.6 1.6 0 0 0-1-1.5 1.6 1.6 0 0 0-1.8.3l-.1.1a1.9 1.9 0 1 1-2.7-2.7l.1-.1a1.6 1.6 0 0 0 .3-1.8 1.6 1.6 0 0 0-1.5-1H3a1.9 1.9 0 0 1 0-3.8h.2a1.6 1.6 0 0 0 1.5-1 1.6 1.6 0 0 0-.3-1.8l-.1-.1a1.9 1.9 0 0 1 2.7-2.7l.1.1a1.6 1.6 0 0 0 1.8.3h.1a1.6 1.6 0 0 0 .9-1.5V3a1.9 1.9 0 0 1 3.8 0v.2a1.6 1.6 0 0 0 1 1.5 1.6 1.6 0 0 0 1.8-.3l.1-.1a1.9 1.9 0 1 1 2.7 2.7l-.1.1a1.6 1.6 0 0 0-.3 1.8v.1a1.6 1.6 0 0 0 1.5.9h.2a1.9 1.9 0 0 1 0 3.8h-.2a1.6 1.6 0 0 0-1.5 1Z"></path>
+            </svg>
+          </button>
+          <button class="icon-button help-button" id="open-help" type="button" title="Help & feedback" aria-label="Help & feedback">
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+              <circle cx="12" cy="12" r="9"></circle>
+              <path d="M9.5 9a2.5 2.5 0 1 1 4.5 1.5c-.8.6-2 1-2 2.5"></path>
+              <circle cx="12" cy="17" r="0.6" fill="currentColor" stroke="none"></circle>
+            </svg>
+          </button>
           <input id="import-file" type="file" accept="application/json" hidden>
         </div>
       </header>
+
+      <div id="manager-save-banner" class="manager-save-banner" role="status" aria-live="polite" hidden></div>
+
+      <div id="manager-snackbar" class="manager-snackbar" role="status" aria-live="polite" hidden>
+        <span class="manager-snackbar-icon" aria-hidden="true">✨</span>
+        <span class="manager-snackbar-text">Add an OpenAI API key to unlock AI-smart group names and natural-language search.</span>
+        <button class="manager-snackbar-cta" id="snackbar-settings" type="button">Open settings →</button>
+        <button class="manager-snackbar-dismiss" id="snackbar-dismiss" type="button" aria-label="Dismiss">×</button>
+      </div>
 
       <section class="manager-toolbar" aria-label="Session controls">
         <label class="search-box">
@@ -32,13 +77,34 @@
             <path d="m21 21-4.4-4.4"></path>
             <circle cx="11" cy="11" r="7"></circle>
           </svg>
-          <input id="session-search" type="search" placeholder="Search sessions, groups, tabs, domains">
+          <input id="session-search" type="search" placeholder="Search saved tabs, or ask a question…">
         </label>
         <div id="manager-stats" class="manager-stats">Loading...</div>
       </section>
+      <p id="manager-search-hint" class="manager-search-hint" hidden>Press <kbd>↵</kbd> for smart search</p>
+
+      <section id="manager-search-results" class="manager-search-results" hidden aria-live="polite"></section>
 
       <section id="sessions-container" class="sessions-container" aria-live="polite"></section>
     </main>
+
+    <div class="help-overlay" id="help-overlay" hidden aria-hidden="true">
+      <div class="help-modal" role="dialog" aria-modal="true" aria-labelledby="help-title">
+        <button class="help-close" id="help-close" type="button" aria-label="Close help">×</button>
+        <h2 id="help-title">How to use Neat Freak</h2>
+        <ul class="help-tips">
+          <li><strong>Tidy tabs</strong> — click the Neat Freak icon in your toolbar, then "Tidy tabs". Your open tabs are saved as memory-light folders and the originals close.</li>
+          <li><strong>Find anything</strong> — type in the search box to filter by keyword. Press <kbd>↵</kbd> to ask in plain English (e.g., "UX applicants I looked up").</li>
+          <li><strong>Restore</strong> — click any saved tab to reopen it. Hover a folder or session to reveal the "open all" arrow.</li>
+          <li><strong>Keep what you're on</strong> — by default Neat Freak keeps your current tab open. Toggle this in Settings or the popup's Options.</li>
+          <li><strong>AI grouping</strong> — bring your own OpenAI key in Settings for workstream-aware folder names and smart search.</li>
+        </ul>
+        <div class="help-feedback">
+          <p>Have questions, feedback, or a bug to report?</p>
+          <a class="primary-button" id="help-form-link" href="https://docs.google.com/forms/d/e/1FAIpQLScCJ75hY97O_cTcMTrcxAX9T2cSlLX8Ow3k-IGYomjWEiNHeQ/viewform?usp=dialog" target="_blank" rel="noopener noreferrer">Send us a note →</a>
+        </div>
+      </div>
+    </div>
     <script type="module" src="src/manager.js"></script>
   </body>
 </html>

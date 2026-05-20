@@ -73,6 +73,7 @@ async function getPopupState() {
   const sessions = await getSessions();
   const preview = await previewTabs({
     includePinned: settings.defaultIncludePinned,
+    keepCurrentTab: settings.defaultKeepCurrentTab,
     scope: settings.defaultScope
   });
   return { preview, sessions: sessions.slice(0, 3), settings };
@@ -94,22 +95,48 @@ function emitProgress(payload) {
   } catch {
     // No open popup is listening — that's fine. Notifications cover that case.
   }
+  // Persist the latest step so a re-opened popup can recover state.
+  try {
+    const session = chrome.storage?.session;
+    if (!session) return;
+    const enriched = { ...payload, t: Date.now() };
+    session.set({ neatFreakSaveState: enriched }).catch(() => undefined);
+    if (payload.step === "done") {
+      // Auto-expire the done snapshot after 60s so we don't show a stale "tucked away" message hours later.
+      setTimeout(() => {
+        session.remove("neatFreakSaveState").catch(() => undefined);
+      }, 60 * 1000);
+    }
+  } catch {
+    // chrome.storage.session may be unavailable in some older Chromiums; tolerate it.
+  }
 }
 
 async function saveTabs(options) {
   const settings = await getSettings();
   const captureOptions = {
     includePinned: Boolean(options.includePinned ?? settings.defaultIncludePinned),
+    keepCurrentTab: Boolean(options.keepCurrentTab ?? settings.defaultKeepCurrentTab),
     reviewBeforeClose: Boolean(options.reviewBeforeClose ?? settings.defaultReviewBeforeClose),
     scope: options.scope || settings.defaultScope || "allWindows"
   };
 
-  emitProgress({ step: "scanning" });
   const { candidates, skipped } = await getCandidateTabs(captureOptions);
   if (!candidates.length) {
     throw new Error("No savable tabs found. Chrome internal pages and extension pages are skipped.");
   }
 
+  // Only auto-open the Manager if closing the candidate tabs would leave Chrome
+  // with no surviving tabs (otherwise Chrome would quit and the user would lose
+  // their workspace). If skipped/other tabs exist, don't yank them into the Manager.
+  if (options.openManager !== false) {
+    const survivors = await countSurvivingTabs(candidates);
+    if (survivors === 0) {
+      await openManager();
+    }
+  }
+
+  emitProgress({ step: "scanning", tabCount: candidates.length });
   emitProgress({ step: "capturing", tabCount: candidates.length });
   const tabs = await buildSavedTabs(candidates, settings);
 
@@ -135,24 +162,32 @@ async function saveTabs(options) {
 
   await addSession(session);
   notifySessionReady(session, meta);
+  const folderSummaries = (categories || [])
+    .filter((c) => (c.tabIds || []).length >= 2)
+    .map((c) => ({ id: c.id, name: c.name, count: c.tabIds.length }));
   emitProgress({
     step: "done",
     sessionId: session.id,
     tabCount: tabs.length,
-    groupCount: (categories || []).filter((c) => (c.tabIds || []).length >= 2).length,
+    groupCount: folderSummaries.length,
     looseCount: (categories || []).filter((c) => (c.tabIds || []).length === 1).length,
-    llm: Boolean(meta?.method?.includes("llm"))
+    llm: Boolean(meta?.method?.includes("llm")),
+    folders: folderSummaries,
+    pendingCount: session.pendingTabIds?.length || 0,
+    reviewMode: captureOptions.reviewBeforeClose === true
   });
-
-  if (options.openManager !== false) {
-    await openManager(session.id);
-  }
 
   if (!captureOptions.reviewBeforeClose) {
     await closeTabIds(candidates.map((tab) => tab.id));
   }
 
   return { session };
+}
+
+async function countSurvivingTabs(candidates) {
+  const all = await queryTabs({});
+  const candidateIds = new Set(candidates.map((t) => t.id).filter(Number.isFinite));
+  return all.filter((tab) => !candidateIds.has(tab.id)).length;
 }
 
 async function getCandidateTabs(options) {
@@ -162,7 +197,7 @@ async function getCandidateTabs(options) {
   const candidates = [];
 
   for (const tab of tabs) {
-    const reason = getSkipReason(tab, options.includePinned);
+    const reason = getSkipReason(tab, options);
     if (reason) {
       skipped.push({
         id: tab.id,
@@ -178,8 +213,10 @@ async function getCandidateTabs(options) {
   return { candidates, skipped };
 }
 
-function getSkipReason(tab, includePinned) {
+function getSkipReason(tab, options) {
+  const { includePinned, keepCurrentTab } = options || {};
   if (!tab?.id || !tab.url) return "missing-url";
+  if (keepCurrentTab && tab.active) return "current-tab";
   if (tab.pinned && !includePinned) return "pinned";
   if (!isSavableUrl(tab.url)) return "unsupported-url";
   return "";
@@ -210,11 +247,18 @@ async function buildSavedTabs(tabs, settings) {
 }
 
 async function getPageSummary(tabId, maxChars) {
-  const result = await executeScript({
+  // Cap per-tab summary extraction at 4 seconds. If a tab is unresponsive
+  // (restricted page, suspended, slow-loading), we'd rather skip its summary
+  // than hang the entire save flow.
+  const scriptPromise = executeScript({
     target: { tabId },
     func: collectPageSummary,
     args: [Number(maxChars || 720)]
   });
+  const result = await Promise.race([
+    scriptPromise,
+    new Promise((resolve) => setTimeout(() => resolve(null), 4000))
+  ]);
   return result?.[0]?.result || "";
 }
 
@@ -564,8 +608,39 @@ async function restoreUrls(urls) {
 }
 
 async function openManager(sessionId = "") {
-  const url = chrome.runtime.getURL(`manager.html${sessionId ? `#${encodeURIComponent(sessionId)}` : ""}`);
-  await createTab({ url, active: true });
+  const base = chrome.runtime.getURL("manager.html");
+  const target = sessionId ? `${base}#${encodeURIComponent(sessionId)}` : base;
+  const existing = await queryTabs({ url: `${base}*` });
+  if (existing.length) {
+    const tab = existing[0];
+    await updateTab(tab.id, { active: true, url: target });
+    if (tab.windowId !== undefined) {
+      await focusWindow(tab.windowId).catch(() => undefined);
+    }
+    return;
+  }
+  await createTab({ url: target, active: true });
+}
+
+function updateTab(tabId, updateProperties) {
+  return new Promise((resolve, reject) => {
+    chrome.tabs.update(tabId, updateProperties, (tab) => {
+      const error = chrome.runtime.lastError;
+      if (error) reject(new Error(error.message));
+      else resolve(tab);
+    });
+  });
+}
+
+function focusWindow(windowId) {
+  return new Promise((resolve, reject) => {
+    if (!chrome.windows?.update) return resolve();
+    chrome.windows.update(windowId, { focused: true }, (win) => {
+      const error = chrome.runtime.lastError;
+      if (error) reject(new Error(error.message));
+      else resolve(win);
+    });
+  });
 }
 
 function createSessionTitle(tabs) {
@@ -607,12 +682,93 @@ function notifySessionReady(session, meta) {
 
 if (chrome.notifications?.onClicked) {
   chrome.notifications.onClicked.addListener((notificationId) => {
+    if (notificationId === CLUTTER_NOTIFICATION_ID) {
+      openManager().catch(() => undefined);
+      chrome.notifications.clear(notificationId);
+      return;
+    }
     if (!notificationId.startsWith(NOTIFICATION_PREFIX)) return;
     const sessionId = notificationId.slice(NOTIFICATION_PREFIX.length);
     openManager(sessionId).catch(() => undefined);
     chrome.notifications.clear(notificationId);
   });
 }
+
+// ===== Clutter watcher =====
+// When the user has too many tabs open, fire a once-per-day "you're stressing
+// the monster" notification. Tab events are debounced so opening 30 tabs at
+// once only triggers one check.
+
+const CLUTTER_THRESHOLD = 20;
+const CLUTTER_NOTIFY_KEY = "neatFreakClutterNotifiedAt";
+const CLUTTER_DISABLED_KEY = "neatFreakClutterDisabled";
+const CLUTTER_NOTIFICATION_ID = "neat-freak-clutter";
+const CLUTTER_DAY_MS = 24 * 60 * 60 * 1000;
+const CLUTTER_CHECK_DEBOUNCE_MS = 8000;
+let clutterCheckTimer = null;
+
+function scheduleClutterCheck() {
+  if (clutterCheckTimer) clearTimeout(clutterCheckTimer);
+  clutterCheckTimer = setTimeout(checkClutter, CLUTTER_CHECK_DEBOUNCE_MS);
+}
+
+async function checkClutter() {
+  try {
+    const tabs = await queryTabs({});
+    if (tabs.length < CLUTTER_THRESHOLD) return;
+    if (!chrome.notifications?.create) return;
+
+    const stored = await new Promise((resolve) => {
+      chrome.storage.local.get([CLUTTER_NOTIFY_KEY, CLUTTER_DISABLED_KEY], (result) => resolve(result || {}));
+    });
+    if (stored[CLUTTER_DISABLED_KEY]) return; // User opted out permanently.
+    const lastNotified = Number(stored[CLUTTER_NOTIFY_KEY]) || 0;
+    if (Date.now() - lastNotified < CLUTTER_DAY_MS) return;
+
+    await new Promise((resolve) => {
+      chrome.storage.local.set({ [CLUTTER_NOTIFY_KEY]: Date.now() }, () => resolve());
+    });
+
+    chrome.notifications.create(CLUTTER_NOTIFICATION_ID, {
+      type: "basic",
+      iconUrl: chrome.runtime.getURL("assets/mascot-stressed-128.png"),
+      title: "Neat Freak is feeling overwhelmed",
+      message: `${tabs.length} tabs open — maybe close a few? You're making the little guy nervous.`,
+      priority: 1,
+      requireInteraction: false,
+      buttons: [
+        { title: "Tidy now" },
+        { title: "Don't show this again" }
+      ]
+    });
+  } catch {
+    // Best-effort — the clutter watcher should never break the rest of the extension.
+  }
+}
+
+if (chrome.notifications?.onButtonClicked) {
+  chrome.notifications.onButtonClicked.addListener((notificationId, buttonIndex) => {
+    if (notificationId !== CLUTTER_NOTIFICATION_ID) return;
+    if (buttonIndex === 0) {
+      openManager().catch(() => undefined);
+    } else if (buttonIndex === 1) {
+      chrome.storage.local.set({ [CLUTTER_DISABLED_KEY]: true });
+    }
+    chrome.notifications.clear(notificationId);
+  });
+}
+
+if (chrome.tabs?.onCreated) {
+  chrome.tabs.onCreated.addListener(scheduleClutterCheck);
+}
+if (chrome.tabs?.onRemoved) {
+  chrome.tabs.onRemoved.addListener(scheduleClutterCheck);
+}
+if (chrome.runtime?.onStartup) {
+  chrome.runtime.onStartup.addListener(() => scheduleClutterCheck());
+}
+// Also check on initial service worker boot (covers extension reload + first install).
+scheduleClutterCheck();
 
 const ONBOARDED_KEY = "neatFreakOnboardedAt";
 
