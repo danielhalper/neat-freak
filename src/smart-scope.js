@@ -20,13 +20,18 @@ const LLM_MODEL = "gpt-5.4-mini";
 export function applySmartHeuristic(tabs, clusters, now) {
   const tabById = new Map(tabs.map((t) => [t.id, t]));
 
+  // Tabs without a known lastAccessed (e.g., opened in the background via cmd-click,
+  // restored from session) are treated as just-opened. Otherwise the heuristic
+  // mistakes a fresh background tab for an ancient abandoned one and closes it.
+  const effectiveAccess = (t) => (t && t.lastAccessed) ? t.lastAccessed : now;
+
   const clusterStatus = new Map();
   for (const cluster of clusters) {
     let maxLastAccessed = 0;
     for (const tabId of cluster.tabIds) {
       const t = tabById.get(tabId);
-      if (!t || !t.lastAccessed) continue;
-      if (t.lastAccessed > maxLastAccessed) maxLastAccessed = t.lastAccessed;
+      const ts = effectiveAccess(t);
+      if (ts > maxLastAccessed) maxLastAccessed = ts;
     }
     const minutesSinceMostRecent = maxLastAccessed === 0
       ? Infinity
@@ -51,7 +56,7 @@ export function applySmartHeuristic(tabs, clusters, now) {
     }
     const status = clusterStatus.get(clusterId);
     const cutoff = status === "stale" ? STALE_GROUP_CUTOFF_MIN : ACTIVE_GROUP_CUTOFF_MIN;
-    const minutesAgo = t.lastAccessed ? (now - t.lastAccessed) / 60_000 : Infinity;
+    const minutesAgo = (now - effectiveAccess(t)) / 60_000;
     if (minutesAgo > cutoff) saveIds.push(t.id);
     else keepIds.push(t.id);
   }
@@ -132,7 +137,7 @@ async function runLlmPath(tabs, graph, settings, now) {
 
   const body = {
     model: LLM_MODEL,
-    reasoning_effort: "none",
+    reasoning_effort: "low",
     prompt_cache_key: "neat-freak-smart-scope",
     response_format: {
       type: "json_schema",
@@ -184,12 +189,15 @@ async function runLlmPath(tabs, graph, settings, now) {
           "",
           "For each tab, set action: 'save' (close+tuck into a folder) or 'keep' (leave the tab alone).",
           "",
-          "Decide using:",
-          "- Group context: if a whole cluster has been cold for hours, save all of them. If a cluster is actively in use, even older tabs in it can probably go (the user is focused on the recent ones).",
-          "- Content: protect tabs that look like work-in-progress — open forms, partially-written drafts, unfinished checkouts. Keep these open even if they look stale.",
-          "- Distribution: if everything is recent, nothing is stale. If most things are days old and a few are fresh, the fresh ones matter most.",
+          "DEFAULT TO 'keep'. Only choose 'save' when a tab is clearly stale AND clearly not in active use. When in doubt, keep it.",
           "",
-          "Also return `groups`: workstream-aware folder names for the SAVED tabs only. Each saved tab must appear in exactly one group's tabIds.",
+          "Decide using:",
+          "- Recency: lastAccessedMinutesAgo is how long ago the user last looked at the tab. Anything under ~3 hours should almost always be kept. lastAccessedMinutesAgo: null means the tab was opened in the background or restored from a session and has never been activated — treat it as just-opened and KEEP it. Do not interpret null as 'ancient'.",
+          "- Group context: if a whole cluster has been cold for hours and none of its tabs were touched recently, those tabs can be saved together. If a cluster is active (any tab touched in the last hour), be conservative — keep the recent tabs, and only save the genuinely old ones (8h+).",
+          "- Content: protect tabs that look like work-in-progress — open forms, partially-written drafts, unfinished checkouts, docs the user is likely writing in. Keep these open even if they look stale.",
+          "- Distribution: if everything is recent, save almost nothing. The goal is to clear clutter, not to aggressively close.",
+          "",
+          "Also return `groups`: workstream-aware folder names for the SAVED tabs only. Each saved tab must appear in exactly one group's tabIds. If you save nothing, return an empty groups array.",
           "Keep group names under 52 characters."
         ].join("\n")
       },

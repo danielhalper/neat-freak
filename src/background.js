@@ -264,6 +264,10 @@ async function buildSavedTabs(tabs, settings) {
       domain,
       favIconUrl: tab.favIconUrl || "",
       index: Number.isFinite(tab.index) ? tab.index : 0,
+      // lastAccessed is the only signal Smart scope has for "is this tab actually in use?".
+      // Without it, every tab looks brand-new (null), and the LLM can't tell stale from fresh —
+      // which is exactly what caused recently-opened tabs to get closed.
+      lastAccessed: Number.isFinite(tab.lastAccessed) ? tab.lastAccessed : undefined,
       originalTabId: tab.id,
       pageSummary,
       pinned: Boolean(tab.pinned),
@@ -704,9 +708,16 @@ function notifySessionReady(session, meta) {
       message,
       priority: 1,
       requireInteraction: false
+    }, () => {
+      const error = chrome.runtime.lastError;
+      if (error) {
+        // Surface this in the service worker console so the user can diagnose
+        // why they're not seeing notifications (usually OS-level permission denied).
+        console.warn("[Neat Freak] Session-ready notification failed:", error.message);
+      }
     });
-  } catch {
-    // Notification creation can fail if the OS denied the permission. Don't break the save.
+  } catch (err) {
+    console.warn("[Neat Freak] Session-ready notification threw:", err?.message || err);
   }
 }
 
@@ -770,9 +781,15 @@ async function checkClutter() {
         { title: "Tidy now" },
         { title: "Don't show this again" }
       ]
+    }, () => {
+      const error = chrome.runtime.lastError;
+      if (error) {
+        console.warn("[Neat Freak] Clutter notification failed:", error.message);
+      }
     });
-  } catch {
+  } catch (err) {
     // Best-effort — the clutter watcher should never break the rest of the extension.
+    console.warn("[Neat Freak] Clutter watcher threw:", err?.message || err);
   }
 }
 

@@ -12,7 +12,7 @@ export const DEFAULT_SETTINGS = {
   defaultScope: "smart",
   llmEnabled: true,
   maxSnippetChars: 720,
-  settingsVersion: 4
+  settingsVersion: 5
 };
 
 function getLocal(keys) {
@@ -45,7 +45,14 @@ export async function getSettings() {
   const result = await getLocal({ [SETTINGS_KEY]: DEFAULT_SETTINGS });
   const stored = result[SETTINGS_KEY] || {};
   const { model: _legacyModel, ...rest } = stored;
-  return { ...DEFAULT_SETTINGS, ...rest, settingsVersion: 4 };
+  const merged = { ...DEFAULT_SETTINGS, ...rest };
+  // v5 migration: anyone on a pre-Smart settings version gets bumped to Smart as default.
+  // The Smart scope didn't exist yet when their setting was saved, so we treat their
+  // "allWindows"/"currentWindow" as a stale default rather than an explicit preference.
+  if ((rest.settingsVersion || 0) < 5) {
+    merged.defaultScope = "smart";
+  }
+  return { ...merged, settingsVersion: 5 };
 }
 
 export async function saveSettings(settings) {
@@ -55,7 +62,7 @@ export async function saveSettings(settings) {
     ...current,
     ...incoming,
     maxSnippetChars: Number(incoming.maxSnippetChars || current.maxSnippetChars),
-    settingsVersion: 4
+    settingsVersion: 5
   };
   await setLocal({ [SETTINGS_KEY]: next });
   return next;

@@ -42,13 +42,16 @@ test("multiple clusters evaluated independently", () => {
   assert.deepEqual(keepIds.sort(), ["a", "b"]);
 });
 
-test("tab with no lastAccessed treated as ancient", () => {
-  // c1: a=30 → active → cutoff 480. a kept (30 ≤ 480). b has no lastAccessed → Infinity → save.
+test("tab with no lastAccessed treated as just-opened (kept)", () => {
+  // c1: a=30 → active → cutoff 480.
+  // b has no lastAccessed (e.g. cmd-click opened in background, never activated)
+  // → treated as "now" → kept. Protects fresh background tabs from being
+  // mistaken for ancient abandoned ones.
   const tabs = [tab("a", 30), { id: "b" }];
   const clusters = [{ id: "c1", tabIds: ["a", "b"] }];
   const { saveIds, keepIds } = applySmartHeuristic(tabs, clusters, NOW);
-  assert.deepEqual(saveIds, ["b"]);
-  assert.deepEqual(keepIds, ["a"]);
+  assert.deepEqual(saveIds, []);
+  assert.deepEqual(keepIds.sort(), ["a", "b"]);
 });
 
 test("empty tab list returns empty sets", () => {
