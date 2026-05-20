@@ -1,4 +1,5 @@
 import { categorizeTabs, testLlm } from "./categorizer.js";
+import { runSmartScope } from "./smart-scope.js";
 import {
   addSession,
   deleteSession,
@@ -142,7 +143,28 @@ async function saveTabs(options) {
 
   const willUseLlm = settings.llmEnabled && settings.apiKey;
   emitProgress({ step: "grouping", tabCount: tabs.length, llm: Boolean(willUseLlm) });
-  const { categories, meta } = await categorizeTabs(tabs, settings);
+
+  let categories;
+  let meta;
+  let smartResult = null;
+  let tabsToClose;
+
+  if (captureOptions.scope === "smart") {
+    smartResult = await runSmartScope(tabs, settings);
+    categories = smartResult.categories;
+    meta = {
+      method: smartResult.mode === "llm" ? "smart-llm" : "smart-heuristic",
+      error: smartResult.error || "",
+      keepCount: smartResult.keepSet.length,
+      saveCount: smartResult.saveSet.length
+    };
+    tabsToClose = smartResult.saveSet;
+  } else {
+    const result = await categorizeTabs(tabs, settings);
+    categories = result.categories;
+    meta = result.meta;
+    tabsToClose = tabs;
+  }
 
   emitProgress({ step: "saving" });
   const session = {
@@ -151,11 +173,11 @@ async function saveTabs(options) {
     closeStatus: captureOptions.reviewBeforeClose ? "review" : "closed",
     closedAt: captureOptions.reviewBeforeClose ? "" : nowIso(),
     createdAt: nowIso(),
-    pendingTabIds: captureOptions.reviewBeforeClose ? candidates.map((tab) => tab.id).filter(Number.isFinite) : [],
+    pendingTabIds: captureOptions.reviewBeforeClose ? tabsToClose.map((tab) => tab.originalTabId || tab.id).filter(Number.isFinite) : [],
     scope: captureOptions.scope,
     skipped,
-    tabs,
-    title: createSessionTitle(candidates),
+    tabs: smartResult ? tabsToClose : tabs,
+    title: createSessionTitle(smartResult ? tabsToClose : candidates),
     updatedAt: nowIso(),
     categorization: meta
   };
@@ -168,7 +190,11 @@ async function saveTabs(options) {
   emitProgress({
     step: "done",
     sessionId: session.id,
-    tabCount: tabs.length,
+    tabCount: smartResult ? smartResult.saveSet.length : tabs.length,
+    keepCount: smartResult ? smartResult.keepSet.length : 0,
+    scope: captureOptions.scope,
+    smartMode: smartResult ? smartResult.mode : null,
+    smartError: smartResult?.error || "",
     groupCount: folderSummaries.length,
     looseCount: (categories || []).filter((c) => (c.tabIds || []).length === 1).length,
     llm: Boolean(meta?.method?.includes("llm")),
@@ -178,7 +204,9 @@ async function saveTabs(options) {
   });
 
   if (!captureOptions.reviewBeforeClose) {
-    await closeTabIds(candidates.map((tab) => tab.id));
+    // For Smart, only close the chosen save set. For other scopes, close all candidates.
+    const closeSource = smartResult ? tabsToClose : candidates;
+    await closeTabIds(closeSource.map((tab) => tab.originalTabId || tab.id).filter(Number.isFinite));
   }
 
   return { session };
