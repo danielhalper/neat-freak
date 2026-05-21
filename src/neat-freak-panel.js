@@ -407,33 +407,37 @@ function panelMarkup() {
         to   { opacity: 1; transform: translateY(0); }
       }
 
+      /* Scope picker — matches popup's .scope-switch styling exactly:
+         pill container, segmented buttons, white-filled active state. */
       .scope-picker {
+        background: #eef4f2;
+        border: 1px solid #d3ded9;
+        border-radius: 7px;
         display: inline-flex;
-        gap: 4px;
+        gap: 3px;
         padding: 3px;
-        background: #f2eedf;
-        border-radius: 10px;
-        flex-shrink: 0; /* don't squeeze the picker when the row gets tight */
+        flex-shrink: 0;
       }
       .scope-button {
         flex: 0 0 auto;
         cursor: pointer;
         background: transparent;
-        color: #4a5651;
+        color: #63706b;
         border: 0;
-        padding: 9px 16px;
-        border-radius: 8px;
-        font-size: 13px;
-        font-weight: 600;
+        border-radius: 5px;
+        padding: 0 12px;
+        min-height: 32px;
+        font-size: 12px;
+        font-weight: 650;
         font-family: inherit;
         white-space: nowrap;
         transition: background 120ms ease, color 120ms ease;
       }
-      .scope-button:hover { color: #1a2421; }
+      .scope-button:hover { color: #17201d; }
       .scope-button.active {
         background: #ffffff;
-        color: #1a2421;
-        box-shadow: 0 1px 2px rgba(0, 0, 0, 0.08);
+        color: #17201d;
+        box-shadow: 0 1px 4px rgba(23, 32, 29, 0.08);
       }
 
       .preview-line {
@@ -804,19 +808,21 @@ function panelMarkup() {
         line-height: 1.4;
       }
 
-      /* Scope picker now sits in a row with the "More options" toggle to the right. */
+      /* Scope picker on the left grows naturally; More options sits on the
+         right and never shrinks. Removed justify-content: space-between in
+         favor of gap + auto margin so the toggle is always pinned right with
+         no risk of overflowing the row. */
       .scope-row {
         display: flex;
         align-items: center;
         gap: 10px;
-        justify-content: space-between;
       }
       .more-options-toggle {
         background: #ffffff;
-        border: 1px solid #e8dfc7;
+        border: 1px solid #d3ded9;
         color: #4a5651;
-        width: 32px;
-        height: 32px;
+        width: 36px;
+        height: 36px;
         border-radius: 8px;
         cursor: pointer;
         display: flex;
@@ -824,9 +830,15 @@ function panelMarkup() {
         justify-content: center;
         padding: 0;
         flex-shrink: 0;
+        margin-left: auto;
+        /* Defensive — make sure no later-painted sibling can intercept the
+           click. The button was occasionally unresponsive on narrow widths
+           when other elements briefly overlapped during re-render. */
+        position: relative;
+        z-index: 2;
         transition: color 120ms ease, background 120ms ease, border-color 120ms ease;
       }
-      .more-options-toggle svg { width: 14px; height: 14px; display: block; }
+      .more-options-toggle svg { width: 16px; height: 16px; display: block; pointer-events: none; }
       .more-options-toggle:hover {
         color: #1a2421;
         background: #f6f3e8;
@@ -858,6 +870,20 @@ function panelMarkup() {
         margin: 0;
         accent-color: #0f766e;
       }
+      .more-options-settings-link {
+        margin-top: 6px;
+        padding: 6px 0 2px;
+        background: transparent;
+        border: 0;
+        border-top: 1px dashed rgba(0, 0, 0, 0.12);
+        color: #0f766e;
+        font-size: 12px;
+        font-weight: 600;
+        font-family: inherit;
+        cursor: pointer;
+        text-align: left;
+      }
+      .more-options-settings-link:hover { color: #115e59; }
 
       /* Subtitle for the Tidy CTA showing eligible tab count */
       .tidy-cta {
@@ -923,19 +949,7 @@ function panelMarkup() {
         font-size: 10px;
       }
 
-      /* Footer: status line on the left, Settings link on the right. */
-      .exp-footer {
-        display: flex;
-        align-items: center;
-        justify-content: space-between;
-        gap: 12px;
-        margin-top: 2px;
-      }
-      .exp-status {
-        margin: 0;
-        font-size: 11px;
-        color: #8a948f;
-      }
+      /* Footer removed — Settings link lives inside the More options panel. */
     </style>
     <div class="card" role="status" aria-live="polite" id="card">
       <button class="close" data-action="dismiss" aria-label="Dismiss" type="button">
@@ -1009,6 +1023,9 @@ function panelMarkup() {
           <label class="check-row">
             <input type="checkbox" id="opt-review"> <span>Review before closing</span>
           </label>
+          <button class="more-options-settings-link" data-action="open-options-link" type="button">
+            More settings →
+          </button>
         </div>
 
         <button class="tidy-cta" data-action="tidy-expanded" type="button">
@@ -1032,10 +1049,6 @@ function panelMarkup() {
           <div class="session-list" id="session-list"></div>
         </section>
 
-        <div class="exp-footer">
-          <p class="exp-status" id="exp-status"></p>
-          <button class="link-button" data-action="open-options-link" type="button">Settings →</button>
-        </div>
       </div>
     </div>
   `;
@@ -1344,22 +1357,9 @@ async function loadExpandedData(host) {
     renderPreview(host, response.preview);
     renderMoreOptions(host, response.settings);
     renderSessions(host, response.sessions || []);
-    renderStatusLine(host, response.settings);
     bindSearchInput(host);
   } catch (err) {
     console.warn("[Neat Freak] Load expanded data failed:", err?.message || err);
-  }
-}
-
-function renderStatusLine(host, settings) {
-  const el = host.shadowRoot.getElementById("exp-status");
-  if (!el) return;
-  if (settings?.llmEnabled && settings?.apiKey) {
-    el.textContent = "AI grouping is ready.";
-  } else if (settings?.llmEnabled) {
-    el.textContent = "Local grouping (add an API key for smarter folders).";
-  } else {
-    el.textContent = "Local grouping.";
   }
 }
 
