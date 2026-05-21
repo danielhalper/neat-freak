@@ -186,14 +186,28 @@ Build the recency-ranked session component for the expanded view:
 - Expanded view from done-collapsed shows the just-saved session as the primary content
 - "Open all" actions match existing manager's restore-group / restore-session behavior
 
-## Open questions
+## Locked decisions
 
-1. **Icon click decision.** Confirm Option B (popup-shim fallback). Or Option A (chrome:// → manager tab).
-2. **Auto-dismiss on done state.** Currently the done toast auto-dismisses after 10s. Should the unified panel's done state auto-dismiss too, or stay until × / outside-click?
-3. **Outside-click behavior.** Should clicking outside the panel collapse expanded → done/clutter/hidden? Or always hide entirely? Today's Chrome popup auto-closes on outside click; the toast does not.
-4. **Saving state per-step progress.** Should the saving sub-text reflect actual progress ("Capturing 12 URLs…" → "Grouping…" → "Saving…"), or stay generic ("Organizing…")? More informative but requires wiring emitProgress into the panel state.
-5. **"Open all" on the saved session.** If a user just saved 30 tabs and immediately clicks "Open all" on that session, we'd re-open all 30 — undoing the save. Is that the desired UX, or should "Open all" surface a confirm? Probably confirm.
-6. **Mobile-equivalent / small viewports.** Panel is 320–360px wide. On a 1280px window that's fine. On a 500px window (compact Chrome window) the panel covers a lot of page real estate. Should we adapt or just clamp width?
+1. **Icon click → Option B (popup-shim).** Keep `popup.html` as a thin shim that tries to inject the panel and closes itself on success; renders the existing popup UI inline only when injection fails (chrome:// pages). Mitigate the on-success flash by hiding the popup body until the inject result comes back.
+2. **Auto-dismiss only when trigger-opened.** Clutter (threshold crossed) and done (save completed) collapsed states auto-dismiss after 8 seconds. User-opened expanded state never auto-dismisses — only × / outside-click closes it.
+3. **Outside-click behavior.** Collapsed → no-op (use × to dismiss explicitly). Expanded → collapses back to the preceding collapsed state (clutter / done) or to `hidden` if there was no preceding collapsed context.
+4. **Per-step progress in the saving state.** Yes. The popup already gets per-step labels via `emitProgress`; pipe the same updates into the panel state. Saving sub-text shows "Capturing N URLs…" → "Grouping…" → "Saving…".
+5. **"Open all" on a just-saved session.** Default: silent confirm if the session is less than 60 seconds old ("Reopen all N tabs you just tucked away?"). Beyond that age, no confirm. Revisit during Phase 2D if it feels wrong in practice.
+6. **Small viewports.** Width clamps to `min(360px, calc(100vw - 32px))`. On a 500px window this lands at ~468px wide which is fine; on a 320px Chrome window it shrinks gracefully.
+
+## Visual language
+
+The collapsed states inherit the aesthetic established in the current `clutter-toast.js`:
+- Card: 340px wide (clamped on narrow viewports), `#fdfcf8` cream background, `#e8dfc7` warm border, 14px radius
+- Box shadow with subtle teal tint (`rgba(15, 118, 110, 0.22)`)
+- 3px gradient bar across the top (amber for clutter/saving, teal for done)
+- Mascot: 60px, free-standing (no halo), drop-shadow tinted teal, gentle wobble on entrance
+- Title 14px/600, sub 13px/regular, muted text color
+- Close button absolute top-right inside the card, neutral until hover
+- Actions row separated from body by dashed border
+- Primary button colored by state context:
+  - Clutter / saving: amber (`#f4bd45`) — "attention needed"
+  - Done: teal (`#0f766e`) — "success, calmly done"
 
 ## Trade-offs accepted
 

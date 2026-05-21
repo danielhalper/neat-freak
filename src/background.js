@@ -93,10 +93,16 @@ async function routeMessage(message) {
       return searchSavedTabs(message.query || "", message.mode || "local");
     case "MARK_ONBOARDED":
       return markOnboarded();
-    case "CLUTTER_TOAST_TIDY":
-      return handleClutterToastTidy();
-    case "DONE_TOAST_OPEN":
+    case "CLUTTER_TOAST_TIDY":      // legacy alias from any in-flight content scripts; same handler
+    case "PANEL_TIDY_NOW":
+      return handlePanelTidyNow();
+    case "DONE_TOAST_OPEN":          // legacy alias
+    case "PANEL_OPEN_MANAGER":
       await openManager(message.sessionId || "");
+      await setPanelState({ mode: "hidden" });
+      return {};
+    case "PANEL_DISMISS":
+      await setPanelState({ mode: "hidden" });
       return {};
     default:
       throw new Error("Unknown Neat Freak message.");
@@ -144,6 +150,29 @@ function emitProgress(payload) {
     }
   } catch {
     // chrome.storage.session may be unavailable in some older Chromiums; tolerate it.
+  }
+
+  // Mirror progress into the floating panel's saving state so the sub-text
+  // updates per step ("Capturing N URLs…" → "Grouping…" → "Saving…"). Skipped
+  // if the popup is open — popup handles its own progress UI.
+  if (!isPopupOpen() && payload?.step && payload.step !== "done") {
+    const label = progressLabelFor(payload);
+    setPanelState({ mode: "saving", label }).catch(() => undefined);
+  }
+}
+
+function progressLabelFor(payload) {
+  switch (payload.step) {
+    case "scanning":
+      return "Scanning open tabs";
+    case "capturing":
+      return payload.tabCount ? `Capturing ${payload.tabCount} URL${payload.tabCount === 1 ? "" : "s"}` : "Capturing URLs";
+    case "grouping":
+      return payload.llm ? "Grouping with AI" : "Grouping locally";
+    case "saving":
+      return "Saving";
+    default:
+      return "Organizing";
   }
 }
 
@@ -218,13 +247,10 @@ async function saveTabs(options) {
 
   await addSession(session);
   notifySessionReady(session, meta);
-  // In-page toast — but only if the popup isn't already showing the done state.
-  // When the user keeps the popup open through the save, the popup renders done
-  // internally; a toast on top of that feels like "a separate new thing" and
-  // muddies the continuity the user expects.
-  if (!isPopupOpen()) {
-    showDoneToast(session, meta, smartResult).catch(() => undefined);
-  }
+  // Unified panel: transition to done state. showPanelDone short-circuits if
+  // the Chrome popup is open (it handles its own done state) so we don't
+  // compete for the user's attention.
+  showPanelDone(session, meta, smartResult).catch(() => undefined);
   const folderSummaries = (categories || [])
     .filter((c) => (c.tabIds || []).length >= 2)
     .map((c) => ({ id: c.id, name: c.name, count: c.tabIds.length }));
@@ -762,40 +788,78 @@ function notifySessionReady(session, meta) {
   }
 }
 
-// Inline equivalent of notifySessionReady — same content-script injection
-// pattern as the clutter toast. Fires alongside the OS notification so users
-// who don't have macOS notifications enabled still get a confirmation.
-async function showDoneToast(session, meta, smartResult) {
+// ===== Floating panel state =====
+// Single source of truth for the in-page floating panel. setPanelState writes
+// the new mode to chrome.storage.session.neatFreakPanelState and (re-)injects
+// the panel script so it picks up the change. The panel script is idempotent:
+// if it's already mounted on the active tab, the re-injection just triggers a
+// re-render against the new state.
+
+const PANEL_STATE_KEY = "neatFreakPanelState";
+
+async function setPanelState(state) {
+  try {
+    await chrome.storage.session?.set?.({ [PANEL_STATE_KEY]: state });
+  } catch (err) {
+    console.warn("[Neat Freak] Panel state write failed:", err?.message || err);
+    return false;
+  }
+  if (!state || state.mode === "hidden") return true;
+  return ensurePanelMounted();
+}
+
+async function ensurePanelMounted() {
   const activeTabs = await queryTabs({ active: true, lastFocusedWindow: true });
   const target = activeTabs[0];
   if (!target?.id || !isInjectablePageUrl(target.url)) return false;
+  try {
+    await chrome.scripting.executeScript({
+      target: { tabId: target.id },
+      files: ["src/neat-freak-panel.js"]
+    });
+    return true;
+  } catch (err) {
+    // Restricted pages we didn't predict (PDFs, view-source:, etc.).
+    console.warn("[Neat Freak] Panel injection failed:", err?.message || err);
+    return false;
+  }
+}
 
+// Replaces the old showDoneToast — writes the panel into done state, which
+// the persistent panel picks up and renders in place. If the popup is open
+// (handling its own done state), we skip the panel write entirely.
+async function showPanelDone(session, meta, smartResult) {
+  if (isPopupOpen()) return false;
   const categories = session.categories || [];
   const groupCount = categories.filter((c) => (c.tabIds || []).length >= 2).length;
   const looseCount = categories.filter((c) => (c.tabIds || []).length === 1).length;
   const tabCount = (session.tabs || []).length;
   const keepCount = smartResult ? (smartResult.keepSet?.length || 0) : 0;
 
+  return setPanelState({
+    mode: "done",
+    tabCount,
+    groupCount,
+    looseCount,
+    keepCount,
+    sessionId: session.id,
+    llm: Boolean(meta?.method?.includes("llm"))
+  });
+}
+
+// Tidy now (from the panel's clutter state) — transition through saving and
+// done in place rather than dismissing the panel and re-showing a new toast.
+async function handlePanelTidyNow() {
+  await setPanelState({ mode: "saving", label: "Tidying your tabs" });
   try {
-    await chrome.storage.session?.set?.({
-      neatFreakDoneState: {
-        tabCount,
-        groupCount,
-        looseCount,
-        keepCount,
-        sessionId: session.id,
-        llm: Boolean(meta?.method?.includes("llm"))
-      }
-    });
-    await chrome.scripting.executeScript({
-      target: { tabId: target.id },
-      files: ["src/done-toast.js"]
-    });
-    return true;
+    await saveTabs({ scope: "smart" });
   } catch (err) {
-    console.warn("[Neat Freak] Done toast injection failed:", err?.message || err);
-    return false;
+    console.warn("[Neat Freak] Tidy-from-panel save failed:", err?.message || err);
+    // Fallback: hide the panel and open the manager so the user has a path forward.
+    await setPanelState({ mode: "hidden" });
+    await openManager();
   }
+  return {};
 }
 
 if (chrome.notifications?.onClicked) {
@@ -822,7 +886,6 @@ const CLUTTER_HYSTERESIS = 3; // count must dip to (threshold - this) before we'
 const CLUTTER_THRESHOLD_FALLBACK = 20; // used only if reading settings fails
 const CLUTTER_DISABLED_KEY = "neatFreakClutterDisabled";
 const CLUTTER_ALERTED_KEY = "neatFreakClutterAlerted"; // session-scoped: were we already at/over threshold?
-const CLUTTER_COUNT_KEY = "neatFreakClutterCount";     // session-scoped: count to render in the toast
 const CLUTTER_BADGE_COLOR = "#dc2626";
 const CLUTTER_CHECK_DEBOUNCE_MS = 3000;
 const CLUTTER_ALARM_NAME = "neat-freak-clutter-check";
@@ -904,27 +967,11 @@ async function updateBadgeFromTabs() {
   }
 }
 
-async function showClutterToast(tabCount) {
-  // Find the active tab in the focused window. If there isn't one we can inject
-  // into (chrome://, web store, no focused window), we skip the toast — the badge
-  // is still doing its job.
-  const activeTabs = await queryTabs({ active: true, lastFocusedWindow: true });
-  const target = activeTabs[0];
-  if (!target?.id || !isInjectablePageUrl(target.url)) return false;
-
-  try {
-    // Stash the count where the content script can read it before rendering.
-    await chrome.storage.session?.set?.({ [CLUTTER_COUNT_KEY]: tabCount });
-    await chrome.scripting.executeScript({
-      target: { tabId: target.id },
-      files: ["src/clutter-toast.js"]
-    });
-    return true;
-  } catch (err) {
-    // Injection can fail on restricted pages we didn't predict (PDFs, view-source:, etc.).
-    console.warn("[Neat Freak] Clutter toast injection failed:", err?.message || err);
-    return false;
-  }
+async function showPanelClutter(tabCount) {
+  // Write clutter state; the panel script picks it up and renders. If the
+  // panel is already mounted (e.g. previous state still visible), the storage
+  // change re-renders it in place.
+  return setPanelState({ mode: "clutter", tabCount });
 }
 
 function isInjectablePageUrl(url) {
@@ -959,7 +1006,7 @@ async function checkClutter() {
 
     if (alreadyAlerted) return; // edge-triggered: don't re-show until they dip and climb again
 
-    const shown = await showClutterToast(tabCount);
+    const shown = await showPanelClutter(tabCount);
     if (shown) {
       await chrome.storage.session?.set?.({ [CLUTTER_ALERTED_KEY]: true });
     }
