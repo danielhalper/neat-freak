@@ -59,74 +59,11 @@ svg {
   stroke-width: 2;
 }
 
-.popup-body {
-  width: 420px;
-  min-height: 590px;
-  /* Cream background + amber top bar matches the panel's expanded view, so
-     the popup-fallback surface reads as the same product. */
-  background: #fdfcf8;
-  position: relative;
-}
-.popup-body::before {
-  content: "";
-  position: absolute;
-  top: 0; left: 0; right: 0;
-  height: 3px;
-  background: linear-gradient(90deg, #f4bd45 0%, #f4bd45 60%, #f6cd6d 100%);
-  z-index: 1;
-}
-
-/* Popup-side icon-only More options toggle (mirrors panel styling). */
-.popup-body .more-options-toggle {
-  background: #ffffff;
-  border: 1px solid #d3ded9;
-  color: #4a5651;
-  width: 32px;
-  height: 32px;
-  border-radius: 50%;
-  cursor: pointer;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 0;
-  flex-shrink: 0;
-  margin-left: auto;
-  position: relative;
-  z-index: 2;
-  transition: color 120ms ease, background 120ms ease, border-color 120ms ease;
-}
-.popup-body .more-options-toggle svg {
-  width: 14px;
-  height: 14px;
-  display: block;
-  pointer-events: none;
-}
-.popup-body .more-options-toggle:hover {
-  color: #1a2421;
-  background: #f6f3e8;
-}
-.popup-body .more-options-toggle[aria-expanded="true"] {
-  background: #f4bd45;
-  border-color: #f4bd45;
-  color: #1a2421;
-}
-
-/* "More settings →" link inside the popup's capture-options panel —
-   same look as the panel's version. */
-.popup-body .more-options-settings-link {
-  margin-top: 6px;
-  padding: 6px 0 2px;
-  background: transparent;
-  border: 0;
-  border-top: 1px dashed rgba(0, 0, 0, 0.12);
-  color: #0f766e;
-  font-size: 12px;
-  font-weight: 600;
-  font-family: inherit;
-  cursor: pointer;
-  text-align: left;
-}
-.popup-body .more-options-settings-link:hover { color: #115e59; }
+/* Popup-body styling (width, bg) now lives inline in popup.html since the
+   popup window is just a minimal shell hosting the panel script. The cream
+   background and amber top bar come from the panel itself in popup-context
+   mode. The dead .popup-body / .popup-body::before / .popup-body
+   .more-options-* rules were removed when popup.html was stripped. */
 
 .popup-shell,
 .settings-shell,

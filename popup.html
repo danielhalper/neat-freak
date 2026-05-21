@@ -4,107 +4,24 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>Neat Freak</title>
-    <link rel="stylesheet" href="src/styles.css">
     <style>
-      /* Phase 2C: hide the popup body until we know whether we're rendering it
-         inline (chrome:// fallback) or closing immediately (panel injected on
-         the active tab). Without this the user sees a flash of the popup UI on
-         the success path before window.close() fires. */
-      body.popup-body { visibility: hidden; }
+      /* Popup window background matches the panel's cream card so the two
+         feel like the same surface. The panel script mounts the shadow-DOM
+         host inside .popup-body and fills it edge-to-edge (in-popup mode). */
+      html, body {
+        margin: 0;
+        padding: 0;
+        background: #fdfcf8;
+        font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      }
+      body.popup-body {
+        width: 420px;
+        min-height: 590px;
+        visibility: hidden;
+      }
     </style>
   </head>
   <body class="popup-body">
-    <main class="popup-shell">
-      <header class="popup-header">
-        <button class="brand-lockup brand-lockup-button" id="brand-home" type="button" title="Open the Manager" aria-label="Open the Neat Freak Manager">
-          <img src="assets/logo.svg" alt="" class="brand-logo">
-          <h1 class="brand-wordmark"><span>Neat</span> <span class="brand-word-accent">Freak</span></h1>
-        </button>
-      </header>
-
-      <section class="capture-area" id="popup-controls">
-        <p class="capture-description" id="capture-description">Stash open tabs into folders, free up RAM.</p>
-        <div class="capture-controls-row">
-          <div class="scope-switch compact" role="group" aria-label="Tab capture scope">
-            <button class="segmented active" id="scope-smart" type="button" data-scope="smart">Smart</button>
-            <button class="segmented" id="scope-all" type="button" data-scope="allWindows">All windows</button>
-            <button class="segmented" id="scope-current" type="button" data-scope="currentWindow">Current</button>
-          </div>
-          <button class="more-options-toggle" id="toggle-capture-options" type="button" aria-expanded="false" aria-controls="capture-options" title="More options" aria-label="More options">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-              <line x1="4" y1="6" x2="20" y2="6"></line>
-              <line x1="4" y1="12" x2="20" y2="12"></line>
-              <line x1="4" y1="18" x2="20" y2="18"></line>
-              <circle cx="10" cy="6" r="2" fill="currentColor"></circle>
-              <circle cx="14" cy="12" r="2" fill="currentColor"></circle>
-              <circle cx="8" cy="18" r="2" fill="currentColor"></circle>
-            </svg>
-          </button>
-        </div>
-        <div class="capture-options" id="capture-options" hidden>
-          <label class="check-row">
-            <input type="checkbox" id="keep-current-tab">
-            <span>Keep the current tab open</span>
-          </label>
-          <label class="check-row">
-            <input type="checkbox" id="review-before-close">
-            <span>Review before closing saved tabs</span>
-          </label>
-          <label class="check-row">
-            <input type="checkbox" id="include-pinned">
-            <span>Include pinned tabs</span>
-          </label>
-          <button class="more-options-settings-link" id="open-options" type="button">More settings →</button>
-        </div>
-
-        <button class="primary-action" id="save-tabs" type="button">
-          <span id="save-button-label">Tidy my tabs</span>
-          <small id="save-mode-copy">Scanning tabs…</small>
-        </button>
-      </section>
-
-      <section id="save-progress" class="save-progress" hidden aria-live="polite">
-        <img src="assets/mascot-stressed.svg" alt="" class="progress-mascot">
-        <ol class="progress-steps">
-          <li data-step="scanning"><span class="step-bullet"></span><span class="step-label">Scanning open tabs</span></li>
-          <li data-step="capturing"><span class="step-bullet"></span><span class="step-label">Capturing URLs</span></li>
-          <li data-step="grouping"><span class="step-bullet"></span><span class="step-label">Grouping</span></li>
-          <li data-step="saving"><span class="step-bullet"></span><span class="step-label">Saving</span></li>
-        </ol>
-        <p class="progress-hint">You can close this — Neat Freak will ping you when it's done.</p>
-      </section>
-
-      <section id="save-done" class="save-done" hidden>
-        <img src="assets/mascot-calm.svg" alt="" class="done-mascot">
-        <h2 id="done-title">All tucked away</h2>
-        <p id="done-subtitle" class="done-subtitle"></p>
-        <ul id="done-folders" class="done-folders" aria-label="Saved folders"></ul>
-        <div class="done-actions">
-          <button class="attention-button" id="close-live-tabs" type="button" hidden>Close live tabs</button>
-          <button class="primary-button" id="open-result" type="button">View groups</button>
-        </div>
-      </section>
-
-      <section id="default-state" class="panel">
-        <div class="panel-title-row">
-          <h2>Latest Sessions</h2>
-          <button class="link-button" id="open-manager" type="button">Open manager</button>
-        </div>
-        <label class="popup-search-input">
-          <svg viewBox="0 0 24 24" aria-hidden="true">
-            <path d="m21 21-4.4-4.4"></path>
-            <circle cx="11" cy="11" r="7"></circle>
-          </svg>
-          <input id="popup-search" type="search" placeholder="Search saved tabs, or ask a question…" autocomplete="off">
-          <button class="search-clear" id="popup-search-clear" type="button" aria-label="Clear search" hidden>×</button>
-        </label>
-        <p class="popup-search-hint" id="popup-search-hint">Press <kbd>↵</kbd> for smart search</p>
-        <div id="popup-search-results" class="popup-search-results" hidden aria-live="polite"></div>
-        <div id="recent-sessions" class="recent-list"></div>
-      </section>
-
-      <p class="status-line" id="status-line">LLM grouping uses your configured API key.</p>
-    </main>
     <script type="module" src="src/popup.js"></script>
   </body>
 </html>

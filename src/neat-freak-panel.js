@@ -26,6 +26,16 @@
   const AUTO_DISMISS_MS = 8000;
   let autoDismissTimer = null;
 
+  // Popup-context detection: when this script is loaded from popup.html (chrome
+  // extension page) instead of injected into a regular tab, we render the
+  // panel inline (no fixed positioning, no card border/shadow, no slide-in or
+  // outside-click handling). Same UI, same code, different host frame.
+  const inPopupContext = (() => {
+    try {
+      return location.href === chrome.runtime.getURL("popup.html");
+    } catch { return false; }
+  })();
+
   // Local-only expanded-mode flag. Not stored — expansion is "the user is
   // interacting with this surface right now," tab-local intent.
   let expandedMode = false;
@@ -180,14 +190,24 @@
 function createPanelHost() {
   const host = document.createElement("div");
   host.id = HOST_ID;
-  host.style.cssText = [
-    "all: initial",
-    "position: fixed",
-    "top: 12px",
-    "right: 12px", // sits close to the right edge to feel anchored to the toolbar icon
-    "z-index: 2147483647",
-    "color-scheme: light"
-  ].join("; ");
+  // In popup context we render inline (block-level, fills the popup body).
+  // In injected/page context we float top-right with high z-index.
+  if (inPopupContext) {
+    host.style.cssText = [
+      "all: initial",
+      "display: block",
+      "color-scheme: light"
+    ].join("; ");
+  } else {
+    host.style.cssText = [
+      "all: initial",
+      "position: fixed",
+      "top: 12px",
+      "right: 12px",
+      "z-index: 2147483647",
+      "color-scheme: light"
+    ].join("; ");
+  }
   const shadow = host.attachShadow({ mode: "open" });
   shadow.innerHTML = panelMarkup();
   shadow.addEventListener("click", (event) => handlePanelClick(host, event));
@@ -229,8 +249,6 @@ function panelMarkup() {
         /* Match the popup's --font variable so the panel renders identically. */
         font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
         position: relative;
-        /* Single width across collapsed and expanded — the card just grows
-           vertically when expanded, no horizontal morph needed. */
         width: min(360px, calc(100vw - 32px));
         background: #fdfcf8;
         color: #1a2421;
@@ -240,6 +258,18 @@ function panelMarkup() {
         padding: 12px 14px 14px;
         overflow: hidden;
         animation: slidein 0.28s cubic-bezier(0.2, 0.9, 0.3, 1.2);
+      }
+      /* In the popup window, the popup chrome IS the card frame — fill the
+         body and drop the floating-card treatments. The amber top bar via
+         .card::before and the cream interior stay. */
+      .card.in-popup {
+        width: 100%;
+        min-height: 100vh;
+        box-sizing: border-box;
+        border: 0;
+        border-radius: 0;
+        box-shadow: none;
+        animation: none;
       }
       .card::before {
         content: "";
@@ -1091,7 +1121,7 @@ function applyState(host, state) {
   // Preserve the .expanded class through state transitions so a user mid-expansion
   // doesn't get yanked back to collapsed when, say, saving completes → done.
   const wasExpanded = card.classList.contains("expanded");
-  card.className = `card state-${state.mode}${wasExpanded ? " expanded" : ""}`;
+  card.className = `card state-${state.mode}${wasExpanded ? " expanded" : ""}${inPopupContext ? " in-popup" : ""}`;
 
   // Saving state is transient and we don't want the user expanding into a
   // half-loaded view; force-collapse the expanded UI if we end up there.
@@ -1209,6 +1239,11 @@ function handlePanelClick(host, event) {
   // Collapsed action buttons
   if (action === "dismiss") {
     cancelAutoDismiss();
+    if (inPopupContext) {
+      // × in the popup means "close this popup window" — no panel state to clear.
+      try { window.close(); } catch { /* fallthrough */ }
+      return;
+    }
     safeSendMessage({ type: "PANEL_DISMISS" });
     dismissPanel(host);
     return;
@@ -1358,6 +1393,10 @@ function collapseExpansion(host, opts = {}) {
 }
 
 function bindOutsideClickHandler(host) {
+  // In popup context, "outside" doesn't make sense — the popup window is the
+  // frame, and Chrome auto-closes it on outside click anyway. Skip the binding
+  // so clicks on body padding around the card don't dismiss the panel.
+  if (inPopupContext) return;
   unbindOutsideClickHandler();
   outsideClickHandler = (event) => {
     const path = event.composedPath ? event.composedPath() : [];
