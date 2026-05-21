@@ -880,12 +880,24 @@ async function showPanelDone(session, meta, smartResult) {
 // Tidy now (from the panel's clutter state) — transition through saving and
 // done in place rather than dismissing the panel and re-showing a new toast.
 async function handlePanelTidyNow() {
+  // Skip the loading state entirely when there's nothing to tidy. Going
+  // through "saving" just to error out feels worse than a quick "all clean"
+  // acknowledgment.
+  const settings = await getSettings();
+  const { candidates } = await getCandidateTabs({
+    scope: "smart",
+    includePinned: Boolean(settings.defaultIncludePinned),
+    keepCurrentTab: settings.defaultKeepCurrentTab !== false
+  });
+  if (!candidates.length) {
+    await setPanelState({ mode: "done", tabCount: 0 });
+    return {};
+  }
   await setPanelState({ mode: "saving", label: "Tidying your tabs" });
   try {
     await saveTabs({ scope: "smart" });
   } catch (err) {
     console.warn("[Neat Freak] Tidy-from-panel save failed:", err?.message || err);
-    // Fallback: hide the panel and open the manager so the user has a path forward.
     await setPanelState({ mode: "hidden" });
     await openManager();
   }

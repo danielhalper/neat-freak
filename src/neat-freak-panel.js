@@ -1140,18 +1140,26 @@ function applyState(host, state) {
   if (state.mode === "done") {
     setMascot(mascotEl, calmUrl);
     const tabCount = Number(state.tabCount) || 0;
-    titleEl.textContent = `${tabCount} tab${tabCount === 1 ? "" : "s"} tucked away`;
-    const parts = [];
-    if (state.groupCount) parts.push(`${state.groupCount} folder${state.groupCount === 1 ? "" : "s"}`);
-    if (state.looseCount) parts.push(`${state.looseCount} loose`);
-    if (state.keepCount)  parts.push(`${state.keepCount} kept open`);
-    subEl.textContent = parts.join(" · ") || "Ready in your saved sessions.";
-    const sid = String(state.sessionId || "");
-    actionsEl.innerHTML = `<button class="primary" data-action="open-manager" data-session-id="${escapeAttr(sid)}" type="button">Open manager</button>`;
+    if (tabCount === 0) {
+      // "Nothing to tidy" path — user clicked Tidy when there were no
+      // eligible tabs. Quick acknowledgment, no action button, auto-dismiss.
+      titleEl.textContent = "All clean";
+      subEl.textContent = "Nothing to tidy right now.";
+      actionsEl.innerHTML = "";
+    } else {
+      titleEl.textContent = `${tabCount} tab${tabCount === 1 ? "" : "s"} tucked away`;
+      const parts = [];
+      if (state.groupCount) parts.push(`${state.groupCount} folder${state.groupCount === 1 ? "" : "s"}`);
+      if (state.looseCount) parts.push(`${state.looseCount} loose`);
+      if (state.keepCount)  parts.push(`${state.keepCount} kept open`);
+      subEl.textContent = parts.join(" · ") || "Ready in your saved sessions.";
+      const sid = String(state.sessionId || "");
+      actionsEl.innerHTML = `<button class="primary" data-action="open-manager" data-session-id="${escapeAttr(sid)}" type="button">Open manager</button>`;
+    }
     if (!expandedMode) scheduleAutoDismiss(host);
     // If we entered done while expanded (e.g. user expanded mid-save), refresh
     // the recent-sessions list so the just-saved session appears.
-    if (expandedMode) loadExpandedData(host);
+    if (expandedMode && tabCount > 0) loadExpandedData(host);
     return;
   }
 }
@@ -1673,6 +1681,21 @@ async function triggerExpandedSave(host) {
   const keepCurrentTab = shadow.getElementById("opt-keep-current")?.checked !== false;
   const reviewBeforeClose = shadow.getElementById("opt-review")?.checked || false;
 
+  // Skip the loading state if there's nothing eligible. The preview count
+  // the user just saw can go stale between render and click, so re-query
+  // fresh right before deciding.
+  const previewResponse = await safeSendMessageAwait({
+    type: "PREVIEW_TABS",
+    options: { scope: selectedScope, includePinned, keepCurrentTab }
+  });
+  const eligible = Number(previewResponse?.preview?.count) || 0;
+  if (eligible === 0) {
+    await safeStorageSessionSet({
+      neatFreakPanelState: { mode: "done", tabCount: 0 }
+    });
+    return;
+  }
+
   // Pre-emptively write saving state from the panel side so the visual
   // transition (expanded → collapsed saving with mascot animation) happens
   // immediately. Without this, the panel would briefly flash the prior mode's
@@ -1682,8 +1705,6 @@ async function triggerExpandedSave(host) {
     neatFreakPanelState: { mode: "saving", label: "Tidying your tabs" }
   });
   if (!stateWritten) {
-    // Fall back to manual suppression — the emitProgress mirror will still
-    // drive the saving state shortly.
     suppressExpansionUI(host);
   }
 
