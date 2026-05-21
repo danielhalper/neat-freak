@@ -14,6 +14,12 @@ const fields = {
   showClutterNudges: document.querySelector("#show-clutter-nudges")
 };
 
+const clutterThresholdRow = document.querySelector("#clutter-threshold-row");
+
+function syncClutterThresholdVisibility() {
+  clutterThresholdRow.hidden = !fields.showClutterNudges.checked;
+}
+
 init();
 
 async function init() {
@@ -32,6 +38,7 @@ function bindEvents() {
   document.querySelector("#open-manager").addEventListener("click", () => send("OPEN_MANAGER"));
   document.querySelector("#open-openai").addEventListener("click", openOpenAiPlatform);
   document.querySelector("#brand-home").addEventListener("click", () => send("OPEN_MANAGER"));
+  fields.showClutterNudges.addEventListener("change", syncClutterThresholdVisibility);
 }
 
 async function openOpenAiPlatform() {
@@ -60,6 +67,7 @@ function populate(settings) {
   fields.llmEnabled.checked = Boolean(settings.llmEnabled);
   fields.maxSnippetChars.value = settings.maxSnippetChars || 720;
   fields.showClutterNudges.checked = settings.showClutterNudges !== false;
+  syncClutterThresholdVisibility();
 }
 
 async function save(event) {

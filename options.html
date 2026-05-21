@@ -51,14 +51,16 @@
             <span>Max page summary characters</span>
             <input id="max-snippet-chars" type="number" min="160" max="1600" step="80">
           </label>
-          <label class="field-row">
-            <span>Nudge me when I have this many tabs</span>
-            <input id="clutter-threshold" type="number" min="5" max="200" step="1">
-          </label>
           <label class="check-row">
             <input type="checkbox" id="show-clutter-nudges">
-            <span>Show the badge and reminder when I cross that number</span>
+            <span>Nudge me when I have too many tabs</span>
           </label>
+          <div id="clutter-threshold-row">
+            <label class="field-row">
+              <span>Nudge me when I have this many tabs open</span>
+              <input id="clutter-threshold" type="number" min="5" max="200" step="1">
+            </label>
+          </div>
         </section>
 
         <section class="settings-section">

@@ -38,17 +38,25 @@
       :host { all: initial; }
       .card {
         font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", sans-serif;
-        width: 320px;
-        background: #ffffff;
+        position: relative;
+        width: 340px;
+        background: #fdfcf8;
         color: #1a2421;
-        border: 1px solid #d9e0dc;
-        border-radius: 12px;
-        box-shadow: 0 12px 32px rgba(0, 0, 0, 0.18);
-        padding: 14px 14px 12px;
-        display: flex;
-        flex-direction: column;
-        gap: 10px;
-        animation: slidein 0.22s ease-out;
+        border: 1px solid #e8dfc7;
+        border-radius: 14px;
+        box-shadow: 0 18px 40px -6px rgba(15, 118, 110, 0.22), 0 4px 12px rgba(0, 0, 0, 0.08);
+        padding: 16px 16px 14px;
+        overflow: hidden;
+        animation: slidein 0.28s cubic-bezier(0.2, 0.9, 0.3, 1.2);
+      }
+      /* Amber brand bar — anchors the toast to Neat Freak's accent palette
+         and signals "attention needed" without shouting. */
+      .card::before {
+        content: "";
+        position: absolute;
+        top: 0; left: 0; right: 0;
+        height: 3px;
+        background: linear-gradient(90deg, #f4bd45 0%, #f4bd45 60%, #f6cd6d 100%);
       }
       @keyframes slidein {
         from { transform: translateX(380px); opacity: 0; }
@@ -58,64 +66,133 @@
         from { transform: translateX(0);     opacity: 1; }
         to   { transform: translateX(380px); opacity: 0; }
       }
-      .card.leaving { animation: slideout 0.18s ease-in forwards; }
-      .row { display: flex; gap: 12px; align-items: flex-start; }
-      /* Amber halo around the stressed mascot — visually separates it from
-         the teal "Tidy now" button which is also branded teal. */
-      .mascot-wrap {
-        width: 44px;
-        height: 44px;
-        flex-shrink: 0;
-        border-radius: 50%;
-        background: #fef3c7;
-        border: 2px solid #f4bd45;
-        display: flex;
-        align-items: center;
-        justify-content: center;
+      @keyframes mascot-tilt {
+        0%, 100% { transform: rotate(-3deg); }
+        50%      { transform: rotate(3deg); }
       }
-      .mascot { width: 32px; height: 32px; }
-      .body { flex: 1; min-width: 0; }
-      .title { font-size: 14px; font-weight: 600; margin: 0 0 2px; line-height: 1.25; }
-      .sub { font-size: 13px; color: #4a5651; margin: 0; line-height: 1.35; }
+      .card.leaving { animation: slideout 0.2s ease-in forwards; }
+
+      .row { display: flex; gap: 14px; align-items: flex-start; }
+
+      /* Free-standing mascot — no halo, no circle. The warm card tint
+         carries enough contrast that the teal mascot reads cleanly.
+         A subtle wobble gives it some life on entrance. */
+      .mascot {
+        width: 60px;
+        height: 60px;
+        flex-shrink: 0;
+        margin-top: 2px;
+        filter: drop-shadow(0 2px 4px rgba(15, 118, 110, 0.18));
+        animation: mascot-tilt 2.4s ease-in-out 0.3s 2;
+        transform-origin: 50% 90%;
+      }
+
+      .body { flex: 1; min-width: 0; padding-top: 2px; }
+
+      .eyebrow {
+        color: #b8881b;
+        font-size: 10px;
+        font-weight: 700;
+        letter-spacing: 0.16em;
+        text-transform: uppercase;
+        margin: 0 0 4px;
+      }
+
+      .title {
+        font-family: Georgia, "Times New Roman", serif;
+        font-size: 20px;
+        font-weight: 700;
+        line-height: 1.1;
+        letter-spacing: -0.01em;
+        margin: 0 0 4px;
+        color: #1a2421;
+      }
+      .title em {
+        color: #b8881b;
+        font-style: italic;
+        font-weight: 700;
+      }
+
+      .sub {
+        font-size: 13px;
+        color: #4a5651;
+        margin: 0;
+        line-height: 1.4;
+      }
+
       .close {
+        position: absolute;
+        top: 8px;
+        right: 8px;
         cursor: pointer;
         background: transparent;
         border: 0;
-        color: #888;
-        font-size: 18px;
+        color: #8a948f;
+        font-size: 16px;
         line-height: 1;
-        padding: 2px 4px;
-        margin: -2px -4px 0 0;
-        border-radius: 4px;
-      }
-      .close:hover { color: #333; background: #f0f0f0; }
-      .actions { display: flex; align-items: center; gap: 12px; margin-top: 2px; }
-      .primary {
-        cursor: pointer;
-        background: #0f766e;
-        color: #ffffff;
-        border: 0;
-        padding: 8px 14px;
-        border-radius: 8px;
-        font-size: 13px;
-        font-weight: 600;
+        width: 24px;
+        height: 24px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        border-radius: 6px;
+        padding: 0;
         font-family: inherit;
       }
-      .primary:hover { background: #115e59; }
+      .close:hover { color: #1a2421; background: rgba(26, 36, 33, 0.06); }
+      .close:focus-visible {
+        outline: 2px solid #f4bd45;
+        outline-offset: 1px;
+      }
+
+      .actions {
+        display: flex;
+        align-items: center;
+        justify-content: flex-end;
+        gap: 8px;
+        margin-top: 12px;
+        padding-top: 10px;
+        border-top: 1px dashed #e8dfc7;
+      }
+
+      /* Amber primary action — sits across the gutter from the teal mascot
+         (no clash) and reinforces "this is the attention-grabbing moment". */
+      .primary {
+        cursor: pointer;
+        background: #f4bd45;
+        color: #1a2421;
+        border: 0;
+        padding: 9px 16px;
+        border-radius: 8px;
+        font-size: 13px;
+        font-weight: 700;
+        font-family: inherit;
+        letter-spacing: 0.01em;
+        box-shadow: 0 1px 0 rgba(146, 95, 0, 0.18), inset 0 -1px 0 rgba(146, 95, 0, 0.18);
+        transition: transform 0.08s ease, background 0.12s ease, box-shadow 0.12s ease;
+      }
+      .primary:hover {
+        background: #ecb02d;
+        box-shadow: 0 2px 6px rgba(146, 95, 0, 0.22), inset 0 -1px 0 rgba(146, 95, 0, 0.22);
+      }
+      .primary:active { transform: translateY(1px); }
+      .primary:focus-visible {
+        outline: 2px solid #0f766e;
+        outline-offset: 2px;
+      }
     </style>
     <div class="card" role="alert" aria-live="polite">
+      <button class="close" data-action="dismiss" aria-label="Dismiss" type="button">&times;</button>
       <div class="row">
-        <div class="mascot-wrap" aria-hidden="true">
-          <img class="mascot" src="${mascotUrl}" alt="">
-        </div>
+        <img class="mascot" src="${mascotUrl}" alt="" aria-hidden="true">
         <div class="body">
-          <p class="title">${tabCount} tabs open</p>
-          <p class="sub">Want me to tidy up?</p>
+          <p class="eyebrow">Tab overload</p>
+          <p class="title">${tabCount} tabs <em>and counting.</em></p>
+          <p class="sub">Want me to round them up?</p>
         </div>
-        <button class="close" data-action="dismiss" aria-label="Dismiss">&times;</button>
       </div>
       <div class="actions">
-        <button class="primary" data-action="tidy">Tidy now</button>
+        <button class="primary" data-action="tidy" type="button">Tidy now</button>
       </div>
     </div>
   `;
@@ -126,7 +203,7 @@
   function dismissWithAnimation() {
     if (!card) { host.remove(); return; }
     card.classList.add("leaving");
-    setTimeout(() => host.remove(), 200);
+    setTimeout(() => host.remove(), 220);
   }
 
   shadow.addEventListener("click", (event) => {
