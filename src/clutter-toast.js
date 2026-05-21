@@ -87,30 +87,14 @@
         transform-origin: 50% 90%;
       }
 
-      .body { flex: 1; min-width: 0; padding-top: 2px; }
-
-      .eyebrow {
-        color: #b8881b;
-        font-size: 10px;
-        font-weight: 700;
-        letter-spacing: 0.16em;
-        text-transform: uppercase;
-        margin: 0 0 4px;
-      }
+      .body { flex: 1; min-width: 0; padding-top: 4px; }
 
       .title {
-        font-family: Georgia, "Times New Roman", serif;
-        font-size: 20px;
-        font-weight: 700;
-        line-height: 1.1;
-        letter-spacing: -0.01em;
-        margin: 0 0 4px;
+        font-size: 14px;
+        font-weight: 600;
+        line-height: 1.25;
+        margin: 0 0 2px;
         color: #1a2421;
-      }
-      .title em {
-        color: #b8881b;
-        font-style: italic;
-        font-weight: 700;
       }
 
       .sub {
@@ -186,9 +170,8 @@
       <div class="row">
         <img class="mascot" src="${mascotUrl}" alt="" aria-hidden="true">
         <div class="body">
-          <p class="eyebrow">Tab overload</p>
-          <p class="title">${tabCount} tabs <em>and counting.</em></p>
-          <p class="sub">Want me to round them up?</p>
+          <p class="title">${tabCount} tabs open</p>
+          <p class="sub">Want me to tidy up?</p>
         </div>
       </div>
       <div class="actions">
