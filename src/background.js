@@ -104,9 +104,29 @@ async function routeMessage(message) {
     case "PANEL_DISMISS":
       await setPanelState({ mode: "hidden" });
       return {};
+    case "OPEN_PANEL_FROM_ICON":
+      return openPanelFromIcon();
     default:
       throw new Error("Unknown Neat Freak message.");
   }
+}
+
+// Popup-shim entry point. Called from popup.js when the user clicks the
+// toolbar icon. We try to inject the floating panel on the active tab; if it
+// works, popup.js closes itself and the panel is the surface. If injection
+// fails (chrome:// page, web store, etc.), popup.js falls back to rendering
+// the existing popup UI inline.
+async function openPanelFromIcon() {
+  const activeTabs = await queryTabs({ active: true, lastFocusedWindow: true });
+  const target = activeTabs[0];
+  if (!target?.id || !isInjectablePageUrl(target.url)) {
+    return { injected: false };
+  }
+  await setPanelState({ mode: "idle" });
+  // setPanelState already attempts injection; success/failure is implicit in
+  // whether it threw, but we can be explicit by trying once more — cheap.
+  const ok = await ensurePanelMounted();
+  return { injected: ok };
 }
 
 async function getPopupState() {

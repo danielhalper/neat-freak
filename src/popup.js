@@ -54,7 +54,23 @@ try {
   // toast — worst case is a redundant notification, not a missed one.
 }
 
-init();
+// Phase 2C: popup-shim. On open, ask background to inject the floating panel
+// on the active tab. If that succeeds, the panel is the surface — close this
+// popup and we're done. If injection fails (chrome:// page, web store, etc.),
+// fall back to rendering the popup UI inline by removing visibility: hidden.
+(async () => {
+  try {
+    const response = await chrome.runtime.sendMessage({ type: "OPEN_PANEL_FROM_ICON" });
+    if (response?.ok && response.injected) {
+      window.close();
+      return;
+    }
+  } catch {
+    // Background unavailable — fall through to inline popup.
+  }
+  document.body.style.visibility = "visible";
+  init();
+})();
 
 async function init() {
   bindEvents();

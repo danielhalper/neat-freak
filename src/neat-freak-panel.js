@@ -505,6 +505,12 @@ function applyState(host, state) {
     collapseExpansion(host, { restartAutoDismiss: false });
   }
 
+  // Idle mode = user opened the panel via the toolbar icon (no clutter / done
+  // context). Auto-expand and skip auto-dismiss — the user is here on purpose.
+  if (state.mode === "idle" && !expandedMode) {
+    expandPanel(host);
+  }
+
   // Show the eyebrow only when expanded — it identifies the panel as Neat Freak
   // since the card is integrated into the page rather than chrome-managed.
   const eyebrowEl = shadow.getElementById("eyebrow");
@@ -519,6 +525,17 @@ function applyState(host, state) {
   const stressedUrl = chrome.runtime.getURL("assets/mascot-stressed-128.png");
 
   cancelAutoDismiss();
+
+  if (state.mode === "idle") {
+    // User-opened, no triggering event. Calm mascot, neutral copy, no action
+    // button — the user is here for the expanded UI, not the collapsed pill.
+    setMascot(mascotEl, calmUrl);
+    titleEl.textContent = "Neat Freak";
+    subEl.textContent = "Ready when you are.";
+    actionsEl.innerHTML = "";
+    // No auto-dismiss for user-opened states.
+    return;
+  }
 
   if (state.mode === "clutter") {
     setMascot(mascotEl, stressedUrl);
@@ -643,6 +660,18 @@ function expandPanel(host) {
 
 function collapseExpansion(host, opts = {}) {
   if (!expandedMode) return;
+
+  // Idle is "user-opened with no underlying context" — collapsing it would
+  // leave a useless empty pill, so dismiss the whole panel instead.
+  if (currentState?.mode === "idle") {
+    expandedMode = false;
+    unbindOutsideClickHandler();
+    cancelAutoDismiss();
+    chrome.runtime.sendMessage({ type: "PANEL_DISMISS" }).catch(() => undefined);
+    dismissPanel(host);
+    return;
+  }
+
   expandedMode = false;
   const shadow = host.shadowRoot;
   const card = shadow.getElementById("card");

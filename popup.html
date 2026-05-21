@@ -5,6 +5,13 @@
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>Neat Freak</title>
     <link rel="stylesheet" href="src/styles.css">
+    <style>
+      /* Phase 2C: hide the popup body until we know whether we're rendering it
+         inline (chrome:// fallback) or closing immediately (panel injected on
+         the active tab). Without this the user sees a flash of the popup UI on
+         the success path before window.close() fires. */
+      body.popup-body { visibility: hidden; }
+    </style>
   </head>
   <body class="popup-body">
     <main class="popup-shell">
