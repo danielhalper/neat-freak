@@ -210,7 +210,9 @@ function panelMarkup() {
         /* Match the popup's --font variable so the panel renders identically. */
         font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
         position: relative;
-        width: min(340px, calc(100vw - 32px));
+        /* Collapsed width — slightly wider than before so the expand→collapse
+           transition is a small purposeful grow, not a jarring jump. */
+        width: min(360px, calc(100vw - 32px));
         background: #fdfcf8;
         color: #1a2421;
         border: 1px solid #e8dfc7;
@@ -219,6 +221,11 @@ function panelMarkup() {
         padding: 12px 14px 14px;
         overflow: hidden;
         animation: slidein 0.28s cubic-bezier(0.2, 0.9, 0.3, 1.2);
+        /* Transition lives on the base rule so it applies BOTH when adding
+           the .expanded class (collapse → expand) and removing it (expand →
+           collapse). Previously it was on .card.expanded only and the
+           collapse direction snapped. */
+        transition: width 240ms cubic-bezier(0.2, 0.9, 0.3, 1.2);
       }
       .card::before {
         content: "";
@@ -368,7 +375,6 @@ function panelMarkup() {
 
       .card.expanded {
         width: min(420px, calc(100vw - 32px));
-        transition: width 200ms ease;
       }
       /* When expanded, the brand header inside .expanded-content takes over the
          "what is this" cue, and the Tidy CTA replaces the collapsed action
