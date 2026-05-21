@@ -839,16 +839,25 @@ function panelMarkup() {
 
       .more-options-panel {
         padding: 10px 12px;
-        background: rgba(0, 0, 0, 0.025);
+        background: rgba(0, 0, 0, 0.035);
         border-radius: 8px;
         display: flex;
         flex-direction: column;
-        gap: 4px;
+        gap: 2px;
+        font-size: 13px;
       }
-      /* The UA default [hidden] { display: none } is a less specific selector
-         than the class rule above, so without this override the panel would
-         stay visible even when toggled hidden. */
       .more-options-panel[hidden] { display: none; }
+      .more-options-panel .check-row {
+        font-size: 13px;
+        line-height: 1.35;
+        padding: 5px 0;
+      }
+      .more-options-panel .check-row input[type="checkbox"] {
+        width: 14px;
+        height: 14px;
+        margin: 0;
+        accent-color: #0f766e;
+      }
 
       /* Subtitle for the Tidy CTA showing eligible tab count */
       .tidy-cta {
@@ -914,12 +923,18 @@ function panelMarkup() {
         font-size: 10px;
       }
 
-      /* Bottom status line ("LLM grouping is ready.") */
+      /* Footer: status line on the left, Settings link on the right. */
+      .exp-footer {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+        margin-top: 2px;
+      }
       .exp-status {
         margin: 0;
         font-size: 11px;
         color: #8a948f;
-        text-align: left;
       }
     </style>
     <div class="card" role="status" aria-live="polite" id="card">
@@ -964,12 +979,6 @@ function panelMarkup() {
             </svg>
           </span>
           <h1 class="exp-wordmark"><span>Neat</span> <span class="exp-wordmark-accent">Freak</span></h1>
-          <button class="exp-icon-btn" data-action="open-options-link" type="button" title="Settings" aria-label="Settings">
-            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-              <circle cx="12" cy="12" r="3"></circle>
-              <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09a1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09a1.65 1.65 0 0 0 1.51-1 1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33h0a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51h0a1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82v0a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"></path>
-            </svg>
-          </button>
         </header>
         <p class="exp-tagline">Stash open tabs into folders, free up RAM.</p>
 
@@ -1023,7 +1032,10 @@ function panelMarkup() {
           <div class="session-list" id="session-list"></div>
         </section>
 
-        <p class="exp-status" id="exp-status"></p>
+        <div class="exp-footer">
+          <p class="exp-status" id="exp-status"></p>
+          <button class="link-button" data-action="open-options-link" type="button">Settings →</button>
+        </div>
       </div>
     </div>
   `;
