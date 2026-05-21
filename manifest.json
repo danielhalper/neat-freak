@@ -38,7 +38,12 @@
   "options_page": "options.html",
   "web_accessible_resources": [
     {
-      "resources": ["assets/mascot-stressed-128.png", "assets/mascot-calm.svg", "assets/logo.svg"],
+      "resources": [
+        "assets/mascot-stressed-128.png",
+        "assets/mascot-calm.svg",
+        "assets/logo.svg",
+        "assets/fonts/PermanentMarker-Regular.woff2"
+      ],
       "matches": ["<all_urls>"]
     }
   ]

@@ -99,8 +99,19 @@ function panelMarkup() {
   // The full CSS is inlined into the shadow root. Inherits the visual language
   // refined in the previous clutter-toast.js iteration — cream card, amber top
   // bar, free-standing mascot with teal drop-shadow.
+  // @font-face inside the shadow DOM needs an explicit declaration — shadow
+  // roots don't inherit @font-face rules from the host page's stylesheet.
+  // The woff2 URL is resolved via chrome.runtime.getURL at runtime.
+  const permanentMarkerUrl = chrome.runtime.getURL("assets/fonts/PermanentMarker-Regular.woff2");
   return `
     <style>
+      @font-face {
+        font-family: "Permanent Marker";
+        font-style: normal;
+        font-weight: 400;
+        font-display: swap;
+        src: url("${permanentMarkerUrl}") format("woff2");
+      }
       :host { all: initial; }
       .card {
         font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", sans-serif;
@@ -309,12 +320,12 @@ function panelMarkup() {
         background: transparent;
         color: #4a5651;
         border: 0;
-        padding: 7px 12px;
-        border-radius: 7px;
-        font-size: 12px;
+        padding: 9px 16px;
+        border-radius: 8px;
+        font-size: 13px;
         font-weight: 600;
         font-family: inherit;
-        white-space: nowrap; /* "All windows" must stay on one line */
+        white-space: nowrap;
         transition: background 120ms ease, color 120ms ease;
       }
       .scope-button:hover { color: #1a2421; }
@@ -635,14 +646,22 @@ function panelMarkup() {
       }
       .exp-wordmark {
         margin: 0;
-        font-size: 22px;
-        font-weight: 700;
-        font-family: "Lucida Handwriting", "Snell Roundhand", "Apple Chancery", cursive;
+        font-size: 24px;
+        font-weight: 400;
+        font-family: "Permanent Marker", Georgia, "Times New Roman", serif;
         letter-spacing: 0.01em;
+        line-height: 1.0;
         flex: 1;
+        color: #1a2421;
+      }
+      .exp-wordmark span:first-child {
+        display: inline-block;
+        transform: rotate(-1.5deg);
       }
       .exp-wordmark-accent {
-        color: #b88913;
+        color: #f4bd45;
+        display: inline-block;
+        transform: rotate(1deg) translateY(1px);
       }
       .exp-icon-btn {
         background: transparent;
@@ -701,6 +720,10 @@ function panelMarkup() {
         flex-direction: column;
         gap: 4px;
       }
+      /* The UA default [hidden] { display: none } is a less specific selector
+         than the class rule above, so without this override the panel would
+         stay visible even when toggled hidden. */
+      .more-options-panel[hidden] { display: none; }
 
       /* Subtitle for the Tidy CTA showing eligible tab count */
       .tidy-cta {
