@@ -122,7 +122,7 @@ function panelMarkup() {
         border: 1px solid #e8dfc7;
         border-radius: 14px;
         box-shadow: 0 18px 40px -6px rgba(15, 118, 110, 0.22), 0 4px 12px rgba(0, 0, 0, 0.08);
-        padding: 16px 16px 14px;
+        padding: 12px 14px 14px;
         overflow: hidden;
         animation: slidein 0.28s cubic-bezier(0.2, 0.9, 0.3, 1.2);
       }
@@ -205,20 +205,25 @@ function panelMarkup() {
 
       .close {
         position: absolute;
-        top: 8px; right: 8px;
+        top: 10px; right: 10px;
         cursor: pointer;
-        background: transparent;
-        border: 0;
-        color: #8a948f;
-        font-size: 16px;
-        line-height: 1;
-        width: 24px; height: 24px;
+        background: #ffffff;
+        border: 1px solid #e8dfc7;
+        color: #4a5651;
+        width: 26px; height: 26px;
         display: flex; align-items: center; justify-content: center;
-        border-radius: 6px;
+        border-radius: 50%;
         padding: 0;
         font-family: inherit;
+        box-shadow: 0 1px 2px rgba(0, 0, 0, 0.06);
+        transition: color 120ms ease, border-color 120ms ease, box-shadow 120ms ease;
       }
-      .close:hover { color: #1a2421; background: rgba(26, 36, 33, 0.06); }
+      .close svg { width: 12px; height: 12px; display: block; }
+      .close:hover {
+        color: #1a2421;
+        border-color: #d9ce9a;
+        box-shadow: 0 2px 6px rgba(0, 0, 0, 0.10);
+      }
       .close:focus-visible { outline: 2px solid #f4bd45; outline-offset: 1px; }
 
       .actions {
@@ -798,7 +803,12 @@ function panelMarkup() {
       }
     </style>
     <div class="card" role="status" aria-live="polite" id="card">
-      <button class="close" data-action="dismiss" aria-label="Dismiss" type="button">&times;</button>
+      <button class="close" data-action="dismiss" aria-label="Dismiss" type="button">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <line x1="6" y1="6" x2="18" y2="18"></line>
+          <line x1="6" y1="18" x2="18" y2="6"></line>
+        </svg>
+      </button>
       <div class="row" data-clickable-body="true">
         <img class="mascot" id="mascot" src="" alt="" aria-hidden="true">
         <div class="body">
