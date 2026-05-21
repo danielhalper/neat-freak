@@ -25,6 +25,7 @@ let expandedMode = false;
 let currentState = null;
 let outsideClickHandler = null;
 let selectedScope = "smart"; // initial; overwritten when settings load
+let lastLoadedSessions = []; // cached so action handlers can check session age
 
 (async () => {
   let host = document.getElementById(HOST_ID);
@@ -431,6 +432,162 @@ function panelMarkup() {
         font-style: italic;
         padding: 8px 4px;
       }
+
+      /* Pinned (just-saved) session — subtle teal accent so it's the obvious
+         "this is what just happened" target. */
+      .session-card.pinned-saved {
+        border-color: #b9e3df;
+        background: #f0faf8;
+        box-shadow: inset 3px 0 0 #0f766e;
+      }
+      .session-pin-label {
+        font-size: 9px;
+        font-weight: 700;
+        letter-spacing: 0.12em;
+        color: #0f766e;
+        text-transform: uppercase;
+      }
+
+      .session-card-header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 8px;
+      }
+      .session-card-header-text {
+        display: flex;
+        flex-direction: column;
+        gap: 2px;
+        min-width: 0;
+      }
+      .session-card-meta-row {
+        display: flex;
+        gap: 6px;
+        align-items: baseline;
+      }
+      .session-open-all {
+        background: transparent;
+        border: 1px solid #d9e0dc;
+        color: #1a2421;
+        padding: 4px 10px;
+        border-radius: 6px;
+        font-size: 11px;
+        font-weight: 600;
+        font-family: inherit;
+        cursor: pointer;
+        flex-shrink: 0;
+      }
+      .session-open-all:hover { background: #f6f3e8; }
+      .session-card.pinned-saved .session-open-all {
+        border-color: #0f766e;
+        color: #0f766e;
+      }
+      .session-card.pinned-saved .session-open-all:hover {
+        background: #e0f2ef;
+      }
+
+      .folder-list { display: flex; flex-direction: column; gap: 4px; margin-top: 6px; }
+      .folder-row {
+        border-radius: 8px;
+        background: rgba(0, 0, 0, 0.02);
+        transition: background 120ms ease;
+      }
+      .folder-row:hover { background: rgba(0, 0, 0, 0.04); }
+      .folder-summary {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        padding: 6px 8px;
+        cursor: pointer;
+        user-select: none;
+      }
+      .folder-disclosure {
+        font-size: 10px;
+        color: #8a948f;
+        transition: transform 140ms ease;
+        width: 10px;
+        display: inline-block;
+      }
+      .folder-row[data-folder-expanded="true"] .folder-disclosure {
+        transform: rotate(90deg);
+      }
+      .folder-name {
+        flex: 1;
+        font-size: 12px;
+        font-weight: 600;
+        color: #1a2421;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        min-width: 0;
+      }
+      .folder-count {
+        font-size: 10px;
+        color: #8a948f;
+        font-variant-numeric: tabular-nums;
+        background: rgba(0, 0, 0, 0.05);
+        padding: 1px 6px;
+        border-radius: 99px;
+      }
+      .folder-open-all {
+        background: transparent;
+        border: 0;
+        color: #0f766e;
+        font-size: 11px;
+        font-weight: 600;
+        font-family: inherit;
+        cursor: pointer;
+        padding: 2px 4px;
+      }
+      .folder-open-all:hover { text-decoration: underline; }
+
+      .folder-tabs {
+        display: none;
+        list-style: none;
+        margin: 0;
+        padding: 4px 8px 8px 24px;
+        gap: 2px;
+        flex-direction: column;
+      }
+      .folder-row[data-folder-expanded="true"] .folder-tabs { display: flex; }
+      .folder-tab {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        padding: 4px 6px;
+        border-radius: 5px;
+        cursor: pointer;
+        background: transparent;
+        border: 0;
+        font-family: inherit;
+        text-align: left;
+        width: 100%;
+        color: #1a2421;
+        font-size: 12px;
+        line-height: 1.3;
+      }
+      .folder-tab:hover { background: #ffffff; }
+      .folder-tab-favicon {
+        width: 14px;
+        height: 14px;
+        flex-shrink: 0;
+        border-radius: 3px;
+        background: #e8dfc7;
+      }
+      .folder-tab-title {
+        flex: 1;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        min-width: 0;
+      }
+
+      .singletons-line {
+        font-size: 11px;
+        color: #8a948f;
+        padding: 4px 8px;
+        font-style: italic;
+      }
     </style>
     <div class="card" role="status" aria-live="polite" id="card">
       <button class="close" data-action="dismiss" aria-label="Dismiss" type="button">&times;</button>
@@ -584,13 +741,16 @@ function setMascot(imgEl, url) {
 
 function handlePanelClick(host, event) {
   const target = event.target;
-  const elTarget = target instanceof HTMLElement ? target : null;
-  const action = elTarget?.dataset?.action || "";
+  if (!(target instanceof HTMLElement)) return;
+  // Find the nearest action-bearing element. The button-inside-summary case
+  // (folder Open-all inside a click-to-toggle row) works because closest()
+  // matches the inner button first, not the wrapping row.
+  const actionEl = target.closest("[data-action]");
+  const action = actionEl?.dataset?.action || "";
 
   // No action attribute — check if the body was clicked to trigger expand.
   if (!action) {
-    if (!expandedMode && elTarget && elTarget.closest("[data-clickable-body]")) {
-      // Saving state shouldn't expand — it's transient.
+    if (!expandedMode && target.closest("[data-clickable-body]")) {
       if (currentState && currentState.mode !== "saving" && currentState.mode !== "hidden") {
         expandPanel(host);
       }
@@ -612,7 +772,7 @@ function handlePanelClick(host, event) {
   }
   if (action === "open-manager") {
     cancelAutoDismiss();
-    const sessionId = elTarget.dataset.sessionId || "";
+    const sessionId = actionEl.dataset.sessionId || "";
     chrome.runtime.sendMessage({ type: "PANEL_OPEN_MANAGER", sessionId }).catch(() => undefined);
     dismissPanel(host);
     return;
@@ -620,7 +780,7 @@ function handlePanelClick(host, event) {
 
   // Expanded-view actions
   if (action === "scope") {
-    const newScope = elTarget.dataset.scopeValue;
+    const newScope = actionEl.dataset.scopeValue;
     if (newScope) {
       selectedScope = newScope;
       updateScopeButtons(host);
@@ -637,8 +797,40 @@ function handlePanelClick(host, event) {
     return;
   }
   if (action === "restore-session") {
-    const sessionId = elTarget.dataset.sessionId || "";
+    const sessionId = actionEl.dataset.sessionId || "";
+    const tabCount = Number(actionEl.dataset.tabCount) || 0;
+    if (shouldConfirmReopen(sessionId)) {
+      const tabLabel = `${tabCount} tab${tabCount === 1 ? "" : "s"}`;
+      if (!confirm(`Reopen all ${tabLabel} you just tucked away?`)) return;
+    }
     chrome.runtime.sendMessage({ type: "RESTORE_SESSION", sessionId }).catch(() => undefined);
+    return;
+  }
+  if (action === "restore-group") {
+    const sessionId = actionEl.dataset.sessionId || "";
+    const categoryId = actionEl.dataset.categoryId || "";
+    const tabCount = Number(actionEl.dataset.tabCount) || 0;
+    if (shouldConfirmReopen(sessionId)) {
+      const tabLabel = `${tabCount} tab${tabCount === 1 ? "" : "s"}`;
+      if (!confirm(`Reopen all ${tabLabel} from this folder?`)) return;
+    }
+    chrome.runtime.sendMessage({ type: "RESTORE_GROUP", sessionId, categoryId }).catch(() => undefined);
+    return;
+  }
+  if (action === "restore-tab") {
+    const sessionId = actionEl.dataset.sessionId || "";
+    const tabId = actionEl.dataset.tabId || "";
+    if (sessionId && tabId) {
+      chrome.runtime.sendMessage({ type: "RESTORE_TAB", sessionId, tabId }).catch(() => undefined);
+    }
+    return;
+  }
+  if (action === "toggle-folder") {
+    const row = actionEl.closest(".folder-row");
+    if (row) {
+      const expanded = row.dataset.folderExpanded === "true";
+      row.dataset.folderExpanded = expanded ? "false" : "true";
+    }
     return;
   }
 }
@@ -768,28 +960,114 @@ function renderSessions(host, sessions) {
   const shadow = host.shadowRoot;
   const list = shadow.getElementById("session-list");
   if (!list) return;
+  lastLoadedSessions = sessions;
   if (!sessions.length) {
     list.innerHTML = `<p class="session-empty">No saved sessions yet. Hit "Tidy my tabs" to make your first one.</p>`;
     return;
   }
-  list.innerHTML = sessions.slice(0, 3).map((session) => {
-    const tabCount = session.tabs?.length || 0;
-    const cats = (session.categories || []).filter((c) => (c.tabIds || []).length >= 2);
-    const folderSummary = cats.length
-      ? cats.slice(0, 3).map((c) => escapeText(c.name || "Folder")).join(" · ")
-      : "Single tabs";
-    const when = formatRelativeTime(session.createdAt);
-    return `
-      <div class="session-card">
-        <div class="session-card-row">
-          <p class="session-card-title">${tabCount} tab${tabCount === 1 ? "" : "s"}</p>
-          <span class="session-card-meta">${escapeText(when)}</span>
+
+  // Done-context pinning: when the panel state is "done", float the
+  // just-saved session to the top of the list and pre-expand its folders.
+  const pinnedSessionId = currentState?.mode === "done" ? String(currentState.sessionId || "") : "";
+  const ordered = pinnedSessionId
+    ? [
+        ...sessions.filter((s) => s.id === pinnedSessionId),
+        ...sessions.filter((s) => s.id !== pinnedSessionId)
+      ]
+    : sessions;
+
+  list.innerHTML = ordered.slice(0, 3)
+    .map((session) => renderSessionCard(session, session.id === pinnedSessionId))
+    .join("");
+}
+
+function renderSessionCard(session, isPinned) {
+  const tabCount = session.tabs?.length || 0;
+  const when = formatRelativeTime(session.createdAt);
+  const sid = escapeAttr(session.id);
+
+  // Folders sorted by member count descending; singletons (1-tab "folders")
+  // collapsed into a single "+N loose" summary line.
+  const allCats = session.categories || [];
+  const folders = allCats
+    .filter((c) => (c.tabIds || []).length >= 2)
+    .slice()
+    .sort((a, b) => (b.tabIds?.length || 0) - (a.tabIds?.length || 0));
+  const singletonCount = allCats.filter((c) => (c.tabIds || []).length === 1).length;
+
+  const tabsById = new Map((session.tabs || []).map((t) => [t.id, t]));
+  const foldersHtml = folders.map((folder) => renderFolderRow(folder, tabsById, sid, isPinned)).join("");
+  const singletonsHtml = singletonCount
+    ? `<p class="singletons-line">+${singletonCount} single tab${singletonCount === 1 ? "" : "s"}</p>`
+    : "";
+
+  const pinnedClass = isPinned ? " pinned-saved" : "";
+  const pinnedLabel = isPinned
+    ? `<span class="session-pin-label">Just saved</span>`
+    : "";
+
+  return `
+    <div class="session-card${pinnedClass}">
+      <header class="session-card-header">
+        <div class="session-card-header-text">
+          ${pinnedLabel}
+          <div class="session-card-meta-row">
+            <p class="session-card-title">${tabCount} tab${tabCount === 1 ? "" : "s"}</p>
+            <span class="session-card-meta">${escapeText(when)}</span>
+          </div>
         </div>
-        <div class="session-card-folders">${folderSummary}</div>
-        <button class="session-restore" data-action="restore-session" data-session-id="${escapeAttr(session.id)}" type="button">Reopen all</button>
+        <button class="session-open-all" data-action="restore-session" data-session-id="${sid}" data-tab-count="${tabCount}" type="button">Open all</button>
+      </header>
+      <div class="folder-list">
+        ${foldersHtml}
+        ${singletonsHtml}
       </div>
+    </div>
+  `;
+}
+
+function renderFolderRow(folder, tabsById, sid, expandByDefault) {
+  const folderName = escapeText(folder.name || "Folder");
+  const tabCount = (folder.tabIds || []).length;
+  const cid = escapeAttr(folder.id);
+  const expanded = expandByDefault ? "true" : "false";
+
+  const tabsHtml = (folder.tabIds || []).map((tabId) => {
+    const tab = tabsById.get(tabId);
+    if (!tab) return "";
+    const title = escapeText(tab.title || tab.url || "Untitled");
+    const fav = tab.favIconUrl
+      ? `<img class="folder-tab-favicon" src="${escapeAttr(tab.favIconUrl)}" alt="" onerror="this.style.visibility='hidden'">`
+      : `<span class="folder-tab-favicon"></span>`;
+    return `
+      <li>
+        <button class="folder-tab" data-action="restore-tab" data-session-id="${sid}" data-tab-id="${escapeAttr(tab.id)}" type="button" title="${escapeAttr(tab.url || "")}">
+          ${fav}<span class="folder-tab-title">${title}</span>
+        </button>
+      </li>
     `;
   }).join("");
+
+  return `
+    <div class="folder-row" data-folder-expanded="${expanded}">
+      <div class="folder-summary" data-action="toggle-folder">
+        <span class="folder-disclosure" aria-hidden="true">▸</span>
+        <span class="folder-name">${folderName}</span>
+        <span class="folder-count">${tabCount}</span>
+        <button class="folder-open-all" data-action="restore-group" data-session-id="${sid}" data-category-id="${cid}" data-tab-count="${tabCount}" type="button">Open all</button>
+      </div>
+      <ul class="folder-tabs">${tabsHtml}</ul>
+    </div>
+  `;
+}
+
+// True when reopening should warn the user — protects against immediately
+// undoing a save by clicking "Open all" on the just-saved session.
+function shouldConfirmReopen(sessionId) {
+  const session = lastLoadedSessions.find((s) => s.id === sessionId);
+  if (!session?.createdAt) return false;
+  const ageMs = Date.now() - Date.parse(session.createdAt);
+  return Number.isFinite(ageMs) && ageMs >= 0 && ageMs < 60_000;
 }
 
 function formatRelativeTime(iso) {
