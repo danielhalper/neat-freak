@@ -397,9 +397,11 @@ function panelMarkup() {
         gap: 14px;
         max-height: 60vh;
         overflow-y: auto;
-        /* Subtle entrance */
         animation: fadein 180ms ease-out;
       }
+      /* Class rule above is more specific than UA [hidden] — explicit override
+         needed, otherwise the section never actually hides when toggled. */
+      .expanded-content[hidden] { display: none; }
       @keyframes fadein {
         from { opacity: 0; transform: translateY(-4px); }
         to   { opacity: 1; transform: translateY(0); }
@@ -792,24 +794,30 @@ function panelMarkup() {
         justify-content: space-between;
       }
       .more-options-toggle {
-        background: transparent;
-        border: 0;
-        color: #0f766e;
-        font-size: 13px;
-        font-weight: 600;
-        font-family: inherit;
+        background: #ffffff;
+        border: 1px solid #e8dfc7;
+        color: #4a5651;
+        width: 32px;
+        height: 32px;
+        border-radius: 8px;
         cursor: pointer;
-        padding: 4px 0;
         display: flex;
         align-items: center;
-        gap: 2px;
+        justify-content: center;
+        padding: 0;
+        flex-shrink: 0;
+        transition: color 120ms ease, background 120ms ease, border-color 120ms ease;
       }
-      .more-options-toggle .chev {
-        transition: transform 140ms ease;
-        font-size: 14px;
+      .more-options-toggle svg { width: 14px; height: 14px; display: block; }
+      .more-options-toggle:hover {
+        color: #1a2421;
+        background: #f6f3e8;
       }
-      .more-options-toggle[aria-expanded="true"] .chev { transform: rotate(180deg); }
-      .more-options-toggle:hover { color: #115e59; }
+      .more-options-toggle[aria-expanded="true"] {
+        background: #f4bd45;
+        border-color: #f4bd45;
+        color: #1a2421;
+      }
 
       .more-options-panel {
         padding: 10px 12px;
@@ -934,8 +942,15 @@ function panelMarkup() {
             <button class="scope-button" data-action="scope" data-scope-value="allWindows" type="button">All windows</button>
             <button class="scope-button" data-action="scope" data-scope-value="currentWindow" type="button">Current</button>
           </div>
-          <button class="more-options-toggle" data-action="toggle-more-options" type="button" aria-expanded="false">
-            More options <span class="chev">⌄</span>
+          <button class="more-options-toggle" data-action="toggle-more-options" type="button" aria-expanded="false" title="More options" aria-label="More options">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <line x1="4" y1="6" x2="20" y2="6"></line>
+              <line x1="4" y1="12" x2="20" y2="12"></line>
+              <line x1="4" y1="18" x2="20" y2="18"></line>
+              <circle cx="10" cy="6" r="2" fill="currentColor"></circle>
+              <circle cx="14" cy="12" r="2" fill="currentColor"></circle>
+              <circle cx="8" cy="18" r="2" fill="currentColor"></circle>
+            </svg>
           </button>
         </div>
         <div class="more-options-panel" id="more-options-panel" hidden>
