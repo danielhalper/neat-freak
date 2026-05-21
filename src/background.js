@@ -112,19 +112,29 @@ async function routeMessage(message) {
 }
 
 // Popup-shim entry point. Called from popup.js when the user clicks the
-// toolbar icon. We try to inject the floating panel on the active tab; if it
-// works, popup.js closes itself and the panel is the surface. If injection
-// fails (chrome:// page, web store, etc.), popup.js falls back to rendering
-// the existing popup UI inline.
+// toolbar icon. Acts as a toggle: if the panel is already visible, dismiss
+// it; otherwise open it in idle (user-initiated, expanded) mode. On chrome://
+// pages where injection fails, popup.js falls back to rendering the existing
+// popup UI inline.
 async function openPanelFromIcon() {
   const activeTabs = await queryTabs({ active: true, lastFocusedWindow: true });
   const target = activeTabs[0];
   if (!target?.id || !isInjectablePageUrl(target.url)) {
     return { injected: false };
   }
+  // Toggle: if the panel is currently in a user-relevant non-hidden state,
+  // close it. Saving is mid-flow so we don't yank it — treat as "leave alone."
+  const stored = await new Promise((resolve) => {
+    try {
+      chrome.storage.session.get("neatFreakPanelState", (r) => resolve(r || {}));
+    } catch { resolve({}); }
+  });
+  const currentMode = stored?.neatFreakPanelState?.mode || "hidden";
+  if (currentMode !== "hidden" && currentMode !== "saving") {
+    await setPanelState({ mode: "hidden" });
+    return { injected: true, closed: true };
+  }
   await setPanelState({ mode: "idle" });
-  // setPanelState already attempts injection; success/failure is implicit in
-  // whether it threw, but we can be explicit by trying once more — cheap.
   const ok = await ensurePanelMounted();
   return { injected: ok };
 }

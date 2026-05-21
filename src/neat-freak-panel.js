@@ -5,59 +5,78 @@
 //   saving   →  stressed mascot wobbling, "Tidying your tabs", per-step sub
 //   done     →  calm mascot, "N tabs tucked away", teal Open manager button
 //
-// State lives in chrome.storage.session.neatFreakPanelState. The panel mounts
-// once per page and listens for chrome.storage.onChanged — when background
-// writes a new state, the panel re-renders in place (no dismiss + re-injection
-// flicker). Background re-runs this script via chrome.scripting.executeScript
-// every time it sets a new state; the IIFE is idempotent — if the host element
-// is already in the DOM, we just re-read state and re-render.
+// State lives in chrome.storage.session.neatFreakPanelState. After the first
+// inject on a tab, the script sets a window flag so subsequent executeScript
+// calls (which background fires on every setPanelState) become no-ops; the
+// storage.onChanged listener registered during first init handles all future
+// state changes. Page navigation resets the isolated world, so the flag
+// naturally clears and the next inject re-initializes from scratch.
+//
+// The whole module is wrapped in an IIFE so the const/let declarations don't
+// re-declare and throw on repeated executeScript invocations.
 
-const HOST_ID = "__neat-freak-panel__";
-const STATE_KEY = "neatFreakPanelState";
-const AUTO_DISMISS_MS = 8000;
-let autoDismissTimer = null;
+(function neatFreakPanelInit() {
+  // Per-isolated-world guard. Set on the window of the isolated world (not the
+  // page); persists across executeScript calls until page navigation.
+  if (window.__neatFreakPanelInitialized) return;
+  window.__neatFreakPanelInitialized = true;
 
-// Phase 2B: local-only expanded-mode flag. Not stored — expansion is "the user
-// is interacting with this surface right now," which is tab-local intent, not
-// extension-wide state. Other tabs' panels stay collapsed even if this one's
-// expanded.
-let expandedMode = false;
-let currentState = null;
-let outsideClickHandler = null;
-let selectedScope = "smart"; // initial; overwritten when settings load
-let lastLoadedSessions = []; // cached so action handlers can check session age
+  const HOST_ID = "__neat-freak-panel__";
+  const STATE_KEY = "neatFreakPanelState";
+  const AUTO_DISMISS_MS = 8000;
+  let autoDismissTimer = null;
 
-(async () => {
-  let host = document.getElementById(HOST_ID);
-  const isNewMount = !host;
+  // Local-only expanded-mode flag. Not stored — expansion is "the user is
+  // interacting with this surface right now," tab-local intent.
+  let expandedMode = false;
+  let currentState = null;
+  let outsideClickHandler = null;
+  let selectedScope = "smart";
+  let lastLoadedSessions = [];
 
-  if (isNewMount) {
-    host = createPanelHost();
-    document.documentElement.appendChild(host);
-    bindStorageListener(host);
+  // Initial render and listener setup. Subsequent storage changes go through
+  // the listener (not via re-injection).
+  (async () => {
+    const state = await readState();
+    bindStorageListener();
+    if (state && state.mode && state.mode !== "hidden") {
+      const host = ensureHost();
+      applyState(host, state);
+    }
+  })();
+
+  async function readState() {
+    try {
+      const result = await chrome.storage.session.get(STATE_KEY);
+      return result?.[STATE_KEY] || { mode: "hidden" };
+    } catch {
+      return { mode: "hidden" };
+    }
   }
 
-  const state = await readState();
-  applyState(host, state);
-})();
-
-async function readState() {
-  try {
-    const result = await chrome.storage.session.get(STATE_KEY);
-    return result?.[STATE_KEY] || { mode: "hidden" };
-  } catch {
-    return { mode: "hidden" };
+  function bindStorageListener() {
+    chrome.storage.onChanged.addListener((changes, area) => {
+      if (area !== "session") return;
+      if (!changes[STATE_KEY]) return;
+      const newState = changes[STATE_KEY].newValue || { mode: "hidden" };
+      // Always look up host dynamically; it may have been removed via dismiss.
+      // For non-hidden states, ensure a host exists (re-creates after dismiss).
+      let host = document.getElementById(HOST_ID);
+      if (!host && newState.mode !== "hidden") host = ensureHost();
+      if (host) applyState(host, newState);
+    });
   }
-}
 
-function bindStorageListener(host) {
-  chrome.storage.onChanged.addListener((changes, area) => {
-    if (area !== "session") return;
-    if (!changes[STATE_KEY]) return;
-    const newState = changes[STATE_KEY].newValue || { mode: "hidden" };
-    applyState(host, newState);
-  });
-}
+  function ensureHost() {
+    let host = document.getElementById(HOST_ID);
+    if (!host) {
+      host = createPanelHost();
+      document.documentElement.appendChild(host);
+    } else if (!document.documentElement.contains(host)) {
+      document.documentElement.appendChild(host);
+    }
+    return host;
+  }
 
 function createPanelHost() {
   const host = document.createElement("div");
@@ -65,8 +84,8 @@ function createPanelHost() {
   host.style.cssText = [
     "all: initial",
     "position: fixed",
-    "top: 16px",
-    "right: 16px",
+    "top: 12px",
+    "right: 12px", // sits close to the right edge to feel anchored to the toolbar icon
     "z-index: 2147483647",
     "color-scheme: light"
   ].join("; ");
@@ -453,6 +472,12 @@ function panelMarkup() {
         align-items: center;
         justify-content: space-between;
         gap: 8px;
+        cursor: pointer;
+        user-select: none;
+      }
+      .session-card[data-session-expanded="false"] .folder-list { display: none; }
+      .folder-tab.singleton {
+        background: rgba(0, 0, 0, 0.02);
       }
       .session-card-header-text {
         display: flex;
@@ -588,6 +613,161 @@ function panelMarkup() {
         padding: 4px 8px;
         font-style: italic;
       }
+
+      /* ========== Expanded view: brand header & layout ========== */
+      .exp-header {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+      }
+      .exp-brand-mascot {
+        width: 32px;
+        height: 32px;
+        border-radius: 7px;
+        background: #0f766e;
+        flex-shrink: 0;
+        /* Drop-shadow stays minimal here since the brand mascot is small. */
+      }
+      .exp-wordmark {
+        margin: 0;
+        font-size: 22px;
+        font-weight: 700;
+        font-family: "Lucida Handwriting", "Snell Roundhand", "Apple Chancery", cursive;
+        letter-spacing: 0.01em;
+        flex: 1;
+      }
+      .exp-wordmark-accent {
+        color: #b88913;
+      }
+      .exp-icon-btn {
+        background: transparent;
+        border: 1px solid #e8dfc7;
+        color: #4a5651;
+        width: 32px;
+        height: 32px;
+        border-radius: 8px;
+        cursor: pointer;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-family: inherit;
+      }
+      .exp-icon-btn:hover { background: #f6f3e8; color: #1a2421; }
+
+      .exp-tagline {
+        margin: 0;
+        font-size: 13px;
+        color: #4a5651;
+        line-height: 1.4;
+      }
+
+      /* Scope picker now sits in a row with the "More options" toggle to the right. */
+      .scope-row {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        justify-content: space-between;
+      }
+      .more-options-toggle {
+        background: transparent;
+        border: 0;
+        color: #0f766e;
+        font-size: 13px;
+        font-weight: 600;
+        font-family: inherit;
+        cursor: pointer;
+        padding: 4px 0;
+        display: flex;
+        align-items: center;
+        gap: 2px;
+      }
+      .more-options-toggle .chev {
+        transition: transform 140ms ease;
+        font-size: 14px;
+      }
+      .more-options-toggle[aria-expanded="true"] .chev { transform: rotate(180deg); }
+      .more-options-toggle:hover { color: #115e59; }
+
+      .more-options-panel {
+        padding: 10px 12px;
+        background: rgba(0, 0, 0, 0.025);
+        border-radius: 8px;
+        display: flex;
+        flex-direction: column;
+        gap: 4px;
+      }
+
+      /* Subtitle for the Tidy CTA showing eligible tab count */
+      .tidy-cta {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 2px;
+        padding: 13px 16px;
+      }
+      .tidy-cta-title {
+        font-size: 15px;
+        font-weight: 700;
+      }
+      .tidy-cta-sub {
+        font-size: 12px;
+        font-weight: 500;
+        opacity: 0.85;
+      }
+
+      /* Search input */
+      .search-wrap {
+        position: relative;
+        margin-top: 4px;
+      }
+      .search-icon {
+        position: absolute;
+        left: 10px;
+        top: 50%;
+        transform: translateY(-50%);
+        color: #8a948f;
+        pointer-events: none;
+      }
+      .search-input {
+        width: 100%;
+        background: rgba(0, 0, 0, 0.04);
+        border: 1px solid transparent;
+        border-radius: 8px;
+        padding: 8px 10px 8px 30px;
+        font-size: 13px;
+        font-family: inherit;
+        color: #1a2421;
+        outline: none;
+        transition: background 120ms ease, border-color 120ms ease;
+        box-sizing: border-box;
+      }
+      .search-input::placeholder { color: #8a948f; }
+      .search-input:focus {
+        background: #ffffff;
+        border-color: #0f766e;
+      }
+
+      .search-hint {
+        margin: 0;
+        font-size: 11px;
+        color: #8a948f;
+      }
+      .search-hint kbd {
+        display: inline-block;
+        background: rgba(0, 0, 0, 0.06);
+        border-radius: 4px;
+        padding: 0 4px;
+        font-family: ui-monospace, SFMono-Regular, monospace;
+        font-size: 10px;
+      }
+
+      /* Bottom status line ("LLM grouping is ready.") */
+      .exp-status {
+        margin: 0;
+        font-size: 11px;
+        color: #8a948f;
+        text-align: left;
+      }
     </style>
     <div class="card" role="status" aria-live="polite" id="card">
       <button class="close" data-action="dismiss" aria-label="Dismiss" type="button">&times;</button>
@@ -603,16 +783,30 @@ function panelMarkup() {
 
       <!-- Expanded-only content. Hidden until the user clicks the body. -->
       <div class="expanded-content" id="expanded-content" hidden>
-        <div class="scope-picker" id="scope-picker">
-          <button class="scope-button" data-scope="smart" type="button">Smart</button>
-          <button class="scope-button" data-scope="allWindows" type="button">All windows</button>
-          <button class="scope-button" data-scope="currentWindow" type="button">Current</button>
-        </div>
-        <p class="preview-line" id="preview-line">Loading preview…</p>
-        <button class="tidy-cta" data-action="tidy-expanded" type="button">Tidy my tabs</button>
+        <!-- Compact brand header matching the popup's visual framework -->
+        <header class="exp-header">
+          <img class="exp-brand-mascot" src="" alt="" aria-hidden="true">
+          <h1 class="exp-wordmark"><span>Neat</span> <span class="exp-wordmark-accent">Freak</span></h1>
+          <button class="exp-icon-btn" data-action="open-options-link" type="button" title="Settings" aria-label="Settings">
+            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <circle cx="12" cy="12" r="3"></circle>
+              <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09a1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09a1.65 1.65 0 0 0 1.51-1 1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33h0a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51h0a1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82v0a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"></path>
+            </svg>
+          </button>
+        </header>
+        <p class="exp-tagline">Stash open tabs into folders, free up RAM.</p>
 
-        <details class="more-options">
-          <summary>More options</summary>
+        <div class="scope-row">
+          <div class="scope-picker" id="scope-picker">
+            <button class="scope-button" data-action="scope" data-scope-value="smart" type="button">Smart</button>
+            <button class="scope-button" data-action="scope" data-scope-value="allWindows" type="button">All windows</button>
+            <button class="scope-button" data-action="scope" data-scope-value="currentWindow" type="button">Current</button>
+          </div>
+          <button class="more-options-toggle" data-action="toggle-more-options" type="button" aria-expanded="false">
+            More options <span class="chev">⌄</span>
+          </button>
+        </div>
+        <div class="more-options-panel" id="more-options-panel" hidden>
           <label class="check-row">
             <input type="checkbox" id="opt-include-pinned"> <span>Include pinned tabs</span>
           </label>
@@ -622,15 +816,30 @@ function panelMarkup() {
           <label class="check-row">
             <input type="checkbox" id="opt-review"> <span>Review before closing</span>
           </label>
-        </details>
+        </div>
+
+        <button class="tidy-cta" data-action="tidy-expanded" type="button">
+          <span class="tidy-cta-title">Tidy my tabs</span>
+          <span class="tidy-cta-sub" id="tidy-cta-sub"></span>
+        </button>
 
         <section class="sessions-section">
           <header class="sessions-header">
-            <h3 id="sessions-heading">Recent sessions</h3>
-            <button class="link-button" data-action="open-manager-link" type="button">Open manager →</button>
+            <h3 id="sessions-heading">LATEST SESSIONS</h3>
+            <button class="link-button" data-action="open-manager-link" type="button">Open manager</button>
           </header>
+          <div class="search-wrap">
+            <svg class="search-icon" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <circle cx="11" cy="11" r="7"></circle>
+              <path d="m21 21-4.4-4.4"></path>
+            </svg>
+            <input class="search-input" id="panel-search" type="search" placeholder="Search saved tabs, or ask a question…" autocomplete="off">
+          </div>
+          <p class="search-hint" id="panel-search-hint">Press <kbd>↵</kbd> for smart search</p>
           <div class="session-list" id="session-list"></div>
         </section>
+
+        <p class="exp-status" id="exp-status"></p>
       </div>
     </div>
   `;
@@ -796,6 +1005,17 @@ function handlePanelClick(host, event) {
     chrome.runtime.sendMessage({ type: "PANEL_OPEN_MANAGER" }).catch(() => undefined);
     return;
   }
+  if (action === "open-options-link") {
+    chrome.runtime.sendMessage({ type: "OPEN_OPTIONS" }).catch(() => undefined);
+    return;
+  }
+  if (action === "toggle-more-options") {
+    const panel = host.shadowRoot.getElementById("more-options-panel");
+    const isOpen = actionEl.getAttribute("aria-expanded") === "true";
+    actionEl.setAttribute("aria-expanded", String(!isOpen));
+    if (panel) panel.hidden = isOpen;
+    return;
+  }
   if (action === "restore-session") {
     const sessionId = actionEl.dataset.sessionId || "";
     const tabCount = Number(actionEl.dataset.tabCount) || 0;
@@ -830,6 +1050,14 @@ function handlePanelClick(host, event) {
     if (row) {
       const expanded = row.dataset.folderExpanded === "true";
       row.dataset.folderExpanded = expanded ? "false" : "true";
+    }
+    return;
+  }
+  if (action === "toggle-session") {
+    const card = actionEl.closest(".session-card");
+    if (card) {
+      const expanded = card.dataset.sessionExpanded === "true";
+      card.dataset.sessionExpanded = expanded ? "false" : "true";
     }
     return;
   }
@@ -899,9 +1127,14 @@ function unbindOutsideClickHandler() {
 
 async function loadExpandedData(host) {
   try {
+    // Set the brand mascot src now that the expanded view is visible.
+    const brandImg = host.shadowRoot.querySelector(".exp-brand-mascot");
+    if (brandImg && !brandImg.src) {
+      brandImg.src = chrome.runtime.getURL("assets/logo.svg");
+    }
+
     const response = await chrome.runtime.sendMessage({ type: "GET_POPUP_STATE" });
     if (!response?.ok) return;
-    // Initial selectedScope from user's default
     if (response.settings?.defaultScope) {
       selectedScope = response.settings.defaultScope;
     }
@@ -909,8 +1142,85 @@ async function loadExpandedData(host) {
     renderPreview(host, response.preview);
     renderMoreOptions(host, response.settings);
     renderSessions(host, response.sessions || []);
+    renderStatusLine(host, response.settings);
+    bindSearchInput(host);
   } catch (err) {
     console.warn("[Neat Freak] Load expanded data failed:", err?.message || err);
+  }
+}
+
+function renderStatusLine(host, settings) {
+  const el = host.shadowRoot.getElementById("exp-status");
+  if (!el) return;
+  if (settings?.llmEnabled && settings?.apiKey) {
+    el.textContent = "AI grouping is ready.";
+  } else if (settings?.llmEnabled) {
+    el.textContent = "Local grouping (add an API key for smarter folders).";
+  } else {
+    el.textContent = "Local grouping.";
+  }
+}
+
+let searchDebounceTimer = null;
+function bindSearchInput(host) {
+  const input = host.shadowRoot.getElementById("panel-search");
+  if (!input || input.dataset.bound === "true") return;
+  input.dataset.bound = "true";
+  input.addEventListener("input", () => {
+    clearTimeout(searchDebounceTimer);
+    const query = input.value;
+    searchDebounceTimer = setTimeout(() => runSearch(host, query, "local"), 220);
+  });
+  input.addEventListener("keydown", (event) => {
+    if (event.key === "Enter") {
+      event.preventDefault();
+      runSearch(host, input.value, "smart");
+    } else if (event.key === "Escape") {
+      input.value = "";
+      runSearch(host, "", "local");
+    }
+  });
+}
+
+async function runSearch(host, query, mode) {
+  const shadow = host.shadowRoot;
+  const trimmed = String(query || "").trim();
+  const list = shadow.getElementById("session-list");
+  const hint = shadow.getElementById("panel-search-hint");
+  if (!trimmed) {
+    // Empty query → restore the default sessions view.
+    if (hint) hint.innerHTML = `Press <kbd>↵</kbd> for smart search`;
+    renderSessions(host, lastLoadedSessions);
+    return;
+  }
+  if (mode === "smart") {
+    if (hint) hint.textContent = "Asking AI…";
+  } else {
+    if (hint) hint.innerHTML = `Press <kbd>↵</kbd> for smart search`;
+  }
+  try {
+    const response = await chrome.runtime.sendMessage({ type: "SEARCH_TABS", query: trimmed, mode });
+    if (!response?.ok) return;
+    const results = response.results || [];
+    if (!results.length) {
+      list.innerHTML = `<p class="session-empty">No saved tabs match "${escapeText(trimmed)}".</p>`;
+      return;
+    }
+    list.innerHTML = results.slice(0, 12).map((tab) => {
+      const fav = tab.favIconUrl
+        ? `<img class="folder-tab-favicon" src="${escapeAttr(tab.favIconUrl)}" alt="" onerror="this.style.visibility='hidden'">`
+        : `<span class="folder-tab-favicon"></span>`;
+      const title = escapeText(tab.title || tab.url || "Untitled");
+      const folder = tab.folderName ? `<span class="search-folder">${escapeText(tab.folderName)}</span>` : "";
+      return `
+        <button class="folder-tab" data-action="restore-tab" data-session-id="${escapeAttr(tab.sessionId)}" data-tab-id="${escapeAttr(tab.tabId)}" type="button" title="${escapeAttr(tab.url || "")}">
+          ${fav}<span class="folder-tab-title">${title}</span>${folder}
+        </button>
+      `;
+    }).join("");
+  } catch (err) {
+    if (hint) hint.textContent = "Search failed.";
+    console.warn("[Neat Freak] Search failed:", err?.message || err);
   }
 }
 
@@ -931,19 +1241,28 @@ function updateScopeButtons(host) {
 }
 
 function renderPreview(host, preview) {
+  // The standalone .preview-line element was removed when we adopted the
+  // popup-equivalent layout; the eligible-tab info now lives in the Tidy
+  // CTA subtitle. Keep this function as the single update point.
   const shadow = host.shadowRoot;
-  const el = shadow.getElementById("preview-line");
-  if (!el) return;
+  const sub = shadow.getElementById("tidy-cta-sub");
+  if (!sub) return;
   const count = Number(preview?.count) || 0;
-  const domains = Array.isArray(preview?.domains) ? preview.domains : [];
   if (!count) {
-    el.textContent = "No savable tabs.";
+    sub.textContent = "No savable tabs in scope";
     return;
   }
-  const domainText = domains.length
-    ? ` across ${domains.length} domain${domains.length === 1 ? "" : "s"}`
-    : "";
-  el.textContent = `${count} tab${count === 1 ? "" : "s"}${domainText}.`;
+  const label = scopeBlurb(selectedScope);
+  sub.textContent = `${count} tab${count === 1 ? "" : "s"} eligible${label ? ` — ${label}` : ""}`;
+}
+
+function scopeBlurb(scope) {
+  switch (scope) {
+    case "smart": return "Smart will pick";
+    case "allWindows": return "all windows";
+    case "currentWindow": return "current window";
+    default: return "";
+  }
 }
 
 function renderMoreOptions(host, settings) {
@@ -983,47 +1302,68 @@ function renderSessions(host, sessions) {
 
 function renderSessionCard(session, isPinned) {
   const tabCount = session.tabs?.length || 0;
-  const when = formatRelativeTime(session.createdAt);
+  const whenAbs = formatAbsoluteTime(session.createdAt);
   const sid = escapeAttr(session.id);
 
-  // Folders sorted by member count descending; singletons (1-tab "folders")
-  // collapsed into a single "+N loose" summary line.
   const allCats = session.categories || [];
   const folders = allCats
     .filter((c) => (c.tabIds || []).length >= 2)
     .slice()
     .sort((a, b) => (b.tabIds?.length || 0) - (a.tabIds?.length || 0));
-  const singletonCount = allCats.filter((c) => (c.tabIds || []).length === 1).length;
+  const singletonCats = allCats.filter((c) => (c.tabIds || []).length === 1);
 
   const tabsById = new Map((session.tabs || []).map((t) => [t.id, t]));
   const foldersHtml = folders.map((folder) => renderFolderRow(folder, tabsById, sid, isPinned)).join("");
-  const singletonsHtml = singletonCount
-    ? `<p class="singletons-line">+${singletonCount} single tab${singletonCount === 1 ? "" : "s"}</p>`
-    : "";
+
+  // Singletons render as URL rows directly — no folder wrapper, no "+N loose"
+  // summary. The user wants individual items to be visible as URLs.
+  const singletonsHtml = singletonCats.map((cat) => {
+    const tab = tabsById.get(cat.tabIds[0]);
+    if (!tab) return "";
+    const title = escapeText(tab.title || tab.url || "Untitled");
+    const fav = tab.favIconUrl
+      ? `<img class="folder-tab-favicon" src="${escapeAttr(tab.favIconUrl)}" alt="" onerror="this.style.visibility='hidden'">`
+      : `<span class="folder-tab-favicon"></span>`;
+    return `
+      <button class="folder-tab singleton" data-action="restore-tab" data-session-id="${sid}" data-tab-id="${escapeAttr(tab.id)}" type="button" title="${escapeAttr(tab.url || "")}">
+        ${fav}<span class="folder-tab-title">${title}</span>
+      </button>
+    `;
+  }).join("");
 
   const pinnedClass = isPinned ? " pinned-saved" : "";
-  const pinnedLabel = isPinned
-    ? `<span class="session-pin-label">Just saved</span>`
-    : "";
+  // Session is expanded by default only when it's the just-saved one; everything
+  // else stays collapsed (compact list — date + tab count) until clicked.
+  const expanded = isPinned ? "true" : "false";
 
   return `
-    <div class="session-card${pinnedClass}">
-      <header class="session-card-header">
+    <div class="session-card${pinnedClass}" data-session-expanded="${expanded}">
+      <div class="session-card-header" data-action="toggle-session">
         <div class="session-card-header-text">
-          ${pinnedLabel}
-          <div class="session-card-meta-row">
-            <p class="session-card-title">${tabCount} tab${tabCount === 1 ? "" : "s"}</p>
-            <span class="session-card-meta">${escapeText(when)}</span>
-          </div>
+          <p class="session-card-title">${escapeText(whenAbs)}</p>
+          <p class="session-card-meta">${tabCount} tab${tabCount === 1 ? "" : "s"}</p>
         </div>
         <button class="session-open-all" data-action="restore-session" data-session-id="${sid}" data-tab-count="${tabCount}" type="button">Open all</button>
-      </header>
+      </div>
       <div class="folder-list">
         ${foldersHtml}
         ${singletonsHtml}
       </div>
     </div>
   `;
+}
+
+function formatAbsoluteTime(iso) {
+  if (!iso) return "";
+  const t = Date.parse(iso);
+  if (!Number.isFinite(t)) return "";
+  const d = new Date(t);
+  const months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+  let hours = d.getHours();
+  const ampm = hours >= 12 ? "PM" : "AM";
+  hours = hours % 12 || 12;
+  const mins = String(d.getMinutes()).padStart(2, "0");
+  return `${months[d.getMonth()]} ${d.getDate()}, ${hours}:${mins} ${ampm}`;
 }
 
 function renderFolderRow(folder, tabsById, sid, expandByDefault) {
@@ -1150,3 +1490,5 @@ function escapeAttr(value) {
 function escapeText(value) {
   return String(value).replace(/[&<>]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" }[c]));
 }
+
+})(); // neatFreakPanelInit IIFE
