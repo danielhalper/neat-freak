@@ -24,6 +24,36 @@ const LLM_MODEL = "gpt-5.4-mini";
  * @param {number} now epoch ms
  * @returns {{ saveIds: string[], keepIds: string[] }}
  */
+/**
+ * Identify URL duplicates among the candidate tabs. Returns the set of tab
+ * ids that should be force-saved as duplicates — every tab in a group except
+ * the most recently accessed one. Matches on the exact URL string (full path,
+ * query, fragment), not just the domain. Shared by the heuristic and LLM paths.
+ *
+ * @param {Array<{id: string, url?: string, lastAccessed?: number}>} tabs
+ * @param {number} now epoch ms
+ * @returns {Set<string>}
+ */
+export function computeUrlDedupSaveIds(tabs, now) {
+  const effectiveAccess = (t) => (t && t.lastAccessed) ? t.lastAccessed : now;
+  const result = new Set();
+  const urlGroups = new Map();
+  for (const t of tabs) {
+    if (!t || !t.url) continue;
+    const list = urlGroups.get(t.url) || [];
+    list.push(t);
+    urlGroups.set(t.url, list);
+  }
+  for (const group of urlGroups.values()) {
+    if (group.length <= 1) continue;
+    group.sort((a, b) => effectiveAccess(b) - effectiveAccess(a));
+    for (let i = 1; i < group.length; i++) {
+      result.add(group[i].id);
+    }
+  }
+  return result;
+}
+
 export function applySmartHeuristic(tabs, clusters, now) {
   const tabById = new Map(tabs.map((t) => [t.id, t]));
 
@@ -36,21 +66,7 @@ export function applySmartHeuristic(tabs, clusters, now) {
   // recently accessed one stays open; the older duplicates are pure clutter
   // and get force-saved regardless of cluster activity or cutoff. The user
   // can always restore from the saved folder.
-  const dedupSaveIds = new Set();
-  const urlGroups = new Map();
-  for (const t of tabs) {
-    if (!t || !t.url) continue;
-    const list = urlGroups.get(t.url) || [];
-    list.push(t);
-    urlGroups.set(t.url, list);
-  }
-  for (const group of urlGroups.values()) {
-    if (group.length <= 1) continue;
-    group.sort((a, b) => effectiveAccess(b) - effectiveAccess(a));
-    for (let i = 1; i < group.length; i++) {
-      dedupSaveIds.add(group[i].id);
-    }
-  }
+  const dedupSaveIds = computeUrlDedupSaveIds(tabs, now);
 
   const clusterStatus = new Map();
   for (const cluster of clusters) {
@@ -271,9 +287,18 @@ async function runLlmPath(tabs, graph, settings, now) {
   const actionsArray = Array.isArray(parsed.tabActions) ? parsed.tabActions : [];
   const actionByTabId = new Map(actionsArray.map((a) => [a.tabId, a]));
 
+  // Same exact-URL dedup the heuristic applies — duplicates are clutter and
+  // shouldn't depend on the LLM noticing. Override its decision for any tab
+  // that's a non-canonical copy of a URL.
+  const dedupSaveIds = computeUrlDedupSaveIds(tabs, now);
+
   const saveIds = [];
   const keepIds = [];
   for (const t of tabs) {
+    if (dedupSaveIds.has(t.id)) {
+      saveIds.push(t.id);
+      continue;
+    }
     const action = actionByTabId.get(t.id);
     if (action?.action === "keep") keepIds.push(t.id);
     else saveIds.push(t.id);
