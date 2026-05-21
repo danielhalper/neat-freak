@@ -20,12 +20,6 @@
           <img src="assets/logo.svg" alt="" class="brand-logo">
           <h1 class="brand-wordmark"><span>Neat</span> <span class="brand-word-accent">Freak</span></h1>
         </button>
-        <button class="icon-button" id="open-options" type="button" title="Settings" aria-label="Open settings">
-          <svg viewBox="0 0 24 24" aria-hidden="true">
-            <path d="M12 15.4a3.4 3.4 0 1 0 0-6.8 3.4 3.4 0 0 0 0 6.8Z"></path>
-            <path d="M19.4 15a1.6 1.6 0 0 0 .3 1.8l.1.1a1.9 1.9 0 0 1-2.7 2.7l-.1-.1a1.6 1.6 0 0 0-1.8-.3 1.6 1.6 0 0 0-1 1.5V21a1.9 1.9 0 0 1-3.8 0v-.2a1.6 1.6 0 0 0-1-1.5 1.6 1.6 0 0 0-1.8.3l-.1.1a1.9 1.9 0 1 1-2.7-2.7l.1-.1a1.6 1.6 0 0 0 .3-1.8 1.6 1.6 0 0 0-1.5-1H3a1.9 1.9 0 0 1 0-3.8h.2a1.6 1.6 0 0 0 1.5-1 1.6 1.6 0 0 0-.3-1.8l-.1-.1a1.9 1.9 0 0 1 2.7-2.7l.1.1a1.6 1.6 0 0 0 1.8.3h.1a1.6 1.6 0 0 0 .9-1.5V3a1.9 1.9 0 0 1 3.8 0v.2a1.6 1.6 0 0 0 1 1.5 1.6 1.6 0 0 0 1.8-.3l.1-.1a1.9 1.9 0 1 1 2.7 2.7l-.1.1a1.6 1.6 0 0 0-.3 1.8v.1a1.6 1.6 0 0 0 1.5.9h.2a1.9 1.9 0 0 1 0 3.8h-.2a1.6 1.6 0 0 0-1.5 1Z"></path>
-          </svg>
-        </button>
       </header>
 
       <section class="capture-area" id="popup-controls">
@@ -36,9 +30,15 @@
             <button class="segmented" id="scope-all" type="button" data-scope="allWindows">All windows</button>
             <button class="segmented" id="scope-current" type="button" data-scope="currentWindow">Current</button>
           </div>
-          <button class="link-button" id="toggle-capture-options" type="button" aria-expanded="false" aria-controls="capture-options">
-            <span class="toggle-label">More options</span>
-            <span class="toggle-caret" aria-hidden="true">⌄</span>
+          <button class="more-options-toggle" id="toggle-capture-options" type="button" aria-expanded="false" aria-controls="capture-options" title="More options" aria-label="More options">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <line x1="4" y1="6" x2="20" y2="6"></line>
+              <line x1="4" y1="12" x2="20" y2="12"></line>
+              <line x1="4" y1="18" x2="20" y2="18"></line>
+              <circle cx="10" cy="6" r="2" fill="currentColor"></circle>
+              <circle cx="14" cy="12" r="2" fill="currentColor"></circle>
+              <circle cx="8" cy="18" r="2" fill="currentColor"></circle>
+            </svg>
           </button>
         </div>
         <div class="capture-options" id="capture-options" hidden>
@@ -54,6 +54,7 @@
             <input type="checkbox" id="include-pinned">
             <span>Include pinned tabs</span>
           </label>
+          <button class="more-options-settings-link" id="open-options" type="button">More settings →</button>
         </div>
 
         <button class="primary-action" id="save-tabs" type="button">
