@@ -191,7 +191,26 @@ function createPanelHost() {
   const shadow = host.attachShadow({ mode: "open" });
   shadow.innerHTML = panelMarkup();
   shadow.addEventListener("click", (event) => handlePanelClick(host, event));
+  shadow.addEventListener("change", (event) => handlePanelChange(host, event));
   return host;
+}
+
+// Persist More options checkbox state so each toggle becomes the default the
+// next time the panel opens. Delegated at the shadow root because the
+// checkboxes ship in the static markup; one listener covers all three.
+function handlePanelChange(host, event) {
+  const target = event.target;
+  if (!(target instanceof HTMLInputElement) || target.type !== "checkbox") return;
+  let key = null;
+  if (target.id === "opt-include-pinned") key = "defaultIncludePinned";
+  else if (target.id === "opt-keep-current") key = "defaultKeepCurrentTab";
+  else if (target.id === "opt-review") key = "defaultReviewBeforeClose";
+  if (!key) return;
+  safeSendMessage({ type: "SAVE_SETTINGS", settings: { [key]: target.checked } });
+  // Pinned/current affect the eligible-tabs preview shown under the Tidy CTA.
+  if (key === "defaultIncludePinned" || key === "defaultKeepCurrentTab") {
+    refreshPreview(host);
+  }
 }
 
 function panelMarkup() {
@@ -1214,6 +1233,8 @@ function handlePanelClick(host, event) {
       selectedScope = newScope;
       updateScopeButtons(host);
       refreshPreview(host);
+      // Persist so this scope is the default the next time the panel opens.
+      safeSendMessage({ type: "SAVE_SETTINGS", settings: { defaultScope: newScope } });
     }
     return;
   }
