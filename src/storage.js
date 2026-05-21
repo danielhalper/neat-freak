@@ -13,7 +13,8 @@ export const DEFAULT_SETTINGS = {
   defaultScope: "smart",
   llmEnabled: true,
   maxSnippetChars: 720,
-  settingsVersion: 6
+  settingsVersion: 6,
+  showClutterNudges: true
 };
 
 const MIN_CLUTTER_THRESHOLD = 5;

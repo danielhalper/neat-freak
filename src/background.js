@@ -18,6 +18,17 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   return true;
 });
 
+// chrome.storage.session defaults to TRUSTED_CONTEXTS — meaning the service
+// worker and extension pages can read it but content scripts can NOT. The
+// clutter and done toasts run as injected content scripts and read the tab
+// count from session storage. Without this, every toast renders with whatever
+// default the script falls back to (e.g. "20 tabs" regardless of reality).
+if (chrome.storage?.session?.setAccessLevel) {
+  chrome.storage.session
+    .setAccessLevel({ accessLevel: "TRUSTED_AND_UNTRUSTED_CONTEXTS" })
+    .catch((err) => console.warn("[Neat Freak] session storage access:", err?.message || err));
+}
+
 // Track whether the Chrome action popup is open. The popup opens a long-lived
 // "popup-alive" port on load; Chrome auto-disconnects it when the popup closes
 // (focus moves outside). We count active ports so two simultaneous popup
@@ -84,8 +95,6 @@ async function routeMessage(message) {
       return markOnboarded();
     case "CLUTTER_TOAST_TIDY":
       return handleClutterToastTidy();
-    case "CLUTTER_TOAST_DISABLE":
-      return handleClutterToastDisable();
     case "DONE_TOAST_OPEN":
       await openManager(message.sessionId || "");
       return {};
@@ -835,11 +844,40 @@ function setBadge(tabCount, threshold) {
 }
 
 async function isClutterDisabled() {
+  // Primary source: settings.showClutterNudges (settable from options UI).
+  try {
+    const settings = await getSettings();
+    if (settings.showClutterNudges === false) return true;
+  } catch {
+    // Continue to legacy check.
+  }
+  // Legacy flag from the old "Don't show this again" toast button. Migration
+  // moves this into settings on SW boot (see migrateLegacyClutterFlag below),
+  // but we still honor it in case the migration hasn't run yet this session.
   const stored = await new Promise((resolve) => {
     chrome.storage.local.get([CLUTTER_DISABLED_KEY], (result) => resolve(result || {}));
   });
   return Boolean(stored[CLUTTER_DISABLED_KEY]);
 }
+
+// One-time migration: if the user disabled clutter via the old toast button,
+// surface that as showClutterNudges=false in settings and clear the legacy key
+// so settings UI is the single source of truth.
+async function migrateLegacyClutterFlag() {
+  try {
+    const stored = await new Promise((resolve) => {
+      chrome.storage.local.get([CLUTTER_DISABLED_KEY], (r) => resolve(r || {}));
+    });
+    if (!stored[CLUTTER_DISABLED_KEY]) return;
+    await saveSettings({ showClutterNudges: false });
+    await new Promise((resolve) => {
+      chrome.storage.local.remove([CLUTTER_DISABLED_KEY], () => resolve());
+    });
+  } catch {
+    // Migration is best-effort; the legacy fallback in isClutterDisabled catches the rest.
+  }
+}
+migrateLegacyClutterFlag();
 
 async function getClutterThreshold() {
   try {
@@ -933,28 +971,20 @@ async function checkClutter() {
   }
 }
 
-// "Tidy now" from the toast — try to open the popup directly. Falls back to the
-// manager if openPopup isn't available or the gesture context is wrong.
+// "Tidy now" from the toast — kick off a Smart save directly instead of opening
+// the popup. The whole point of the toast is to act with one click; opening the
+// popup would feel like the toast just relocated, not actually did something.
 async function handleClutterToastTidy() {
   try {
-    if (chrome.action?.openPopup) {
-      await chrome.action.openPopup();
-      return {};
-    }
-  } catch {
-    // Fall through to manager fallback.
+    await saveTabs({ scope: "smart" });
+    return {};
+  } catch (err) {
+    // If the save fails for any reason (no candidates, etc.), fall back to
+    // opening the manager so the user has SOME path forward.
+    console.warn("[Neat Freak] Tidy-from-toast save failed:", err?.message || err);
+    await openManager();
+    return {};
   }
-  await openManager();
-  return {};
-}
-
-async function handleClutterToastDisable() {
-  await new Promise((resolve) => {
-    chrome.storage.local.set({ [CLUTTER_DISABLED_KEY]: true }, () => resolve());
-  });
-  // Clear the badge immediately so the user sees the disable take effect.
-  setBadge(0, Number.POSITIVE_INFINITY);
-  return {};
 }
 
 // The badge updates synchronously off tab events (no 3s wait) so it feels

@@ -10,7 +10,8 @@ const fields = {
   defaultReviewBeforeClose: document.querySelector("#default-review"),
   defaultScope: document.querySelector("#default-scope"),
   llmEnabled: document.querySelector("#llm-enabled"),
-  maxSnippetChars: document.querySelector("#max-snippet-chars")
+  maxSnippetChars: document.querySelector("#max-snippet-chars"),
+  showClutterNudges: document.querySelector("#show-clutter-nudges")
 };
 
 init();
@@ -58,6 +59,7 @@ function populate(settings) {
   fields.defaultScope.value = settings.defaultScope || "allWindows";
   fields.llmEnabled.checked = Boolean(settings.llmEnabled);
   fields.maxSnippetChars.value = settings.maxSnippetChars || 720;
+  fields.showClutterNudges.checked = settings.showClutterNudges !== false;
 }
 
 async function save(event) {
@@ -92,7 +94,8 @@ function readSettings() {
     defaultReviewBeforeClose: fields.defaultReviewBeforeClose.checked,
     defaultScope: fields.defaultScope.value,
     llmEnabled: fields.llmEnabled.checked,
-    maxSnippetChars: Number(fields.maxSnippetChars.value || 720)
+    maxSnippetChars: Number(fields.maxSnippetChars.value || 720),
+    showClutterNudges: fields.showClutterNudges.checked
   };
 }
 

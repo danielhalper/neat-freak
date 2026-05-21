@@ -60,7 +60,20 @@
       }
       .card.leaving { animation: slideout 0.18s ease-in forwards; }
       .row { display: flex; gap: 12px; align-items: flex-start; }
-      .mascot { width: 44px; height: 44px; flex-shrink: 0; border-radius: 8px; }
+      /* Amber halo around the stressed mascot — visually separates it from
+         the teal "Tidy now" button which is also branded teal. */
+      .mascot-wrap {
+        width: 44px;
+        height: 44px;
+        flex-shrink: 0;
+        border-radius: 50%;
+        background: #fef3c7;
+        border: 2px solid #f4bd45;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+      }
+      .mascot { width: 32px; height: 32px; }
       .body { flex: 1; min-width: 0; }
       .title { font-size: 14px; font-weight: 600; margin: 0 0 2px; line-height: 1.25; }
       .sub { font-size: 13px; color: #4a5651; margin: 0; line-height: 1.35; }
@@ -76,7 +89,7 @@
         border-radius: 4px;
       }
       .close:hover { color: #333; background: #f0f0f0; }
-      .actions { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-top: 2px; }
+      .actions { display: flex; align-items: center; gap: 12px; margin-top: 2px; }
       .primary {
         cursor: pointer;
         background: #0f766e;
@@ -89,21 +102,12 @@
         font-family: inherit;
       }
       .primary:hover { background: #115e59; }
-      .disable-link {
-        cursor: pointer;
-        background: transparent;
-        border: 0;
-        color: #888;
-        font-size: 11px;
-        text-decoration: underline;
-        font-family: inherit;
-        padding: 0;
-      }
-      .disable-link:hover { color: #555; }
     </style>
     <div class="card" role="alert" aria-live="polite">
       <div class="row">
-        <img class="mascot" src="${mascotUrl}" alt="">
+        <div class="mascot-wrap" aria-hidden="true">
+          <img class="mascot" src="${mascotUrl}" alt="">
+        </div>
         <div class="body">
           <p class="title">${tabCount} tabs open</p>
           <p class="sub">Want me to tidy up?</p>
@@ -112,7 +116,6 @@
       </div>
       <div class="actions">
         <button class="primary" data-action="tidy">Tidy now</button>
-        <button class="disable-link" data-action="disable">Don&rsquo;t show this again</button>
       </div>
     </div>
   `;
@@ -134,9 +137,6 @@
       dismissWithAnimation();
     } else if (action === "tidy") {
       chrome.runtime.sendMessage({ type: "CLUTTER_TOAST_TIDY" });
-      dismissWithAnimation();
-    } else if (action === "disable") {
-      chrome.runtime.sendMessage({ type: "CLUTTER_TOAST_DISABLE" });
       dismissWithAnimation();
     }
   });
