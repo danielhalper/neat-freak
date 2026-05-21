@@ -390,9 +390,8 @@ function panelMarkup() {
       }
 
       .expanded-content {
-        margin-top: 14px;
-        padding-top: 14px;
-        border-top: 1px dashed #e8dfc7;
+        /* No top divider needed — the collapsed view (.row + .actions) is
+           hidden when expanded, so there's nothing to divide from. */
         display: flex;
         flex-direction: column;
         gap: 14px;
@@ -753,10 +752,16 @@ function panelMarkup() {
       .exp-brand-mascot {
         width: 32px;
         height: 32px;
-        border-radius: 7px;
-        background: #0f766e;
         flex-shrink: 0;
-        /* Drop-shadow stays minimal here since the brand mascot is small. */
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+      }
+      .exp-brand-mascot svg {
+        width: 100%;
+        height: 100%;
+        border-radius: 7px;
+        display: block;
       }
       .exp-wordmark {
         margin: 0;
@@ -938,7 +943,26 @@ function panelMarkup() {
       <div class="expanded-content" id="expanded-content" hidden>
         <!-- Compact brand header matching the popup's visual framework -->
         <header class="exp-header">
-          <img class="exp-brand-mascot" src="" alt="" aria-hidden="true">
+          <!-- Inlined SVG (rather than <img src=chrome-extension://...>) so
+               strict-CSP pages like Google Slides don't block the load via
+               img-src directive. -->
+          <span class="exp-brand-mascot" aria-hidden="true">
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 160 160">
+              <rect width="160" height="160" rx="36" fill="#0f766e"/>
+              <path d="M30 56 L72 48" stroke="#093f3b" stroke-width="7" stroke-linecap="round"/>
+              <path d="M92 48 L130 58" stroke="#093f3b" stroke-width="7" stroke-linecap="round"/>
+              <circle cx="56" cy="82" r="22" fill="#f7f8f6"/>
+              <circle cx="63" cy="86" r="10" fill="#093f3b"/>
+              <circle cx="65" cy="83" r="3" fill="#ffffff"/>
+              <circle cx="108" cy="84" r="25" fill="#f7f8f6"/>
+              <circle cx="100" cy="88" r="11" fill="#093f3b"/>
+              <circle cx="102" cy="85" r="3" fill="#ffffff"/>
+              <path d="M64 128 Q80 138 96 128" fill="none" stroke="#093f3b" stroke-width="7" stroke-linecap="round"/>
+              <rect x="77" y="130" width="6" height="6" rx="1" fill="#f7f8f6"/>
+              <path d="M134 28 L138 40 L150 44 L138 48 L134 60 L130 48 L118 44 L130 40 Z" fill="#f4bd45"/>
+              <path d="M24 96 Q22 102 26 106 Q30 102 28 96 Z" fill="#f4bd45" opacity="0.9"/>
+            </svg>
+          </span>
           <h1 class="exp-wordmark"><span>Neat</span> <span class="exp-wordmark-accent">Freak</span></h1>
           <button class="exp-icon-btn" data-action="open-options-link" type="button" title="Settings" aria-label="Settings">
             <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
@@ -1298,12 +1322,7 @@ function unbindOutsideClickHandler() {
 
 async function loadExpandedData(host) {
   try {
-    // Set the brand mascot src now that the expanded view is visible.
-    const brandImg = host.shadowRoot.querySelector(".exp-brand-mascot");
-    if (brandImg && !brandImg.src) {
-      brandImg.src = chrome.runtime.getURL("assets/logo.svg");
-    }
-
+    // Brand mascot is now an inline SVG (see panelMarkup); no img src to set.
     const response = await safeSendMessageAwait({ type: "GET_POPUP_STATE" });
     if (!response?.ok) return;
     if (response.settings?.defaultScope) {
