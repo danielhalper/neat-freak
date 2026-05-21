@@ -596,6 +596,18 @@ function panelMarkup() {
       .folder-tab.singleton {
         background: rgba(0, 0, 0, 0.02);
       }
+      /* Top-level recent singleton row — sibling of folder-row, needs the
+         same chrome (rounded background + padding) since it's not nested. */
+      .folder-tab.recent-singleton {
+        background: rgba(0, 0, 0, 0.02);
+        padding: 8px 10px;
+        border-radius: 8px;
+        gap: 8px;
+      }
+      .folder-tab.recent-singleton:hover { background: rgba(0, 0, 0, 0.05); }
+      .folder-tab.recent-singleton .folder-tab-favicon {
+        width: 16px; height: 16px;
+      }
       .session-card-header-text {
         display: flex;
         flex-direction: column;
@@ -972,7 +984,7 @@ function panelMarkup() {
 
         <section class="sessions-section">
           <header class="sessions-header">
-            <h3 id="sessions-heading">LATEST SESSIONS</h3>
+            <h3 id="sessions-heading">RECENT</h3>
             <button class="link-button" data-action="open-manager-link" type="button">Open manager</button>
           </header>
           <div class="search-wrap">
@@ -1443,19 +1455,53 @@ function renderSessions(host, sessions) {
     return;
   }
 
-  // Done-context pinning: when the panel state is "done", float the
-  // just-saved session to the top of the list and pre-expand its folders.
-  const pinnedSessionId = currentState?.mode === "done" ? String(currentState.sessionId || "") : "";
-  const ordered = pinnedSessionId
-    ? [
-        ...sessions.filter((s) => s.id === pinnedSessionId),
-        ...sessions.filter((s) => s.id !== pinnedSessionId)
-      ]
-    : sessions;
+  // Flat recency-ranked list of "items" — each item is either a folder
+  // (multi-tab category, rendered as accordion) or a standalone tab (rendered
+  // as a URL row). Iterate sessions newest-first, then categories by size
+  // descending within each session, until we have MAX_ITEMS. The first few
+  // items are naturally the most recently saved, so the just-saved session
+  // surfaces at the top without any special pinning.
+  const MAX_ITEMS = 6;
+  const items = [];
+  for (const session of sessions) {
+    const tabsById = new Map((session.tabs || []).map((t) => [t.id, t]));
+    const cats = (session.categories || [])
+      .slice()
+      .sort((a, b) => (b.tabIds?.length || 0) - (a.tabIds?.length || 0));
+    for (const cat of cats) {
+      if (items.length >= MAX_ITEMS) break;
+      const tabIds = cat.tabIds || [];
+      if (tabIds.length >= 2) {
+        items.push({ kind: "folder", sessionId: session.id, category: cat, tabsById });
+      } else if (tabIds.length === 1) {
+        const tab = tabsById.get(tabIds[0]);
+        if (tab) items.push({ kind: "tab", sessionId: session.id, tab });
+      }
+    }
+    if (items.length >= MAX_ITEMS) break;
+  }
 
-  list.innerHTML = ordered.slice(0, 3)
-    .map((session) => renderSessionCard(session, session.id === pinnedSessionId))
-    .join("");
+  list.innerHTML = items.map(renderRecentItem).join("");
+}
+
+function renderRecentItem(item) {
+  const sid = escapeAttr(item.sessionId);
+  if (item.kind === "folder") {
+    return renderFolderRow(item.category, item.tabsById, sid, false);
+  }
+  return renderSingletonRow(item.tab, sid);
+}
+
+function renderSingletonRow(tab, sid) {
+  const title = escapeText(tab.title || tab.url || "Untitled");
+  const fav = tab.favIconUrl
+    ? `<img class="folder-tab-favicon" src="${escapeAttr(tab.favIconUrl)}" alt="" onerror="this.style.visibility='hidden'">`
+    : `<span class="folder-tab-favicon"></span>`;
+  return `
+    <button class="folder-tab recent-singleton" data-action="restore-tab" data-session-id="${sid}" data-tab-id="${escapeAttr(tab.id)}" type="button" title="${escapeAttr(tab.url || "")}">
+      ${fav}<span class="folder-tab-title">${title}</span>
+    </button>
+  `;
 }
 
 function renderSessionCard(session, isPinned) {
