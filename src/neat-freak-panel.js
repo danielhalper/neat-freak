@@ -407,15 +407,15 @@ function panelMarkup() {
         to   { opacity: 1; transform: translateY(0); }
       }
 
-      /* Scope picker — matches popup's .scope-switch styling exactly:
-         pill container, segmented buttons, white-filled active state. */
+      /* Scope picker — pill container with rounded segmented buttons,
+         white-filled active state. Matches the popup's compact variant. */
       .scope-picker {
         background: #eef4f2;
         border: 1px solid #d3ded9;
-        border-radius: 7px;
+        border-radius: 999px;
         display: inline-flex;
-        gap: 3px;
-        padding: 3px;
+        gap: 2px;
+        padding: 2px;
         flex-shrink: 0;
       }
       .scope-button {
@@ -424,9 +424,9 @@ function panelMarkup() {
         background: transparent;
         color: #63706b;
         border: 0;
-        border-radius: 5px;
-        padding: 0 12px;
-        min-height: 32px;
+        border-radius: 999px;
+        padding: 0 14px;
+        height: 28px;            /* container's 2px padding × 2 + 28 = 32px total */
         font-size: 12px;
         font-weight: 650;
         font-family: inherit;
@@ -821,9 +821,9 @@ function panelMarkup() {
         background: #ffffff;
         border: 1px solid #d3ded9;
         color: #4a5651;
-        width: 36px;
-        height: 36px;
-        border-radius: 8px;
+        width: 32px;
+        height: 32px;
+        border-radius: 50%;
         cursor: pointer;
         display: flex;
         align-items: center;
@@ -838,7 +838,7 @@ function panelMarkup() {
         z-index: 2;
         transition: color 120ms ease, background 120ms ease, border-color 120ms ease;
       }
-      .more-options-toggle svg { width: 16px; height: 16px; display: block; pointer-events: none; }
+      .more-options-toggle svg { width: 14px; height: 14px; display: block; pointer-events: none; }
       .more-options-toggle:hover {
         color: #1a2421;
         background: #f6f3e8;
