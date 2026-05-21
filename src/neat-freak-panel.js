@@ -34,6 +34,51 @@
   let selectedScope = "smart";
   let lastLoadedSessions = [];
 
+  // When the extension is reloaded (chrome://extensions Reload, version
+  // bump from install, etc.), this content script becomes orphaned — its
+  // chrome.* references throw "Extension context invalidated" on every
+  // call. We detect this by checking chrome.runtime?.id and tear ourselves
+  // down so the page isn't left with a broken panel.
+  function isExtensionValid() {
+    try {
+      return Boolean(chrome?.runtime?.id);
+    } catch {
+      return false;
+    }
+  }
+
+  function teardownOrphaned() {
+    try {
+      const host = document.getElementById(HOST_ID);
+      if (host) host.remove();
+    } catch { /* ignore */ }
+    if (outsideClickHandler) {
+      try { document.removeEventListener("click", outsideClickHandler, true); } catch { /* ignore */ }
+      outsideClickHandler = null;
+    }
+    if (autoDismissTimer) {
+      try { clearTimeout(autoDismissTimer); } catch { /* ignore */ }
+      autoDismissTimer = null;
+    }
+    // Mark this isolated world as needing re-init in case a fresh inject
+    // happens (e.g. the reloaded extension calls executeScript again).
+    try { window.__neatFreakPanelInitialized = false; } catch { /* ignore */ }
+  }
+
+  // Best-effort sendMessage that swallows "Extension context invalidated"
+  // failures and tears down on detection.
+  function safeSendMessage(message) {
+    if (!isExtensionValid()) { teardownOrphaned(); return Promise.resolve(); }
+    try {
+      return chrome.runtime.sendMessage(message).catch(() => {
+        if (!isExtensionValid()) teardownOrphaned();
+      });
+    } catch {
+      teardownOrphaned();
+      return Promise.resolve();
+    }
+  }
+
   // Initial render and listener setup. Subsequent storage changes go through
   // the listener (not via re-injection).
   (async () => {
@@ -46,25 +91,50 @@
   })();
 
   async function readState() {
+    if (!isExtensionValid()) { teardownOrphaned(); return { mode: "hidden" }; }
     try {
       const result = await chrome.storage.session.get(STATE_KEY);
       return result?.[STATE_KEY] || { mode: "hidden" };
     } catch {
+      if (!isExtensionValid()) teardownOrphaned();
       return { mode: "hidden" };
     }
   }
 
   function bindStorageListener() {
     chrome.storage.onChanged.addListener((changes, area) => {
+      // Extension reload orphans this listener; bail out gracefully.
+      if (!isExtensionValid()) { teardownOrphaned(); return; }
       if (area !== "session") return;
       if (!changes[STATE_KEY]) return;
       const newState = changes[STATE_KEY].newValue || { mode: "hidden" };
-      // Always look up host dynamically; it may have been removed via dismiss.
-      // For non-hidden states, ensure a host exists (re-creates after dismiss).
       let host = document.getElementById(HOST_ID);
       if (!host && newState.mode !== "hidden") host = ensureHost();
       if (host) applyState(host, newState);
     });
+  }
+
+  // Safe wrapper for awaited sendMessage. Returns null on failure (instead of
+  // throwing) and tears down on extension invalidation.
+  async function safeSendMessageAwait(message) {
+    if (!isExtensionValid()) { teardownOrphaned(); return null; }
+    try {
+      return await chrome.runtime.sendMessage(message);
+    } catch {
+      if (!isExtensionValid()) teardownOrphaned();
+      return null;
+    }
+  }
+
+  async function safeStorageSessionSet(value) {
+    if (!isExtensionValid()) { teardownOrphaned(); return false; }
+    try {
+      await chrome.storage.session?.set?.(value);
+      return true;
+    } catch {
+      if (!isExtensionValid()) teardownOrphaned();
+      return false;
+    }
   }
 
   function ensureHost() {
@@ -1011,19 +1081,19 @@ function handlePanelClick(host, event) {
   // Collapsed action buttons
   if (action === "dismiss") {
     cancelAutoDismiss();
-    chrome.runtime.sendMessage({ type: "PANEL_DISMISS" }).catch(() => undefined);
+    safeSendMessage({ type: "PANEL_DISMISS" });
     dismissPanel(host);
     return;
   }
   if (action === "tidy") {
     cancelAutoDismiss();
-    chrome.runtime.sendMessage({ type: "PANEL_TIDY_NOW" }).catch(() => undefined);
+    safeSendMessage({ type: "PANEL_TIDY_NOW" });
     return;
   }
   if (action === "open-manager") {
     cancelAutoDismiss();
     const sessionId = actionEl.dataset.sessionId || "";
-    chrome.runtime.sendMessage({ type: "PANEL_OPEN_MANAGER", sessionId }).catch(() => undefined);
+    safeSendMessage({ type: "PANEL_OPEN_MANAGER", sessionId });
     dismissPanel(host);
     return;
   }
@@ -1043,11 +1113,11 @@ function handlePanelClick(host, event) {
     return;
   }
   if (action === "open-manager-link") {
-    chrome.runtime.sendMessage({ type: "PANEL_OPEN_MANAGER" }).catch(() => undefined);
+    safeSendMessage({ type: "PANEL_OPEN_MANAGER" });
     return;
   }
   if (action === "open-options-link") {
-    chrome.runtime.sendMessage({ type: "OPEN_OPTIONS" }).catch(() => undefined);
+    safeSendMessage({ type: "OPEN_OPTIONS" });
     return;
   }
   if (action === "toggle-more-options") {
@@ -1064,7 +1134,7 @@ function handlePanelClick(host, event) {
       const tabLabel = `${tabCount} tab${tabCount === 1 ? "" : "s"}`;
       if (!confirm(`Reopen all ${tabLabel} you just tucked away?`)) return;
     }
-    chrome.runtime.sendMessage({ type: "RESTORE_SESSION", sessionId }).catch(() => undefined);
+    safeSendMessage({ type: "RESTORE_SESSION", sessionId });
     return;
   }
   if (action === "restore-group") {
@@ -1075,14 +1145,14 @@ function handlePanelClick(host, event) {
       const tabLabel = `${tabCount} tab${tabCount === 1 ? "" : "s"}`;
       if (!confirm(`Reopen all ${tabLabel} from this folder?`)) return;
     }
-    chrome.runtime.sendMessage({ type: "RESTORE_GROUP", sessionId, categoryId }).catch(() => undefined);
+    safeSendMessage({ type: "RESTORE_GROUP", sessionId, categoryId });
     return;
   }
   if (action === "restore-tab") {
     const sessionId = actionEl.dataset.sessionId || "";
     const tabId = actionEl.dataset.tabId || "";
     if (sessionId && tabId) {
-      chrome.runtime.sendMessage({ type: "RESTORE_TAB", sessionId, tabId }).catch(() => undefined);
+      safeSendMessage({ type: "RESTORE_TAB", sessionId, tabId });
     }
     return;
   }
@@ -1145,7 +1215,7 @@ function collapseExpansion(host, opts = {}) {
     expandedMode = false;
     unbindOutsideClickHandler();
     cancelAutoDismiss();
-    chrome.runtime.sendMessage({ type: "PANEL_DISMISS" }).catch(() => undefined);
+    safeSendMessage({ type: "PANEL_DISMISS" });
     dismissPanel(host);
     return;
   }
@@ -1182,7 +1252,7 @@ async function loadExpandedData(host) {
       brandImg.src = chrome.runtime.getURL("assets/logo.svg");
     }
 
-    const response = await chrome.runtime.sendMessage({ type: "GET_POPUP_STATE" });
+    const response = await safeSendMessageAwait({ type: "GET_POPUP_STATE" });
     if (!response?.ok) return;
     if (response.settings?.defaultScope) {
       selectedScope = response.settings.defaultScope;
@@ -1248,7 +1318,7 @@ async function runSearch(host, query, mode) {
     if (hint) hint.innerHTML = `Press <kbd>↵</kbd> for smart search`;
   }
   try {
-    const response = await chrome.runtime.sendMessage({ type: "SEARCH_TABS", query: trimmed, mode });
+    const response = await safeSendMessageAwait({ type: "SEARCH_TABS", query: trimmed, mode });
     if (!response?.ok) return;
     const results = response.results || [];
     if (!results.length) {
@@ -1471,17 +1541,13 @@ function formatRelativeTime(iso) {
 }
 
 async function refreshPreview(host) {
-  try {
-    const includePinned = host.shadowRoot.getElementById("opt-include-pinned")?.checked || false;
-    const keepCurrentTab = host.shadowRoot.getElementById("opt-keep-current")?.checked !== false;
-    const response = await chrome.runtime.sendMessage({
-      type: "PREVIEW_TABS",
-      options: { scope: selectedScope, includePinned, keepCurrentTab }
-    });
-    if (response?.ok) renderPreview(host, response.preview);
-  } catch {
-    // Best-effort.
-  }
+  const includePinned = host.shadowRoot.getElementById("opt-include-pinned")?.checked || false;
+  const keepCurrentTab = host.shadowRoot.getElementById("opt-keep-current")?.checked !== false;
+  const response = await safeSendMessageAwait({
+    type: "PREVIEW_TABS",
+    options: { scope: selectedScope, includePinned, keepCurrentTab }
+  });
+  if (response?.ok) renderPreview(host, response.preview);
 }
 
 async function triggerExpandedSave(host) {
@@ -1495,38 +1561,33 @@ async function triggerExpandedSave(host) {
   // immediately. Without this, the panel would briefly flash the prior mode's
   // collapsed view, OR — in idle mode — collapseExpansion would dismiss the
   // panel entirely before saveTabs starts emitting progress.
-  try {
-    await chrome.storage.session?.set?.({
-      neatFreakPanelState: { mode: "saving", label: "Tidying your tabs" }
-    });
-  } catch {
-    // If session storage write fails, fall back to manual suppression — the
-    // emitProgress mirror will still drive the saving state shortly.
+  const stateWritten = await safeStorageSessionSet({
+    neatFreakPanelState: { mode: "saving", label: "Tidying your tabs" }
+  });
+  if (!stateWritten) {
+    // Fall back to manual suppression — the emitProgress mirror will still
+    // drive the saving state shortly.
     suppressExpansionUI(host);
   }
 
-  try {
-    await chrome.runtime.sendMessage({
-      type: "SAVE_TABS",
-      options: {
-        scope: selectedScope,
-        includePinned,
-        keepCurrentTab,
-        reviewBeforeClose,
-        openManager: false
-      }
-    });
-    // background.saveTabs's emitProgress writes per-step labels to the panel
-    // state; addSession → showPanelDone transitions to done at the end.
-  } catch (err) {
-    console.warn("[Neat Freak] Expanded save failed:", err?.message || err);
-  }
+  await safeSendMessageAwait({
+    type: "SAVE_TABS",
+    options: {
+      scope: selectedScope,
+      includePinned,
+      keepCurrentTab,
+      reviewBeforeClose,
+      openManager: false
+    }
+  });
+  // background.saveTabs's emitProgress writes per-step labels to the panel
+  // state; addSession → showPanelDone transitions to done at the end.
 }
 
 function scheduleAutoDismiss(host) {
   cancelAutoDismiss();
   autoDismissTimer = setTimeout(() => {
-    chrome.runtime.sendMessage({ type: "PANEL_DISMISS" }).catch(() => undefined);
+    safeSendMessage({ type: "PANEL_DISMISS" });
     dismissPanel(host);
   }, AUTO_DISMISS_MS);
 }
