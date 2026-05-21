@@ -17,6 +17,15 @@ const STATE_KEY = "neatFreakPanelState";
 const AUTO_DISMISS_MS = 8000;
 let autoDismissTimer = null;
 
+// Phase 2B: local-only expanded-mode flag. Not stored — expansion is "the user
+// is interacting with this surface right now," which is tab-local intent, not
+// extension-wide state. Other tabs' panels stay collapsed even if this one's
+// expanded.
+let expandedMode = false;
+let currentState = null;
+let outsideClickHandler = null;
+let selectedScope = "smart"; // initial; overwritten when settings load
+
 (async () => {
   let host = document.getElementById(HOST_ID);
   const isNewMount = !host;
@@ -221,17 +230,251 @@ function panelMarkup() {
         --primary-bg-hover: #115e59;
         box-shadow: 0 1px 0 rgba(7, 60, 56, 0.22), inset 0 -1px 0 rgba(7, 60, 56, 0.22);
       }
+
+      /* ========== Expanded view ========== */
+
+      .row[data-clickable-body="true"] { cursor: pointer; }
+      .card.expanded .row[data-clickable-body="true"] { cursor: default; }
+
+      .card.expanded {
+        width: min(420px, calc(100vw - 32px));
+        transition: width 200ms ease;
+      }
+      .card.expanded .actions {
+        /* The primary action belongs in the expanded content (Tidy my tabs).
+           Hide the collapsed-state action button to avoid two save buttons. */
+        display: none;
+      }
+
+      .eyebrow {
+        font-size: 9px;
+        font-weight: 700;
+        letter-spacing: 0.18em;
+        color: #8a948f;
+        margin: 0 0 4px;
+        text-transform: uppercase;
+      }
+
+      .expanded-content {
+        margin-top: 14px;
+        padding-top: 14px;
+        border-top: 1px dashed #e8dfc7;
+        display: flex;
+        flex-direction: column;
+        gap: 14px;
+        max-height: 60vh;
+        overflow-y: auto;
+        /* Subtle entrance */
+        animation: fadein 180ms ease-out;
+      }
+      @keyframes fadein {
+        from { opacity: 0; transform: translateY(-4px); }
+        to   { opacity: 1; transform: translateY(0); }
+      }
+
+      .scope-picker {
+        display: inline-flex;
+        gap: 4px;
+        padding: 3px;
+        background: #f2eedf;
+        border-radius: 10px;
+      }
+      .scope-button {
+        flex: 1;
+        cursor: pointer;
+        background: transparent;
+        color: #4a5651;
+        border: 0;
+        padding: 7px 12px;
+        border-radius: 7px;
+        font-size: 12px;
+        font-weight: 600;
+        font-family: inherit;
+        transition: background 120ms ease, color 120ms ease;
+      }
+      .scope-button:hover { color: #1a2421; }
+      .scope-button.active {
+        background: #ffffff;
+        color: #1a2421;
+        box-shadow: 0 1px 2px rgba(0, 0, 0, 0.08);
+      }
+
+      .preview-line {
+        font-size: 13px;
+        color: #4a5651;
+        margin: 0;
+      }
+
+      .tidy-cta {
+        cursor: pointer;
+        width: 100%;
+        background: #0f766e;
+        color: #ffffff;
+        border: 0;
+        padding: 11px 16px;
+        border-radius: 10px;
+        font-size: 14px;
+        font-weight: 700;
+        font-family: inherit;
+        box-shadow: 0 2px 0 rgba(7, 60, 56, 0.22), inset 0 -1px 0 rgba(7, 60, 56, 0.22);
+        transition: background 120ms ease, transform 0.08s ease;
+      }
+      .tidy-cta:hover { background: #115e59; }
+      .tidy-cta:active { transform: translateY(1px); }
+      .tidy-cta:disabled { opacity: 0.6; cursor: default; }
+
+      .more-options {
+        font-size: 12px;
+        color: #4a5651;
+      }
+      .more-options summary {
+        cursor: pointer;
+        list-style: none;
+        font-weight: 600;
+        padding: 4px 0;
+        user-select: none;
+      }
+      .more-options summary::-webkit-details-marker { display: none; }
+      .more-options summary::before {
+        content: "▸ ";
+        font-size: 10px;
+        margin-right: 4px;
+        transition: transform 120ms ease;
+        display: inline-block;
+      }
+      .more-options[open] summary::before { content: "▾ "; }
+      .check-row {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        padding: 4px 0;
+        cursor: pointer;
+        font-weight: 400;
+        color: #1a2421;
+      }
+      .check-row input { margin: 0; }
+
+      .sessions-section { display: flex; flex-direction: column; gap: 8px; }
+      .sessions-header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+      }
+      .sessions-header h3 {
+        font-size: 11px;
+        font-weight: 700;
+        letter-spacing: 0.12em;
+        color: #8a948f;
+        margin: 0;
+        text-transform: uppercase;
+      }
+      .link-button {
+        background: transparent;
+        border: 0;
+        color: #0f766e;
+        font-size: 11px;
+        font-weight: 600;
+        font-family: inherit;
+        cursor: pointer;
+        padding: 2px 4px;
+      }
+      .link-button:hover { text-decoration: underline; }
+      .session-list { display: flex; flex-direction: column; gap: 6px; }
+      .session-card {
+        background: #ffffff;
+        border: 1px solid #e8dfc7;
+        border-radius: 10px;
+        padding: 10px 12px;
+        display: flex;
+        flex-direction: column;
+        gap: 4px;
+      }
+      .session-card-row {
+        display: flex;
+        align-items: baseline;
+        justify-content: space-between;
+        gap: 8px;
+      }
+      .session-card-title {
+        font-size: 13px;
+        font-weight: 600;
+        color: #1a2421;
+        margin: 0;
+      }
+      .session-card-meta {
+        font-size: 11px;
+        color: #8a948f;
+      }
+      .session-card-folders {
+        font-size: 12px;
+        color: #4a5651;
+        line-height: 1.4;
+      }
+      .session-restore {
+        align-self: flex-start;
+        margin-top: 4px;
+        cursor: pointer;
+        background: transparent;
+        border: 1px solid #d9e0dc;
+        color: #1a2421;
+        padding: 4px 10px;
+        border-radius: 6px;
+        font-size: 11px;
+        font-weight: 600;
+        font-family: inherit;
+      }
+      .session-restore:hover { background: #f6f3e8; }
+
+      .session-empty {
+        font-size: 12px;
+        color: #8a948f;
+        font-style: italic;
+        padding: 8px 4px;
+      }
     </style>
     <div class="card" role="status" aria-live="polite" id="card">
       <button class="close" data-action="dismiss" aria-label="Dismiss" type="button">&times;</button>
-      <div class="row">
+      <div class="row" data-clickable-body="true">
         <img class="mascot" id="mascot" src="" alt="" aria-hidden="true">
         <div class="body">
+          <p class="eyebrow" id="eyebrow" hidden>NEAT FREAK</p>
           <p class="title" id="title">Loading…</p>
           <p class="sub" id="sub"></p>
         </div>
       </div>
       <div class="actions" id="actions"></div>
+
+      <!-- Expanded-only content. Hidden until the user clicks the body. -->
+      <div class="expanded-content" id="expanded-content" hidden>
+        <div class="scope-picker" id="scope-picker">
+          <button class="scope-button" data-scope="smart" type="button">Smart</button>
+          <button class="scope-button" data-scope="allWindows" type="button">All windows</button>
+          <button class="scope-button" data-scope="currentWindow" type="button">Current</button>
+        </div>
+        <p class="preview-line" id="preview-line">Loading preview…</p>
+        <button class="tidy-cta" data-action="tidy-expanded" type="button">Tidy my tabs</button>
+
+        <details class="more-options">
+          <summary>More options</summary>
+          <label class="check-row">
+            <input type="checkbox" id="opt-include-pinned"> <span>Include pinned tabs</span>
+          </label>
+          <label class="check-row">
+            <input type="checkbox" id="opt-keep-current"> <span>Keep current tab open</span>
+          </label>
+          <label class="check-row">
+            <input type="checkbox" id="opt-review"> <span>Review before closing</span>
+          </label>
+        </details>
+
+        <section class="sessions-section">
+          <header class="sessions-header">
+            <h3 id="sessions-heading">Recent sessions</h3>
+            <button class="link-button" data-action="open-manager-link" type="button">Open manager →</button>
+          </header>
+          <div class="session-list" id="session-list"></div>
+        </section>
+      </div>
     </div>
   `;
 }
@@ -239,16 +482,33 @@ function panelMarkup() {
 function applyState(host, state) {
   const shadow = host.shadowRoot;
   if (!shadow) return;
+  currentState = state;
 
   if (!state || state.mode === "hidden") {
     cancelAutoDismiss();
+    expandedMode = false;
+    unbindOutsideClickHandler();
     dismissPanel(host);
     return;
   }
 
   const card = shadow.getElementById("card");
   card.classList.remove("leaving");
-  card.className = `card state-${state.mode}`;
+  // Preserve the .expanded class through state transitions so a user mid-expansion
+  // doesn't get yanked back to collapsed when, say, saving completes → done.
+  const wasExpanded = card.classList.contains("expanded");
+  card.className = `card state-${state.mode}${wasExpanded ? " expanded" : ""}`;
+
+  // Saving state is transient and we don't want the user expanding into a
+  // half-loaded view; force collapse if we end up there.
+  if (state.mode === "saving" && expandedMode) {
+    collapseExpansion(host, { restartAutoDismiss: false });
+  }
+
+  // Show the eyebrow only when expanded — it identifies the panel as Neat Freak
+  // since the card is integrated into the page rather than chrome-managed.
+  const eyebrowEl = shadow.getElementById("eyebrow");
+  if (eyebrowEl) eyebrowEl.hidden = !expandedMode;
 
   const titleEl = shadow.getElementById("title");
   const subEl = shadow.getElementById("sub");
@@ -266,7 +526,9 @@ function applyState(host, state) {
     titleEl.textContent = `${count} tabs open`;
     subEl.textContent = "Want me to tidy up?";
     actionsEl.innerHTML = `<button class="primary" data-action="tidy" type="button">Tidy now</button>`;
-    scheduleAutoDismiss(host);
+    // Only auto-dismiss when collapsed. If the user has explicitly expanded,
+    // they're interacting — don't pull the rug out.
+    if (!expandedMode) scheduleAutoDismiss(host);
     return;
   }
 
@@ -291,7 +553,10 @@ function applyState(host, state) {
     subEl.textContent = parts.join(" · ") || "Ready in your saved sessions.";
     const sid = String(state.sessionId || "");
     actionsEl.innerHTML = `<button class="primary" data-action="open-manager" data-session-id="${escapeAttr(sid)}" type="button">Open manager</button>`;
-    scheduleAutoDismiss(host);
+    if (!expandedMode) scheduleAutoDismiss(host);
+    // If we entered done while expanded (e.g. user expanded mid-save), refresh
+    // the recent-sessions list so the just-saved session appears.
+    if (expandedMode) loadExpandedData(host);
     return;
   }
 }
@@ -302,21 +567,248 @@ function setMascot(imgEl, url) {
 
 function handlePanelClick(host, event) {
   const target = event.target;
-  const action = target instanceof HTMLElement ? target.dataset.action : "";
-  if (!action) return;
+  const elTarget = target instanceof HTMLElement ? target : null;
+  const action = elTarget?.dataset?.action || "";
+
+  // No action attribute — check if the body was clicked to trigger expand.
+  if (!action) {
+    if (!expandedMode && elTarget && elTarget.closest("[data-clickable-body]")) {
+      // Saving state shouldn't expand — it's transient.
+      if (currentState && currentState.mode !== "saving" && currentState.mode !== "hidden") {
+        expandPanel(host);
+      }
+    }
+    return;
+  }
+
+  // Collapsed action buttons
   if (action === "dismiss") {
     cancelAutoDismiss();
     chrome.runtime.sendMessage({ type: "PANEL_DISMISS" }).catch(() => undefined);
     dismissPanel(host);
-  } else if (action === "tidy") {
+    return;
+  }
+  if (action === "tidy") {
     cancelAutoDismiss();
     chrome.runtime.sendMessage({ type: "PANEL_TIDY_NOW" }).catch(() => undefined);
-    // Don't dismiss — background will transition us to saving → done.
-  } else if (action === "open-manager") {
+    return;
+  }
+  if (action === "open-manager") {
     cancelAutoDismiss();
-    const sessionId = target.dataset.sessionId || "";
+    const sessionId = elTarget.dataset.sessionId || "";
     chrome.runtime.sendMessage({ type: "PANEL_OPEN_MANAGER", sessionId }).catch(() => undefined);
     dismissPanel(host);
+    return;
+  }
+
+  // Expanded-view actions
+  if (action === "scope") {
+    const newScope = elTarget.dataset.scopeValue;
+    if (newScope) {
+      selectedScope = newScope;
+      updateScopeButtons(host);
+      refreshPreview(host);
+    }
+    return;
+  }
+  if (action === "tidy-expanded") {
+    triggerExpandedSave(host);
+    return;
+  }
+  if (action === "open-manager-link") {
+    chrome.runtime.sendMessage({ type: "PANEL_OPEN_MANAGER" }).catch(() => undefined);
+    return;
+  }
+  if (action === "restore-session") {
+    const sessionId = elTarget.dataset.sessionId || "";
+    chrome.runtime.sendMessage({ type: "RESTORE_SESSION", sessionId }).catch(() => undefined);
+    return;
+  }
+}
+
+// ========== Expanded view logic ==========
+
+function expandPanel(host) {
+  expandedMode = true;
+  cancelAutoDismiss();
+  const shadow = host.shadowRoot;
+  const card = shadow.getElementById("card");
+  card.classList.add("expanded");
+  shadow.getElementById("expanded-content").hidden = false;
+  const eyebrowEl = shadow.getElementById("eyebrow");
+  if (eyebrowEl) eyebrowEl.hidden = false;
+  bindOutsideClickHandler(host);
+  loadExpandedData(host);
+}
+
+function collapseExpansion(host, opts = {}) {
+  if (!expandedMode) return;
+  expandedMode = false;
+  const shadow = host.shadowRoot;
+  const card = shadow.getElementById("card");
+  card.classList.remove("expanded");
+  const expandedContent = shadow.getElementById("expanded-content");
+  if (expandedContent) expandedContent.hidden = true;
+  const eyebrowEl = shadow.getElementById("eyebrow");
+  if (eyebrowEl) eyebrowEl.hidden = true;
+  unbindOutsideClickHandler();
+  // After collapsing, restart auto-dismiss for trigger-opened collapsed states.
+  const restart = opts.restartAutoDismiss !== false;
+  if (restart && currentState && (currentState.mode === "clutter" || currentState.mode === "done")) {
+    scheduleAutoDismiss(host);
+  }
+}
+
+function bindOutsideClickHandler(host) {
+  unbindOutsideClickHandler();
+  outsideClickHandler = (event) => {
+    const path = event.composedPath ? event.composedPath() : [];
+    if (path.includes(host)) return; // click inside the panel
+    collapseExpansion(host);
+  };
+  // Use capture so we beat page handlers that might stop propagation.
+  document.addEventListener("click", outsideClickHandler, true);
+}
+
+function unbindOutsideClickHandler() {
+  if (!outsideClickHandler) return;
+  document.removeEventListener("click", outsideClickHandler, true);
+  outsideClickHandler = null;
+}
+
+async function loadExpandedData(host) {
+  try {
+    const response = await chrome.runtime.sendMessage({ type: "GET_POPUP_STATE" });
+    if (!response?.ok) return;
+    // Initial selectedScope from user's default
+    if (response.settings?.defaultScope) {
+      selectedScope = response.settings.defaultScope;
+    }
+    renderScopePicker(host);
+    renderPreview(host, response.preview);
+    renderMoreOptions(host, response.settings);
+    renderSessions(host, response.sessions || []);
+  } catch (err) {
+    console.warn("[Neat Freak] Load expanded data failed:", err?.message || err);
+  }
+}
+
+function renderScopePicker(host) {
+  const shadow = host.shadowRoot;
+  const picker = shadow.getElementById("scope-picker");
+  if (!picker) return;
+  // Re-render with data-action wired (the static markup doesn't have it yet)
+  picker.innerHTML = `
+    <button class="scope-button${selectedScope === "smart" ? " active" : ""}" data-action="scope" data-scope-value="smart" type="button">Smart</button>
+    <button class="scope-button${selectedScope === "allWindows" ? " active" : ""}" data-action="scope" data-scope-value="allWindows" type="button">All windows</button>
+    <button class="scope-button${selectedScope === "currentWindow" ? " active" : ""}" data-action="scope" data-scope-value="currentWindow" type="button">Current</button>
+  `;
+}
+
+function updateScopeButtons(host) {
+  renderScopePicker(host);
+}
+
+function renderPreview(host, preview) {
+  const shadow = host.shadowRoot;
+  const el = shadow.getElementById("preview-line");
+  if (!el) return;
+  const count = Number(preview?.count) || 0;
+  const domains = Array.isArray(preview?.domains) ? preview.domains : [];
+  if (!count) {
+    el.textContent = "No savable tabs.";
+    return;
+  }
+  const domainText = domains.length
+    ? ` across ${domains.length} domain${domains.length === 1 ? "" : "s"}`
+    : "";
+  el.textContent = `${count} tab${count === 1 ? "" : "s"}${domainText}.`;
+}
+
+function renderMoreOptions(host, settings) {
+  const shadow = host.shadowRoot;
+  const includePinned = shadow.getElementById("opt-include-pinned");
+  const keepCurrent = shadow.getElementById("opt-keep-current");
+  const review = shadow.getElementById("opt-review");
+  if (includePinned) includePinned.checked = Boolean(settings?.defaultIncludePinned);
+  if (keepCurrent) keepCurrent.checked = settings?.defaultKeepCurrentTab !== false;
+  if (review) review.checked = Boolean(settings?.defaultReviewBeforeClose);
+}
+
+function renderSessions(host, sessions) {
+  const shadow = host.shadowRoot;
+  const list = shadow.getElementById("session-list");
+  if (!list) return;
+  if (!sessions.length) {
+    list.innerHTML = `<p class="session-empty">No saved sessions yet. Hit "Tidy my tabs" to make your first one.</p>`;
+    return;
+  }
+  list.innerHTML = sessions.slice(0, 3).map((session) => {
+    const tabCount = session.tabs?.length || 0;
+    const cats = (session.categories || []).filter((c) => (c.tabIds || []).length >= 2);
+    const folderSummary = cats.length
+      ? cats.slice(0, 3).map((c) => escapeText(c.name || "Folder")).join(" · ")
+      : "Single tabs";
+    const when = formatRelativeTime(session.createdAt);
+    return `
+      <div class="session-card">
+        <div class="session-card-row">
+          <p class="session-card-title">${tabCount} tab${tabCount === 1 ? "" : "s"}</p>
+          <span class="session-card-meta">${escapeText(when)}</span>
+        </div>
+        <div class="session-card-folders">${folderSummary}</div>
+        <button class="session-restore" data-action="restore-session" data-session-id="${escapeAttr(session.id)}" type="button">Reopen all</button>
+      </div>
+    `;
+  }).join("");
+}
+
+function formatRelativeTime(iso) {
+  if (!iso) return "";
+  const t = Date.parse(iso);
+  if (!Number.isFinite(t)) return "";
+  const diffSec = Math.floor((Date.now() - t) / 1000);
+  if (diffSec < 60) return "just now";
+  if (diffSec < 3600) return `${Math.floor(diffSec / 60)}m ago`;
+  if (diffSec < 86400) return `${Math.floor(diffSec / 3600)}h ago`;
+  return `${Math.floor(diffSec / 86400)}d ago`;
+}
+
+async function refreshPreview(host) {
+  try {
+    const includePinned = host.shadowRoot.getElementById("opt-include-pinned")?.checked || false;
+    const keepCurrentTab = host.shadowRoot.getElementById("opt-keep-current")?.checked !== false;
+    const response = await chrome.runtime.sendMessage({
+      type: "PREVIEW_TABS",
+      options: { scope: selectedScope, includePinned, keepCurrentTab }
+    });
+    if (response?.ok) renderPreview(host, response.preview);
+  } catch {
+    // Best-effort.
+  }
+}
+
+async function triggerExpandedSave(host) {
+  const shadow = host.shadowRoot;
+  const includePinned = shadow.getElementById("opt-include-pinned")?.checked || false;
+  const keepCurrentTab = shadow.getElementById("opt-keep-current")?.checked !== false;
+  const reviewBeforeClose = shadow.getElementById("opt-review")?.checked || false;
+  // Collapse first — saving feedback lives in the collapsed state.
+  collapseExpansion(host, { restartAutoDismiss: false });
+  try {
+    await chrome.runtime.sendMessage({
+      type: "SAVE_TABS",
+      options: {
+        scope: selectedScope,
+        includePinned,
+        keepCurrentTab,
+        reviewBeforeClose,
+        openManager: false
+      }
+    });
+    // background.saveTabs drives the saving → done state transitions for us.
+  } catch (err) {
+    console.warn("[Neat Freak] Expanded save failed:", err?.message || err);
   }
 }
 
