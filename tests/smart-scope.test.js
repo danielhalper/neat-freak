@@ -5,10 +5,11 @@ import { applySmartHeuristic } from "../src/smart-scope.js";
 const NOW = 1_700_000_000_000;
 const minutesAgo = (mins) => NOW - mins * 60_000;
 const tab = (id, mins) => ({ id, lastAccessed: minutesAgo(mins) });
+const tabWithUrl = (id, mins, url) => ({ id, lastAccessed: minutesAgo(mins), url });
 
-test("stale cluster (no tab in last hour) saves the whole cluster", () => {
-  // No tab in last 60 min → cluster is stale → cutoff = 60min (1h).
-  // Every tab in a stale cluster is by definition > 60 min, so all get saved.
+test("stale cluster (no tab in last 30 min) saves the whole cluster", () => {
+  // No tab in last 30 min → cluster is stale → cutoff = 30 min.
+  // Every tab in a stale cluster is by definition > 30 min, so all get saved.
   const tabs = [tab("a", 90), tab("b", 200), tab("c", 500)];
   const clusters = [{ id: "c1", tabIds: ["a", "b", "c"] }];
   const { saveIds, keepIds } = applySmartHeuristic(tabs, clusters, NOW);
@@ -16,9 +17,9 @@ test("stale cluster (no tab in last hour) saves the whole cluster", () => {
   assert.deepEqual(keepIds, []);
 });
 
-test("active cluster (≥1 tab in last hour) closes anything > 3h old", () => {
-  // a (30min) is in last 60 → cluster is active → cutoff = 180min (3h).
-  // a (≤180) → keep. b (200), c (400), d (700) all > 180 → save.
+test("active cluster (≥1 tab in last 30 min) closes anything > 1.5h old", () => {
+  // a (30 min) sits exactly on the boundary; 30 <= 30 keeps the cluster
+  // active. Cutoff = 90 min (1.5h). a (≤90) keep; b/c/d > 90 → save.
   const tabs = [tab("a", 30), tab("b", 200), tab("c", 400), tab("d", 700)];
   const clusters = [{ id: "c1", tabIds: ["a", "b", "c", "d"] }];
   const { saveIds, keepIds } = applySmartHeuristic(tabs, clusters, NOW);
@@ -27,7 +28,7 @@ test("active cluster (≥1 tab in last hour) closes anything > 3h old", () => {
 });
 
 test("multiple clusters evaluated independently", () => {
-  // c1: a=10 → active → cutoff 180. b=200 > 180 → save.
+  // c1: a=10 → active → cutoff 90. b=200 > 90 → save.
   // c2: c=200, d=500 → no recent → stale → save whole cluster.
   const tabs = [
     tab("a", 10), tab("b", 200),
@@ -43,11 +44,40 @@ test("multiple clusters evaluated independently", () => {
 });
 
 test("tab with no lastAccessed treated as just-opened (kept)", () => {
-  // c1: a=30 → active → cutoff 180.
+  // c1: a=10 → active → cutoff 90.
   // b has no lastAccessed (e.g. cmd-click opened in background, never activated)
   // → treated as "now" → kept. Protects fresh background tabs from being
   // mistaken for ancient abandoned ones.
-  const tabs = [tab("a", 30), { id: "b" }];
+  const tabs = [tab("a", 10), { id: "b" }];
+  const clusters = [{ id: "c1", tabIds: ["a", "b"] }];
+  const { saveIds, keepIds } = applySmartHeuristic(tabs, clusters, NOW);
+  assert.deepEqual(saveIds, []);
+  assert.deepEqual(keepIds.sort(), ["a", "b"]);
+});
+
+test("URL dedup: older duplicates of the same URL are force-saved", () => {
+  // All three share the same URL. The most-recently-accessed (a, 5 min)
+  // stays open; the older duplicates b (20) and c (40) get saved as
+  // duplicates regardless of cutoff. Cluster is active (5 ≤ 30), cutoff 90,
+  // so without dedup b and c would both be kept (≤ 90).
+  const tabs = [
+    tabWithUrl("a", 5,  "https://docs.example.com/x"),
+    tabWithUrl("b", 20, "https://docs.example.com/x"),
+    tabWithUrl("c", 40, "https://docs.example.com/x"),
+  ];
+  const clusters = [{ id: "c1", tabIds: ["a", "b", "c"] }];
+  const { saveIds, keepIds } = applySmartHeuristic(tabs, clusters, NOW);
+  assert.deepEqual(saveIds.sort(), ["b", "c"]);
+  assert.deepEqual(keepIds, ["a"]);
+});
+
+test("URL dedup respects exact URL match (different URLs not deduped)", () => {
+  // Same domain, different paths → not duplicates. Both kept under the
+  // active-cluster cutoff.
+  const tabs = [
+    tabWithUrl("a", 5,  "https://docs.example.com/x"),
+    tabWithUrl("b", 10, "https://docs.example.com/y"),
+  ];
   const clusters = [{ id: "c1", tabIds: ["a", "b"] }];
   const { saveIds, keepIds } = applySmartHeuristic(tabs, clusters, NOW);
   assert.deepEqual(saveIds, []);

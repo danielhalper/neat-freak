@@ -8,9 +8,9 @@ import { truncateText, getDomain } from "./utils.js";
 // With STALE_GROUP_CUTOFF_MIN == ACTIVE_CLUSTER_WINDOW_MIN, the heuristic for a
 // cold cluster is "save everything" — anything in a stale cluster is by
 // definition older than the active window.
-const STALE_GROUP_CUTOFF_MIN = 60;    // 1h — cold clusters: save the whole thing
-const ACTIVE_GROUP_CUTOFF_MIN = 180;  // 3h — active clusters: save anything older than 3h
-const ACTIVE_CLUSTER_WINDOW_MIN = 60; // a cluster is "active" if any tab was accessed in the last hour
+const STALE_GROUP_CUTOFF_MIN = 30;    // 30m — cold clusters: save the whole thing
+const ACTIVE_GROUP_CUTOFF_MIN = 90;   // 1.5h — active clusters: save anything older than 90 min
+const ACTIVE_CLUSTER_WINDOW_MIN = 30; // a cluster is "active" if any tab was accessed in the last 30 min
 
 const OPENAI_CHAT_COMPLETIONS_URL = "https://api.openai.com/v1/chat/completions";
 const LLM_MODEL = "gpt-5.4-mini";
@@ -31,6 +31,26 @@ export function applySmartHeuristic(tabs, clusters, now) {
   // restored from session) are treated as just-opened. Otherwise the heuristic
   // mistakes a fresh background tab for an ancient abandoned one and closes it.
   const effectiveAccess = (t) => (t && t.lastAccessed) ? t.lastAccessed : now;
+
+  // Dedup pre-pass: when multiple tabs share an exact-same URL, only the most
+  // recently accessed one stays open; the older duplicates are pure clutter
+  // and get force-saved regardless of cluster activity or cutoff. The user
+  // can always restore from the saved folder.
+  const dedupSaveIds = new Set();
+  const urlGroups = new Map();
+  for (const t of tabs) {
+    if (!t || !t.url) continue;
+    const list = urlGroups.get(t.url) || [];
+    list.push(t);
+    urlGroups.set(t.url, list);
+  }
+  for (const group of urlGroups.values()) {
+    if (group.length <= 1) continue;
+    group.sort((a, b) => effectiveAccess(b) - effectiveAccess(a));
+    for (let i = 1; i < group.length; i++) {
+      dedupSaveIds.add(group[i].id);
+    }
+  }
 
   const clusterStatus = new Map();
   for (const cluster of clusters) {
@@ -56,6 +76,11 @@ export function applySmartHeuristic(tabs, clusters, now) {
   const saveIds = [];
   const keepIds = [];
   for (const t of tabs) {
+    // Force-save URL duplicates before any cutoff logic.
+    if (dedupSaveIds.has(t.id)) {
+      saveIds.push(t.id);
+      continue;
+    }
     const clusterId = clusterByTabId.get(t.id);
     if (!clusterId) {
       keepIds.push(t.id);
