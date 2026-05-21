@@ -82,6 +82,12 @@
   // Initial render and listener setup. Subsequent storage changes go through
   // the listener (not via re-injection).
   (async () => {
+    // Kick off brand font load in parallel with initial render. Strict-CSP
+    // pages (Google Slides, Docs, etc.) block @font-face URL loads from
+    // chrome-extension:// origins, so we fetch the woff2 ourselves and
+    // construct a FontFace from the binary — no font-src CSP applies.
+    ensureBrandFont().catch(() => undefined);
+
     const state = await readState();
     bindStorageListener();
     if (state && state.mode && state.mode !== "hidden") {
@@ -89,6 +95,29 @@
       applyState(host, state);
     }
   })();
+
+  async function ensureBrandFont() {
+    // Document-level guard so we only load the font once per isolated world.
+    if (window.__neatFreakBrandFontLoaded) return;
+    if (!isExtensionValid()) return;
+    try {
+      const url = chrome.runtime.getURL("assets/fonts/PermanentMarker-Regular.woff2");
+      const response = await fetch(url);
+      if (!response.ok) throw new Error(`status ${response.status}`);
+      const buffer = await response.arrayBuffer();
+      const face = new FontFace("Permanent Marker", buffer, {
+        style: "normal",
+        weight: "400",
+        display: "swap"
+      });
+      await face.load();
+      document.fonts.add(face);
+      window.__neatFreakBrandFontLoaded = true;
+    } catch (err) {
+      // Falls back to the next entry in the font-family chain (Georgia, etc.).
+      console.warn("[Neat Freak] Permanent Marker load failed:", err?.message || err);
+    }
+  }
 
   async function readState() {
     if (!isExtensionValid()) { teardownOrphaned(); return { mode: "hidden" }; }
@@ -169,19 +198,13 @@ function panelMarkup() {
   // The full CSS is inlined into the shadow root. Inherits the visual language
   // refined in the previous clutter-toast.js iteration — cream card, amber top
   // bar, free-standing mascot with teal drop-shadow.
-  // @font-face inside the shadow DOM needs an explicit declaration — shadow
-  // roots don't inherit @font-face rules from the host page's stylesheet.
-  // The woff2 URL is resolved via chrome.runtime.getURL at runtime.
-  const permanentMarkerUrl = chrome.runtime.getURL("assets/fonts/PermanentMarker-Regular.woff2");
+  //
+  // Brand font (Permanent Marker) is loaded once at panel init via the
+  // FontFace API (see ensureBrandFont). That adds it to document.fonts,
+  // which shadow DOMs automatically inherit. No @font-face here — the
+  // URL-based load would be blocked by font-src CSP on pages like Slides.
   return `
     <style>
-      @font-face {
-        font-family: "Permanent Marker";
-        font-style: normal;
-        font-weight: 400;
-        font-display: swap;
-        src: url("${permanentMarkerUrl}") format("woff2");
-      }
       :host { all: initial; }
       .card {
         /* Match the popup's --font variable so the panel renders identically. */
