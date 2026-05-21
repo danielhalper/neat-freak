@@ -248,6 +248,9 @@ async function runLlmPath(tabs, graph, settings, now) {
           "",
           "lastAccessedMinutesAgo: null means the tab was opened in the background or restored from a session and has never been activated — treat as just-opened and KEEP it. Do not interpret null as 'ancient'.",
           "",
+          "GROUPING — use temporal proximity as a strong signal:",
+          "People typically open many tabs in bursts for a single task — a research session, a code review, a multi-tab purchase. Tabs with similar lastAccessedMinutesAgo are likely part of the same workstream even if their content/domain signals don't obviously match. Treat tabs within ~60 minutes of each other as strong candidates for the same group; within ~3 hours as plausible; beyond that, prefer content/domain similarity. Use temporal proximity especially as a tie-breaker when content alone is ambiguous, or to merge what would otherwise look like several thin near-singleton groups into one coherent workstream folder.",
+          "",
           "Also return `groups`: workstream-aware folder names for the SAVED tabs only. Each saved tab must appear in exactly one group's tabIds. If you save nothing, return an empty groups array.",
           "Keep group names under 52 characters."
         ].join("\n")

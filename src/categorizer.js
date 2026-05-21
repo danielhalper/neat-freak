@@ -374,6 +374,10 @@ function createTabProfile(tab, index) {
     entities,
     highValueTokens: new Set(tokens.filter(isHighValueToken)),
     index: Number.isFinite(tab.index) ? tab.index : index,
+    // Used by scoreProfiles for the temporal-proximity bonus — tabs touched
+    // within the same work session tend to belong together even when content
+    // signals don't obviously match.
+    lastAccessed: Number.isFinite(tab.lastAccessed) ? tab.lastAccessed : null,
     phrases,
     tab,
     titleBase,
@@ -426,6 +430,24 @@ function scoreProfiles(a, b) {
   if (a.windowId === b.windowId && Math.abs(a.index - b.index) <= 3) {
     score += 0.1;
     reasons.push("nearby tabs");
+  }
+
+  // Temporal proximity — tabs touched in the same work-session window
+  // probably belong together even when content/domain don't obviously match.
+  // Brackets are intentionally broad: typical work sessions span an hour or
+  // two, and tightening them would miss the second half of a research sprint.
+  if (a.lastAccessed && b.lastAccessed) {
+    const minsApart = Math.abs(a.lastAccessed - b.lastAccessed) / 60_000;
+    if (minsApart <= 60) {
+      score += 0.30;
+      reasons.push("touched together (<1h)");
+    } else if (minsApart <= 180) {
+      score += 0.15;
+      reasons.push("touched within ~3h");
+    } else if (minsApart <= 360) {
+      score += 0.06;
+      reasons.push("touched within ~6h");
+    }
   }
 
   return {
