@@ -904,9 +904,12 @@ function applyState(host, state) {
   card.className = `card state-${state.mode}${wasExpanded ? " expanded" : ""}`;
 
   // Saving state is transient and we don't want the user expanding into a
-  // half-loaded view; force collapse if we end up there.
+  // half-loaded view; force-collapse the expanded UI if we end up there.
+  // Use suppressExpansionUI (not collapseExpansion) so the panel keeps
+  // showing the new saving state — collapseExpansion's idle-mode branch
+  // would dismiss the panel entirely.
   if (state.mode === "saving" && expandedMode) {
-    collapseExpansion(host, { restartAutoDismiss: false });
+    suppressExpansionUI(host);
   }
 
   // Idle mode = user opened the panel via the toolbar icon (no clutter / done
@@ -1116,20 +1119,11 @@ function expandPanel(host) {
   loadExpandedData(host);
 }
 
-function collapseExpansion(host, opts = {}) {
+// State-driven UI suppression. Does NOT decide on dismissal — just hides the
+// expanded view's DOM and unbinds outside-click. Use when an underlying mode
+// transition (e.g. → saving) requires collapsing without dismissing.
+function suppressExpansionUI(host) {
   if (!expandedMode) return;
-
-  // Idle is "user-opened with no underlying context" — collapsing it would
-  // leave a useless empty pill, so dismiss the whole panel instead.
-  if (currentState?.mode === "idle") {
-    expandedMode = false;
-    unbindOutsideClickHandler();
-    cancelAutoDismiss();
-    chrome.runtime.sendMessage({ type: "PANEL_DISMISS" }).catch(() => undefined);
-    dismissPanel(host);
-    return;
-  }
-
   expandedMode = false;
   const shadow = host.shadowRoot;
   const card = shadow.getElementById("card");
@@ -1139,7 +1133,24 @@ function collapseExpansion(host, opts = {}) {
   const eyebrowEl = shadow.getElementById("eyebrow");
   if (eyebrowEl) eyebrowEl.hidden = true;
   unbindOutsideClickHandler();
-  // After collapsing, restart auto-dismiss for trigger-opened collapsed states.
+}
+
+// User-initiated collapse (outside-click, × in idle mode). For idle, the
+// collapsed view is meaningless — dismiss the whole panel. For other modes,
+// just suppress the expansion UI and restart the auto-dismiss timer.
+function collapseExpansion(host, opts = {}) {
+  if (!expandedMode) return;
+
+  if (currentState?.mode === "idle") {
+    expandedMode = false;
+    unbindOutsideClickHandler();
+    cancelAutoDismiss();
+    chrome.runtime.sendMessage({ type: "PANEL_DISMISS" }).catch(() => undefined);
+    dismissPanel(host);
+    return;
+  }
+
+  suppressExpansionUI(host);
   const restart = opts.restartAutoDismiss !== false;
   if (restart && currentState && (currentState.mode === "clutter" || currentState.mode === "done")) {
     scheduleAutoDismiss(host);
@@ -1478,8 +1489,22 @@ async function triggerExpandedSave(host) {
   const includePinned = shadow.getElementById("opt-include-pinned")?.checked || false;
   const keepCurrentTab = shadow.getElementById("opt-keep-current")?.checked !== false;
   const reviewBeforeClose = shadow.getElementById("opt-review")?.checked || false;
-  // Collapse first — saving feedback lives in the collapsed state.
-  collapseExpansion(host, { restartAutoDismiss: false });
+
+  // Pre-emptively write saving state from the panel side so the visual
+  // transition (expanded → collapsed saving with mascot animation) happens
+  // immediately. Without this, the panel would briefly flash the prior mode's
+  // collapsed view, OR — in idle mode — collapseExpansion would dismiss the
+  // panel entirely before saveTabs starts emitting progress.
+  try {
+    await chrome.storage.session?.set?.({
+      neatFreakPanelState: { mode: "saving", label: "Tidying your tabs" }
+    });
+  } catch {
+    // If session storage write fails, fall back to manual suppression — the
+    // emitProgress mirror will still drive the saving state shortly.
+    suppressExpansionUI(host);
+  }
+
   try {
     await chrome.runtime.sendMessage({
       type: "SAVE_TABS",
@@ -1491,7 +1516,8 @@ async function triggerExpandedSave(host) {
         openManager: false
       }
     });
-    // background.saveTabs drives the saving → done state transitions for us.
+    // background.saveTabs's emitProgress writes per-step labels to the panel
+    // state; addSession → showPanelDone transitions to done at the end.
   } catch (err) {
     console.warn("[Neat Freak] Expanded save failed:", err?.message || err);
   }
