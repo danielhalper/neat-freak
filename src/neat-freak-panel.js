@@ -184,7 +184,8 @@ function panelMarkup() {
       }
       :host { all: initial; }
       .card {
-        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", sans-serif;
+        /* Match the popup's --font variable so the panel renders identically. */
+        font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
         position: relative;
         width: min(340px, calc(100vw - 32px));
         background: #fdfcf8;
