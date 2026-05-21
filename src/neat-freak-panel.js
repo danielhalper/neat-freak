@@ -260,9 +260,12 @@ function panelMarkup() {
         width: min(420px, calc(100vw - 32px));
         transition: width 200ms ease;
       }
+      /* When expanded, the brand header inside .expanded-content takes over the
+         "what is this" cue, and the Tidy CTA replaces the collapsed action
+         button. Hide both collapsed-view bits so they don't stack on top of
+         the expanded layout. */
+      .card.expanded .row,
       .card.expanded .actions {
-        /* The primary action belongs in the expanded content (Tidy my tabs).
-           Hide the collapsed-state action button to avoid two save buttons. */
         display: none;
       }
 
@@ -298,9 +301,10 @@ function panelMarkup() {
         padding: 3px;
         background: #f2eedf;
         border-radius: 10px;
+        flex-shrink: 0; /* don't squeeze the picker when the row gets tight */
       }
       .scope-button {
-        flex: 1;
+        flex: 0 0 auto;
         cursor: pointer;
         background: transparent;
         color: #4a5651;
@@ -310,6 +314,7 @@ function panelMarkup() {
         font-size: 12px;
         font-weight: 600;
         font-family: inherit;
+        white-space: nowrap; /* "All windows" must stay on one line */
         transition: background 120ms ease, color 120ms ease;
       }
       .scope-button:hover { color: #1a2421; }
