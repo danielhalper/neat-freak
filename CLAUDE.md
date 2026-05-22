@@ -57,3 +57,17 @@ node --test tests/*.test.js
 - Tight commit messages — explain *why*, not just *what*
 - Don't introduce build tooling without a clear reason; the no-build constraint is intentional
 - Keep `chrome.action.openPopup()` interactions wrapped in try/catch — it gates on user gesture in some contexts
+
+## Branch policy
+
+Single-developer project — push completed work directly to `main`. No PR
+workflow, no protected branches. If a Claude session is spun up on a
+feature branch (e.g. `claude/new-session-*`), the expected finish line is
+to merge that branch into `main` and push `main`, not to stop at the feature
+branch. Daniel loads the unpacked extension from a local checkout of `main`,
+so changes that don't reach `main` don't reach the browser.
+
+Anything Chrome will reject at the extension root must not land in `main`.
+The MV3 loader specifically rejects top-level filenames starting with `_`,
+so reference/scratch directories should be named without a leading
+underscore (e.g. `refactor-assets/`, not `_refactor_assets/`).

@@ -1189,7 +1189,7 @@ function panelMarkup() {
         <!-- Hero: tinted area with wordmark top-left and the static "happy"
              mascot peeking down over the inner card, with amber sparkles
              and decorative outline circles drawn in the same SVG. The
-             character paths are ported from _refactor_assets/dist/NeatFreak.jsx
+             character paths are ported from refactor-assets/dist/NeatFreak.jsx
              (happy state) and drawn into a wider viewBox so the decorations
              surround him. -->
         <header class="exp-hero">
