@@ -134,7 +134,14 @@
       window.__neatFreakBrandFontLoaded = true;
     } catch (err) {
       // Falls back to the next entry in the font-family chain.
-      console.warn("[Neat Freak] Lilita One load failed:", err?.message || err);
+      // If the extension reloaded mid-fetch (orphaned content script), the
+      // failure is expected — Chrome invalidates the resource URL. Skip
+      // the console warning in that case so dev consoles don't fill with
+      // noise on every extension reload. Same applies in production when
+      // a Web Store update lands while users have tabs open.
+      if (isExtensionValid()) {
+        console.warn("[Neat Freak] Lilita One load failed:", err?.message || err);
+      }
     }
   }
 
