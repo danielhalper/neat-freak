@@ -24,6 +24,41 @@ const LLM_MODEL = "gpt-5.4-mini";
  * @param {number} now epoch ms
  * @returns {{ saveIds: string[], keepIds: string[] }}
  */
+// URL/domain content-type heuristics. Used by the heuristic floor below to
+// decide which tabs to save when the recency-based logic would otherwise
+// close nothing. Positive score = looks like skim-once / ambient content
+// (more savable). Negative = active work surface (more keepable).
+//
+// Deliberately broad — false positives are cheap (user restores from folder)
+// and false negatives just defer to the floor's recency ordering.
+function contentSavabilityScore(tab) {
+  if (!tab || !tab.url) return 0;
+  const url = String(tab.url).toLowerCase();
+  const domain = String(tab.domain || "").toLowerCase();
+  let score = 0;
+
+  // Skim-once / reference content — more savable.
+  if (/medium\.com|substack\.com|dev\.to|hashnode\.dev/.test(domain)) score += 3;
+  if (/(nytimes|washingtonpost|wsj|bloomberg|theverge|techcrunch|arstechnica|wired|hacker)/.test(domain)) score += 3;
+  if (/\/(blog|article|articles|post|posts|news|story|stories)\//.test(url)) score += 2;
+  if (/(stackoverflow|stackexchange)\.com/.test(domain)) score += 2;
+  if (/(google\..*\/search|bing\.com\/search|duckduckgo\.com|kagi\.com\/search)/.test(url)) score += 3;
+  if (/github\.com\/[^/]+\/[^/]+\/(issues|pull)\/\d+/.test(url)) score += 2;
+  if (/reddit\.com\/r\//.test(url)) score += 2;
+  if (/(youtube\.com\/watch|vimeo\.com\/\d+)/.test(url)) score += 1;
+
+  // Active work surfaces — less savable (negative score).
+  if (/docs\.google\.com\/(document|spreadsheets|presentation)/.test(url)) score -= 3;
+  if (/notion\.so/.test(domain)) score -= 2;
+  if (/linear\.app/.test(domain)) score -= 2;
+  if (/mail\.google\.com|outlook\.live\.com|outlook\.office/.test(url)) score -= 3;
+  if (/calendar\.google\.com/.test(url)) score -= 3;
+  if (/figma\.com\/(file|design|board|proto)/.test(url)) score -= 2;
+  if (/\/(edit|compose|new)(\?|$|#)/.test(url)) score -= 2;
+  if (/(localhost|127\.0\.0\.1):\d+/.test(url)) score -= 2; // dev servers
+  return score;
+}
+
 /**
  * Identify URL duplicates among the candidate tabs. Returns the set of tab
  * ids that should be force-saved as duplicates — every tab in a group except
@@ -109,6 +144,35 @@ export function applySmartHeuristic(tabs, clusters, now) {
     else keepIds.push(t.id);
   }
 
+  // Floor: when the user has a real pile of tabs (≥8) and the absolute-cutoff
+  // logic above closed nothing, the lastAccessed signal is too noisy to act
+  // on (typical case: browser just opened, every tab reports a fresh
+  // lastAccessed because the user flipped through them). The user clicking
+  // Smart is itself a strong signal — deliver tidying.
+  //
+  // Switch to relative ranking: combined score of recency (older = higher)
+  // plus URL content type (skim-once content = higher, active surfaces =
+  // lower). Save the top ~40% by score.
+  const HEURISTIC_FLOOR_MIN_TABS = 8;
+  const HEURISTIC_FLOOR_SAVE_FRACTION = 0.4;
+  if (tabs.length >= HEURISTIC_FLOOR_MIN_TABS && saveIds.length === 0) {
+    const ranked = tabs
+      .map((t) => ({
+        id: t.id,
+        // Each content-savability point is worth ~10 minutes of recency, so the
+        // content signal dominates in the failure case (all tabs roughly same age).
+        score: (now - effectiveAccess(t)) / 60_000 + contentSavabilityScore(t) * 10
+      }))
+      .sort((a, b) => b.score - a.score); // highest score first
+
+    const saveCount = Math.max(2, Math.floor(ranked.length * HEURISTIC_FLOOR_SAVE_FRACTION));
+    const fallbackSaveIds = new Set(ranked.slice(0, saveCount).map((r) => r.id));
+    return {
+      saveIds: [...fallbackSaveIds],
+      keepIds: keepIds.filter((id) => !fallbackSaveIds.has(id))
+    };
+  }
+
   return { saveIds, keepIds };
 }
 
@@ -185,7 +249,7 @@ async function runLlmPath(tabs, graph, settings, now) {
 
   const body = {
     model: LLM_MODEL,
-    reasoning_effort: "low",
+    reasoning_effort: "medium",
     prompt_cache_key: "neat-freak-smart-scope",
     response_format: {
       type: "json_schema",
@@ -245,6 +309,8 @@ async function runLlmPath(tabs, graph, settings, now) {
           "- The kind of tab someone would notice immediately if it disappeared mid-task.",
           "",
           "SAVE everything else — yes, even tabs touched recently if they look like skim-once content: articles, blog posts, news, Stack Overflow answers, GitHub issues, search-results pages, old chat threads. The user can restore them from the saved folder.",
+          "",
+          "IMPORTANT — when everything looks recent: lastAccessedMinutesAgo is noisy. Chrome updates it on a one-second tab focus, not on actual use. If all tabs are < 60 min and you're tempted to return all-keep, DON'T. The user clicking Smart is a strong signal they want clutter cleared. In that case, still save the half that look most like ambient/reference content (articles, search results, blog posts, news, GitHub issues you read once) and keep the half that look most like active work surfaces (docs being composed in, sheets, email, calendar, IDE/dev consoles, forms with input).",
           "",
           "lastAccessedMinutesAgo: null means the tab was opened in the background or restored from a session and has never been activated — treat as just-opened and KEEP it. Do not interpret null as 'ancient'.",
           "",

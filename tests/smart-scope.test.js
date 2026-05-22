@@ -84,6 +84,78 @@ test("URL dedup respects exact URL match (different URLs not deduped)", () => {
   assert.deepEqual(keepIds.sort(), ["a", "b"]);
 });
 
+test("heuristic floor: ≥8 tabs all-recent saves ~40% via content + recency", () => {
+  // Simulates the "fresh browser session, user flipped through tabs" case:
+  // 10 tabs, all touched in the last 20 min (all active cluster, no cutoff
+  // would fire), no URL duplicates. Without the floor, saveIds would be
+  // empty. With the floor, the top-40% by combined score gets saved.
+  // Content scoring biases active surfaces (docs) toward keep and skim-once
+  // URLs (articles, search results) toward save.
+  const tabs = [
+    tabWithUrl("doc1",      2,  "https://docs.google.com/document/d/abc/edit"),
+    tabWithUrl("doc2",      4,  "https://docs.google.com/document/d/def/edit"),
+    tabWithUrl("mail",      6,  "https://mail.google.com/mail/u/0/#inbox"),
+    tabWithUrl("calendar",  8,  "https://calendar.google.com/calendar/u/0/r"),
+    tabWithUrl("article1",  10, "https://www.theverge.com/post/abc-article"),
+    tabWithUrl("article2",  12, "https://medium.com/some-blog/post/123"),
+    tabWithUrl("issue",     14, "https://github.com/foo/bar/issues/42"),
+    tabWithUrl("search",    16, "https://www.google.com/search?q=hello"),
+    tabWithUrl("so",        18, "https://stackoverflow.com/questions/12345/x"),
+    tabWithUrl("news",      20, "https://www.nytimes.com/2024/01/01/story"),
+  ];
+  const clusters = [{ id: "c1", tabIds: tabs.map((t) => t.id) }];
+  const { saveIds, keepIds } = applySmartHeuristic(tabs, clusters, NOW);
+
+  // 40% of 10 = 4 saves.
+  assert.equal(saveIds.length, 4);
+  assert.equal(keepIds.length, 6);
+  // The four highest-scored should be skim-once URLs, not docs/mail/calendar.
+  const saveSet = new Set(saveIds);
+  for (const keepable of ["doc1", "doc2", "mail", "calendar"]) {
+    assert.ok(!saveSet.has(keepable), `expected ${keepable} to be kept, got saveIds=${saveIds.join(",")}`);
+  }
+});
+
+test("heuristic floor does NOT fire under 8 tabs", () => {
+  // Same all-recent pattern but only 6 tabs — floor stays off, existing
+  // cutoff logic produces zero saves and we leave it that way.
+  const tabs = [
+    tabWithUrl("a", 5,  "https://example.com/article-1"),
+    tabWithUrl("b", 10, "https://example.com/article-2"),
+    tabWithUrl("c", 15, "https://example.com/article-3"),
+    tabWithUrl("d", 20, "https://example.com/article-4"),
+    tabWithUrl("e", 25, "https://example.com/article-5"),
+    tabWithUrl("f", 30, "https://example.com/article-6"),
+  ];
+  const clusters = [{ id: "c1", tabIds: tabs.map((t) => t.id) }];
+  const { saveIds, keepIds } = applySmartHeuristic(tabs, clusters, NOW);
+  assert.deepEqual(saveIds, []);
+  assert.equal(keepIds.length, 6);
+});
+
+test("heuristic floor does NOT fire when normal cutoff already saves something", () => {
+  // 10 tabs but one is genuinely old (5h ago), in an active cluster. Normal
+  // cutoff saves that one; floor doesn't escalate.
+  const tabs = [
+    tabWithUrl("recent1", 5,   "https://example.com/article-1"),
+    tabWithUrl("recent2", 10,  "https://example.com/article-2"),
+    tabWithUrl("recent3", 15,  "https://example.com/article-3"),
+    tabWithUrl("recent4", 20,  "https://example.com/article-4"),
+    tabWithUrl("recent5", 25,  "https://example.com/article-5"),
+    tabWithUrl("recent6", 28,  "https://example.com/article-6"),
+    tabWithUrl("recent7", 30,  "https://example.com/article-7"),
+    tabWithUrl("recent8", 35,  "https://example.com/article-8"),
+    tabWithUrl("recent9", 40,  "https://example.com/article-9"),
+    tabWithUrl("ancient", 300, "https://example.com/old-article"),
+  ];
+  const clusters = [{ id: "c1", tabIds: tabs.map((t) => t.id) }];
+  const { saveIds, keepIds } = applySmartHeuristic(tabs, clusters, NOW);
+  // Normal cutoff (active cluster, 90min cutoff) saves the 300-min tab.
+  // Floor does not fire because saveIds.length > 0.
+  assert.deepEqual(saveIds, ["ancient"]);
+  assert.equal(keepIds.length, 9);
+});
+
 test("empty tab list returns empty sets", () => {
   const { saveIds, keepIds } = applySmartHeuristic([], [], NOW);
   assert.deepEqual(saveIds, []);

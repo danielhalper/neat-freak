@@ -278,8 +278,14 @@ function panelMarkup() {
         /* Match the popup's --font variable so the panel renders identically. */
         font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
         position: relative;
+        /* border-box so the declared width is the OUTER footprint, including
+           padding + border. Without this, collapsed (padding 12/14) would be
+           ~28px wider than expanded (padding 0) for the same 360px width. */
+        box-sizing: border-box;
         width: min(360px, calc(100vw - 32px));
-        background: #fdfcf8;
+        /* Teal-cream tint, matching the expanded outer frame so collapsed →
+           expanded doesn't flash a background-color change. */
+        background: #e8f2ec;
         color: #1a2421;
         border: 1px solid #e8dfc7;
         border-radius: 14px;
@@ -290,11 +296,10 @@ function panelMarkup() {
       }
       /* In the popup window, the popup chrome IS the card frame — fill the
          body and drop the floating-card treatments. The amber top bar via
-         .card::before and the cream interior stay. */
+         .card::before and the teal-cream interior stay. */
       .card.in-popup {
         width: 100%;
         min-height: 100vh;
-        box-sizing: border-box;
         border: 0;
         border-radius: 0;
         box-shadow: none;
@@ -323,24 +328,42 @@ function panelMarkup() {
       }
       .card.leaving { animation: slideout 0.2s ease-in forwards; }
 
-      .row { display: flex; gap: 14px; align-items: flex-start; }
-
-      /* Collapsed-view mascot: same mood-driven SVG as the expanded hero,
-         just cropped to the character's bounding box (viewBox 60 30 200 155)
-         and rendered at portrait size. CSS animations on inner .nf-body-g /
-         .nf-pupils / .nf-finger fire automatically via the .nf-state-{mood}
-         class on this element. */
-      .mascot {
-        width: 72px;
-        height: auto;
-        flex-shrink: 0;
-        margin-top: 2px;
-        overflow: visible;
-        filter: drop-shadow(0 2px 4px rgba(15, 118, 110, 0.18));
+      /* Collapsed view mirrors the expanded hero layout: relative-positioned
+         frame with the mascot absolutely floated to the top-right and text
+         flowing on the left. min-height matches .exp-hero so the mascot
+         (which peeks ~13px below row bottom into the actions area) has the
+         same vertical footprint in both surfaces. */
+      .row {
+        display: block;
+        position: relative;
+        min-height: 96px;
       }
 
-      .body { flex: 1; min-width: 0; padding-top: 4px; }
-      .title { font-size: 14px; font-weight: 600; line-height: 1.25; margin: 0 0 2px; color: #1a2421; }
+      /* Collapsed-view mascot: identical positioning + sizing to the expanded
+         hero's .exp-character-svg — same viewBox (0 0 320 200) so the ambient
+         sparkles render, same 56% width / 190px cap, same drop-shadow.
+         CSS animations on inner .nf-body-g / .nf-pupils / .nf-finger fire
+         automatically via the .nf-state-{mood} class on this element. */
+      .mascot {
+        position: absolute;
+        top: -1px;
+        right: 24px;
+        width: 56%;
+        max-width: 190px;
+        height: auto;
+        z-index: 2;
+        pointer-events: none;
+        overflow: visible;
+        filter: drop-shadow(0 3px 6px rgba(15, 118, 110, 0.16));
+      }
+
+      .body {
+        padding-top: 4px;
+        /* Reserve the right half for the absolute-positioned mascot so the
+           title/sub text never flows under it. */
+        padding-right: 50%;
+      }
+      .title { font-size: 16px; font-weight: 600; line-height: 1.25; margin: 0 0 2px; color: #1a2421; }
       .sub { font-size: 13px; color: #4a5651; margin: 0; line-height: 1.4; display: flex; align-items: center; gap: 6px; }
 
       /* Indeterminate sliding progress bar for the saving state. A thin track
@@ -371,6 +394,9 @@ function panelMarkup() {
       .close {
         position: absolute;
         top: 10px; right: 10px;
+        /* Above mascot (z-index: 2) — the mascot SVG overlaps this corner
+           and would otherwise shadow the × in hit-testing. */
+        z-index: 3;
         cursor: pointer;
         background: #ffffff;
         border: 1px solid #e8dfc7;
@@ -820,16 +846,14 @@ function panelMarkup() {
 
       /* ========== Expanded view: hero + inner card layout ========== */
 
-      /* When expanded, the outer .card gets a faint teal-cream tint so the
-         inner card (which keeps the panel's cream) reads as a distinct
-         surface — the difference should be a tonal nudge, not a contrast
-         jump. The inner card sits ~3% lighter than the outer frame. */
+      /* Card already carries the teal-cream tint in both states; expanded
+         only needs to drop the outer padding so the hero + inner card own
+         the full footprint. The inner card sits ~3% lighter than this
+         outer frame — a tonal nudge, not a contrast jump. */
       .card.expanded {
-        background: #e8f2ec;
         padding: 0;
       }
       .card.expanded::before { display: none; }
-      .card.expanded.in-popup { background: #e8f2ec; }
 
       .exp-hero {
         position: relative;
@@ -861,7 +885,7 @@ function panelMarkup() {
          clear of the close × button at top-right. */
       .exp-character-svg {
         position: absolute;
-        top: -10px;
+        top: -1px;
         right: 24px;
         width: 56%;
         max-width: 190px;
@@ -949,18 +973,22 @@ function panelMarkup() {
         85%      { transform: translateY(-2px) scale(1, 1); }
       }
 
-      /* nervous */
-      .nf-state-nervous .nf-body-g { animation: nf-shake 0.22s ease-in-out infinite; }
-      .nf-state-nervous .nf-pupils { animation: nf-pupil-scan 1.6s ease-in-out infinite; }
+      /* nervous — soft "scared puppy" trembling, not manic shake.
+         Slower body wobble + smaller amplitude reads as a held breath
+         rather than a jittery panic. Pupils scan slowly (looking around
+         for the scary thing) — fast scan reads as strung out; slow scan
+         reads as wary. */
+      .nf-state-nervous .nf-body-g { animation: nf-shake 0.45s ease-in-out infinite; }
+      .nf-state-nervous .nf-pupils { animation: nf-pupil-scan 2.8s ease-in-out infinite; }
       @keyframes nf-shake {
         0%, 100% { transform: translate(0, 0) rotate(0deg); }
-        25%      { transform: translate(-1.2px, 0.5px) rotate(-0.6deg); }
-        75%      { transform: translate(1.2px, -0.4px) rotate(0.6deg); }
+        25%      { transform: translate(-0.5px, 0.2px) rotate(-0.3deg); }
+        75%      { transform: translate(0.5px, -0.2px) rotate(0.3deg); }
       }
       @keyframes nf-pupil-scan {
-        0%   { transform: translate(-3.5px, 2px); }
-        50%  { transform: translate(0px,   -4px); }
-        100% { transform: translate(-3.5px, 2px); }
+        0%   { transform: translate(-3px, 1.5px); }
+        50%  { transform: translate(0.5px, -3.5px); }
+        100% { transform: translate(-3px, 1.5px); }
       }
       .nf-drop { transform-origin: center top; transform-box: fill-box; opacity: 0; }
       .nf-drop--1 { animation: nf-drip-side 2.6s ease-in infinite; }
@@ -975,11 +1003,11 @@ function panelMarkup() {
       .nf-bang {
         transform-origin: 60px 55px;
         transform-box: fill-box;
-        animation: nf-bang-pop 0.7s ease infinite;
+        animation: nf-bang-pop 1.2s ease infinite;
       }
       @keyframes nf-bang-pop {
-        0%, 100% { transform: scale(1) rotate(-6deg); }
-        50%      { transform: scale(1.18) rotate(6deg); }
+        0%, 100% { transform: scale(1) rotate(-3deg); }
+        50%      { transform: scale(1.06) rotate(3deg); }
       }
       .nf-state-nervous .nf-mouth {
         transform-box: fill-box;
@@ -1175,10 +1203,10 @@ function panelMarkup() {
         </svg>
       </button>
       <div class="row" data-clickable-body="true">
-        <!-- Mood-driven mascot; viewBox is cropped to the character's body
-             rectangle so the ambient sparkles/circles (which live in the
-             expanded view's 0..320 area) are clipped out for the portrait. -->
-        <svg class="mascot nf-state-happy" id="mascot" viewBox="60 30 200 155"
+        <!-- Mood-driven mascot; viewBox matches the expanded hero so the
+             ambient sparkles/circles render around the character at the same
+             scale as the expanded view. -->
+        <svg class="mascot nf-state-happy" id="mascot" viewBox="0 0 320 200"
              xmlns="http://www.w3.org/2000/svg" aria-hidden="true"></svg>
         <div class="body">
           <p class="eyebrow" id="eyebrow" hidden>NEAT FREAK</p>
@@ -1671,9 +1699,12 @@ async function runSearch(host, query, mode) {
 function determineMood() {
   if (currentState?.mode === "saving") return "cleaning";
   if (currentState?.mode === "done") return "celebrating";
-  // Prefer state.tabCount when present (clutter mode pushes it on every
-  // update); fall back to the freshly loaded totalTabCount; otherwise
-  // default to happy until we have a real number.
+  // Clutter mode is by definition "too many tabs" — background only fires
+  // it when the user is over their threshold. Honor that directly instead
+  // of re-checking against the panel-local clutterThreshold (which may be
+  // stale until loadExpandedData runs).
+  if (currentState?.mode === "clutter") return "nervous";
+  // For other states (idle, etc.), infer from totalTabCount.
   const stateCount = Number(currentState?.tabCount);
   const tabs = Number.isFinite(stateCount) ? stateCount
              : totalTabCountValid ? totalTabCount
@@ -1687,11 +1718,10 @@ function determineMood() {
 function updateMascot(host) {
   const shadow = host?.shadowRoot;
   if (!shadow) return;
-  // Both surfaces use the same mascot SVG content. The expanded hero uses
-  // a wider viewBox (0 0 320 200) so the ambient sparkles/circles around
-  // the character are visible; the collapsed portrait uses (60 30 200 155)
-  // which crops to just the character. Same renderMascotInner output works
-  // for both — the cropped viewBox simply clips the ambient bits.
+  // Both surfaces share the same mascot SVG content and viewBox
+  // (0 0 320 200), so the ambient sparkles/circles render at the same scale
+  // in both. The collapsed .mascot is positioned with the same right: 24px /
+  // width: 56% / max 190px rules as .exp-character-svg.
   const targets = [
     shadow.querySelector(".exp-character-svg"),
     shadow.getElementById("mascot")
@@ -1727,7 +1757,10 @@ function renderMascotInner(mood) {
     sleeping:    [null, null],
     happy:       [null, null],
     cleaning:    ["M 50 66 Q 60 62 70 68", "M 100 68 Q 110 62 120 66"],
-    nervous:     ["M 46 60 Q 56 50 68 62", "M 100 62 Q 110 50 120 60"],
+    // Nervous: raised inner brows (outer ends low, inner ends high). The
+    // previous arched-up shape read as angry/worried; this is the classic
+    // "scared puppy" worried-concerned face.
+    nervous:     ["M 46 64 Q 57 60 68 58", "M 100 58 Q 113 60 120 64"],
     celebrating: ["M 48 62 Q 56 58 66 62", "M 102 62 Q 110 58 118 62"]
   }[mood] || [null, null];
   const [browL, browR] = browPath;
@@ -1736,7 +1769,10 @@ function renderMascotInner(mood) {
     sleeping:    { x: 0,  y: 0  },
     happy:       { x: -2, y: -1 },
     cleaning:    { x: -2, y: 2  },
-    nervous:     { x: -2, y: 2  },
+    // Nervous: look slightly up at the scary thing. The pupil-tremor CSS
+    // animation overrides this transform once it kicks in, but this value
+    // is what the eyes paint at on initial render before animation runs.
+    nervous:     { x: 0,  y: -1 },
     celebrating: { x: -1, y: 0  }
   }[mood] || { x: 0, y: 0 };
 
@@ -1757,10 +1793,16 @@ function renderMascotInner(mood) {
       ${browR ? `<path d="${browR}"/>` : ""}
     </g>` : "";
 
+  // Wider whites in the nervous state with unchanged pupil sizes — bigger
+  // sclera + same iris reads as "scared" rather than just "anxious".
+  const eyeWhite = nervous
+    ? { lrx: 13, lry: 14, rrx: 11, rry: 13 }
+    : { lrx: 10, lry: 11, rrx: 8,  rry: 10 };
+
   const eyesMarkup = (!eyesClosed && !eyesCurved) ? `
     <g class="nf-eyes">
-      <ellipse cx="60"  cy="88" rx="10" ry="11" fill="#f7f8f6"/>
-      <ellipse cx="110" cy="88" rx="8"  ry="10" fill="#f7f8f6"/>
+      <ellipse cx="60"  cy="88" rx="${eyeWhite.lrx}" ry="${eyeWhite.lry}" fill="#f7f8f6"/>
+      <ellipse cx="110" cy="88" rx="${eyeWhite.rrx}"  ry="${eyeWhite.rry}" fill="#f7f8f6"/>
       <g class="nf-pupils" transform="translate(${lookOffset.x} ${lookOffset.y})">
         <circle cx="58"    cy="84"   r="4"   fill="#093f3b"/>
         <circle cx="108"   cy="84"   r="3.4" fill="#093f3b"/>
