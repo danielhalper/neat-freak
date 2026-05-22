@@ -870,8 +870,8 @@ function panelMarkup() {
          clear of the close × button at top-right. */
       .exp-character-svg {
         position: absolute;
-        top: -4px;
-        right: 36px;
+        top: -10px;
+        right: 24px;
         width: 56%;
         max-width: 190px;
         height: auto;
@@ -982,7 +982,7 @@ function panelMarkup() {
         100% { transform: translateY(50px) scale(0.7); opacity: 0; }
       }
       .nf-bang {
-        transform-origin: 60px 22px;
+        transform-origin: 60px 42px;
         transform-box: fill-box;
         animation: nf-bang-pop 0.7s ease infinite;
       }
@@ -1802,7 +1802,7 @@ function renderMascotInner(mood) {
       ${nfDropMarkup(178, 75, 0.8, "nf-drop nf-drop--2")}
     </g>
     <g class="nf-bang" transform="translate(60 30)">
-      <text x="60" y="22" text-anchor="middle" font-family="ui-sans-serif, system-ui"
+      <text x="60" y="42" text-anchor="middle" font-family="ui-sans-serif, system-ui"
             font-weight="900" font-size="26" fill="#f4bd45"
             stroke="#093f3b" stroke-width="1.5" paint-order="stroke">!</text>
     </g>` : "";
