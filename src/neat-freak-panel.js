@@ -431,14 +431,19 @@ function panelMarkup() {
       /* Actions row carries the tertiary link on the LEFT and the primary
          CTA on the RIGHT (clutter + done states). space-between pins each
          to its side automatically. Saving state has just a progress bar
-         which is width:100% so the layout reads correctly there too. */
+         which is width:100% so the layout reads correctly there too.
+         The negative margins extend the tray to the card's outer edges
+         (the card has padding 12/14/14) so the white footer reads as a
+         separate plane from the teal-cream area where the mascot lives —
+         echoes the expanded view's exp-hero / exp-inner-card two-tone. */
       .actions {
         display: flex;
         align-items: center;
         justify-content: space-between;
         gap: 8px;
-        margin-top: 12px;
-        padding-top: 10px;
+        margin: 12px -14px -14px;
+        padding: 12px 14px 14px;
+        background: #fefefc;
         border-top: 1px dashed #e8dfc7;
       }
 
