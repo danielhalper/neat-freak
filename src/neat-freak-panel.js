@@ -883,9 +883,9 @@ function panelMarkup() {
         position: relative;
         z-index: 2;
         pointer-events: none;
+        overflow: visible;
         filter: drop-shadow(0 3px 6px rgba(15, 118, 110, 0.16));
       }
-      .exp-character-svg { overflow: visible; }
 
       /* ===== Mascot animations (ported from NeatFreak.css) =====
          Mood-driven keyframes covering blink (always), snore (sleeping),
@@ -1603,8 +1603,14 @@ async function loadExpandedData(host) {
     if (response.settings?.defaultScope) {
       selectedScope = response.settings.defaultScope;
     }
-    totalTabCount = Number(response.totalTabCount) || 0;
-    totalTabCountValid = true;
+    // Only flip the valid flag once we actually got a finite number back.
+    // If background returns nothing, determineMood will keep falling back
+    // to "happy" instead of misreading undefined as 0 → sleeping.
+    const incomingTotal = Number(response.totalTabCount);
+    if (Number.isFinite(incomingTotal)) {
+      totalTabCount = incomingTotal;
+      totalTabCountValid = true;
+    }
     clutterThreshold = Number(response.settings?.clutterThreshold) || clutterThreshold;
     renderScopePicker(host);
     renderPreview(host, response.preview);
