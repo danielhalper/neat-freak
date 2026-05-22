@@ -227,6 +227,17 @@ function createPanelHost() {
   shadow.innerHTML = panelMarkup();
   shadow.addEventListener("click", (event) => handlePanelClick(host, event));
   shadow.addEventListener("change", (event) => handlePanelChange(host, event));
+  // Favicon <img> tags previously used onerror="..." inline to hide
+  // themselves when a domain's favicon failed to load. Strict-CSP pages
+  // (Slides, etc.) block inline event handlers, so we replace it with a
+  // delegated capture-phase listener — `error` events don't bubble, hence
+  // the third arg.
+  shadow.addEventListener("error", (event) => {
+    const target = event.target;
+    if (target && target.tagName === "IMG" && target.classList && target.classList.contains("folder-tab-favicon")) {
+      target.style.visibility = "hidden";
+    }
+  }, true);
   // Paint an initial mascot (defaults to happy until state arrives) so the
   // collapsed view never flashes empty.
   updateMascot(host);
@@ -1646,7 +1657,7 @@ async function runSearch(host, query, mode) {
     }
     list.innerHTML = results.slice(0, 12).map((tab) => {
       const fav = tab.favIconUrl
-        ? `<img class="folder-tab-favicon" src="${escapeAttr(tab.favIconUrl)}" alt="" onerror="this.style.visibility='hidden'">`
+        ? `<img class="folder-tab-favicon" src="${escapeAttr(tab.favIconUrl)}" alt="">`
         : `<span class="folder-tab-favicon"></span>`;
       const title = escapeText(tab.title || tab.url || "Untitled");
       const folder = tab.folderName ? `<span class="search-folder">${escapeText(tab.folderName)}</span>` : "";
@@ -1981,7 +1992,7 @@ function renderRecentItem(item) {
 function renderSingletonRow(tab, sid) {
   const title = escapeText(tab.title || tab.url || "Untitled");
   const fav = tab.favIconUrl
-    ? `<img class="folder-tab-favicon" src="${escapeAttr(tab.favIconUrl)}" alt="" onerror="this.style.visibility='hidden'">`
+    ? `<img class="folder-tab-favicon" src="${escapeAttr(tab.favIconUrl)}" alt="">`
     : `<span class="folder-tab-favicon"></span>`;
   return `
     <button class="folder-tab recent-singleton" data-action="restore-tab" data-session-id="${sid}" data-tab-id="${escapeAttr(tab.id)}" type="button" title="${escapeAttr(tab.url || "")}">
@@ -2012,7 +2023,7 @@ function renderSessionCard(session, isPinned) {
     if (!tab) return "";
     const title = escapeText(tab.title || tab.url || "Untitled");
     const fav = tab.favIconUrl
-      ? `<img class="folder-tab-favicon" src="${escapeAttr(tab.favIconUrl)}" alt="" onerror="this.style.visibility='hidden'">`
+      ? `<img class="folder-tab-favicon" src="${escapeAttr(tab.favIconUrl)}" alt="">`
       : `<span class="folder-tab-favicon"></span>`;
     return `
       <button class="folder-tab singleton" data-action="restore-tab" data-session-id="${sid}" data-tab-id="${escapeAttr(tab.id)}" type="button" title="${escapeAttr(tab.url || "")}">
@@ -2067,7 +2078,7 @@ function renderFolderRow(folder, tabsById, sid, expandByDefault) {
     if (!tab) return "";
     const title = escapeText(tab.title || tab.url || "Untitled");
     const fav = tab.favIconUrl
-      ? `<img class="folder-tab-favicon" src="${escapeAttr(tab.favIconUrl)}" alt="" onerror="this.style.visibility='hidden'">`
+      ? `<img class="folder-tab-favicon" src="${escapeAttr(tab.favIconUrl)}" alt="">`
       : `<span class="folder-tab-favicon"></span>`;
     return `
       <li>
