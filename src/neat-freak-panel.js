@@ -1357,7 +1357,7 @@ function panelMarkup() {
                the left of the mascot's mouth; the tail on the right points
                at him to make the speaker clear. -->
           <div class="mascot-bubble" id="mascot-bubble" role="status" aria-live="polite">
-            Save tabs. Frees up RAM.
+            I'll stash open tabs and free up RAM.
           </div>
         </header>
 
