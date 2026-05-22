@@ -1445,7 +1445,12 @@ function applyState(host, state) {
       if (state.groupCount) parts.push(`${state.groupCount} folder${state.groupCount === 1 ? "" : "s"}`);
       if (state.looseCount) parts.push(`${state.looseCount} loose`);
       if (state.keepCount)  parts.push(`${state.keepCount} kept open`);
-      subEl.textContent = parts.join(" · ") || "Ready in your saved sessions.";
+      const summary = parts.join(" · ") || "Ready in your saved sessions.";
+      // Tertiary link follows the same structure as the clutter card's
+      // "Adjust nudges →" — sits on a second sub line, expand-panel action
+      // pops the panel open where the just-saved session is the first item
+      // in the Recent list.
+      subEl.innerHTML = `${escapeText(summary)}<br><button class="tertiary-link" data-action="expand-panel" type="button">See closed tabs →</button>`;
       const sid = String(state.sessionId || "");
       actionsEl.innerHTML = `<button class="primary" data-action="open-manager" data-session-id="${escapeAttr(sid)}" type="button">Open manager</button>`;
     }
@@ -1520,6 +1525,12 @@ function handlePanelClick(host, event) {
   }
   if (action === "open-manager-link") {
     safeSendMessage({ type: "PANEL_OPEN_MANAGER" });
+    return;
+  }
+  if (action === "expand-panel") {
+    // Tertiary "See closed tabs →" link in the done state — pops the panel
+    // open where the just-saved session sits at the top of the Recent list.
+    if (!expandedMode) expandPanel(host);
     return;
   }
   if (action === "open-options-link") {
