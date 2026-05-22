@@ -26,6 +26,9 @@
     // Storage write failure isn't blocking — the panel script handles missing
     // state by defaulting to "hidden", and the user can re-trigger.
   }
-  document.body.style.visibility = "visible";
+  // Now expand body to the real popup dimensions. Before this, the body
+  // is 0×0 transparent so a successful inject + window.close() never
+  // flashes a 420×590 cream rectangle.
+  document.body.classList.add("popup-body--mounted");
   await import("./neat-freak-panel.js");
 })();
