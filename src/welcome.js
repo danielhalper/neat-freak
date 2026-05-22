@@ -12,9 +12,11 @@ const finalHintEl = document.querySelector("#welcome-final-hint");
 
 const thresholdPresetsEl = document.querySelector("#welcome-threshold-presets");
 const thresholdInputEl = document.querySelector("#welcome-threshold-input");
+const keepCurrentTabEl = document.querySelector("#welcome-keep-current-tab");
+const reviewBeforeCloseEl = document.querySelector("#welcome-review-before-close");
 
-const ORDER = ["1", "2", "3", "4", "done"];
-const FINAL_NUMERIC_STEP = "4";
+const ORDER = ["1", "2", "3", "4", "5", "done"];
+const FINAL_NUMERIC_STEP = "5";
 const MIN_THRESHOLD = 5;
 const MAX_THRESHOLD = 200;
 let currentStep = "1";
@@ -26,6 +28,7 @@ init();
 function init() {
   prefillKeyFromSettings();
   prefillThresholdFromSettings();
+  prefillTidyDefaultsFromSettings();
   bindEvents();
   bindThresholdControls();
   showStep(currentStep);
@@ -147,6 +150,10 @@ async function goNext() {
   if (currentStep === "3") {
     await persistThreshold();
   }
+  // Leaving the tidy-defaults step → persist the chosen toggles before advancing.
+  if (currentStep === "4") {
+    await persistTidyDefaults();
+  }
   const idx = ORDER.indexOf(currentStep);
   if (idx < 0 || idx >= ORDER.length - 1) return;
   showStep(ORDER[idx + 1]);
@@ -223,6 +230,34 @@ async function persistThreshold() {
     await send("SAVE_SETTINGS", { settings: { clutterThreshold: selectedThreshold } });
   } catch {
     // If saving fails, the default stays in place — not blocking onboarding.
+  }
+}
+
+async function prefillTidyDefaultsFromSettings() {
+  try {
+    const response = await send("GET_SETTINGS");
+    if (!response?.ok || !response.settings) return;
+    if (keepCurrentTabEl) {
+      keepCurrentTabEl.checked = Boolean(response.settings.defaultKeepCurrentTab);
+    }
+    if (reviewBeforeCloseEl) {
+      reviewBeforeCloseEl.checked = Boolean(response.settings.defaultReviewBeforeClose);
+    }
+  } catch {
+    // Defaults from DEFAULT_SETTINGS are already reflected on the inputs.
+  }
+}
+
+async function persistTidyDefaults() {
+  try {
+    await send("SAVE_SETTINGS", {
+      settings: {
+        defaultKeepCurrentTab: Boolean(keepCurrentTabEl?.checked),
+        defaultReviewBeforeClose: Boolean(reviewBeforeCloseEl?.checked)
+      }
+    });
+  } catch {
+    // If saving fails, defaults stay — not blocking onboarding.
   }
 }
 

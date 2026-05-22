@@ -104,6 +104,10 @@ async function routeMessage(message) {
     case "PANEL_DISMISS":
       await setPanelState({ mode: "hidden" });
       return {};
+    case "PANEL_CONFIRM_REVIEW":
+      return confirmPanelReview(message.sessionId, message.keepOpenSessionTabIds || []);
+    case "PANEL_DISCARD_REVIEW":
+      return discardPanelReview(message.sessionId);
     case "OPEN_PANEL_FROM_ICON":
       return openPanelFromIcon();
     default:
@@ -228,16 +232,6 @@ async function saveTabs(options) {
     throw new Error("No savable tabs found. Chrome internal pages and extension pages are skipped.");
   }
 
-  // Only auto-open the Manager if closing the candidate tabs would leave Chrome
-  // with no surviving tabs (otherwise Chrome would quit and the user would lose
-  // their workspace). If skipped/other tabs exist, don't yank them into the Manager.
-  if (options.openManager !== false) {
-    const survivors = await countSurvivingTabs(candidates);
-    if (survivors === 0) {
-      await openManager();
-    }
-  }
-
   emitProgress({ step: "scanning", tabCount: candidates.length });
   emitProgress({ step: "capturing", tabCount: candidates.length });
   const tabs = await buildSavedTabs(candidates, settings);
@@ -251,7 +245,19 @@ async function saveTabs(options) {
   let tabsToClose;
 
   if (captureOptions.scope === "smart") {
-    smartResult = await runSmartScope(tabs, settings);
+    // Floor: Smart must save enough to leave the user strictly under their
+    // clutter threshold. Pinned/chrome:// tabs that Smart can't touch still
+    // count against the limit, so we compute against the global tab count.
+    const allOpenTabs = await queryTabs({});
+    const threshold = Number(settings.clutterThreshold) || 0;
+    const minSaveCount = threshold > 0
+      ? Math.max(0, allOpenTabs.length - (threshold - 1))
+      : 0;
+    smartResult = await runSmartScope(tabs, settings, {
+      minSaveCount,
+      totalOpenTabCount: allOpenTabs.length,
+      clutterThreshold: threshold
+    });
     categories = smartResult.categories;
     meta = {
       method: smartResult.mode === "llm" ? "smart-llm" : "smart-heuristic",
@@ -267,6 +273,21 @@ async function saveTabs(options) {
     tabsToClose = tabs;
   }
 
+  const tabIdsToClose = tabsToClose
+    .map((tab) => tab.originalTabId || tab.id)
+    .filter(Number.isFinite);
+
+  // Only auto-open the Manager if closing the final chosen tabs would leave
+  // Chrome with no surviving tabs. For Smart, this must happen after the save
+  // set is known; otherwise the Manager tab itself can inflate the tab-limit
+  // floor and cause one extra tab to close.
+  if (!captureOptions.reviewBeforeClose && options.openManager !== false) {
+    const survivors = await countSurvivingTabIds(tabIdsToClose);
+    if (survivors === 0) {
+      await openManager();
+    }
+  }
+
   emitProgress({ step: "saving" });
   const session = {
     id: createId("session"),
@@ -274,7 +295,7 @@ async function saveTabs(options) {
     closeStatus: captureOptions.reviewBeforeClose ? "review" : "closed",
     closedAt: captureOptions.reviewBeforeClose ? "" : nowIso(),
     createdAt: nowIso(),
-    pendingTabIds: captureOptions.reviewBeforeClose ? tabsToClose.map((tab) => tab.originalTabId || tab.id).filter(Number.isFinite) : [],
+    pendingTabIds: captureOptions.reviewBeforeClose ? tabIdsToClose : [],
     scope: captureOptions.scope,
     skipped,
     tabs: smartResult ? tabsToClose : tabs,
@@ -285,10 +306,14 @@ async function saveTabs(options) {
 
   await addSession(session);
   notifySessionReady(session, meta);
-  // Unified panel: transition to done state. showPanelDone short-circuits if
-  // the Chrome popup is open (it handles its own done state) so we don't
+  // Unified panel: transition to done state (or review state if Review-before-
+  // closing is on). Both short-circuit if the Chrome popup is open so we don't
   // compete for the user's attention.
-  showPanelDone(session, meta, smartResult).catch(() => undefined);
+  if (captureOptions.reviewBeforeClose) {
+    showPanelReview(session).catch(() => undefined);
+  } else {
+    showPanelDone(session, meta, smartResult).catch(() => undefined);
+  }
   const folderSummaries = (categories || [])
     .filter((c) => (c.tabIds || []).length >= 2)
     .map((c) => ({ id: c.id, name: c.name, count: c.tabIds.length }));
@@ -310,17 +335,16 @@ async function saveTabs(options) {
 
   if (!captureOptions.reviewBeforeClose) {
     // For Smart, only close the chosen save set. For other scopes, close all candidates.
-    const closeSource = smartResult ? tabsToClose : candidates;
-    await closeTabIds(closeSource.map((tab) => tab.originalTabId || tab.id).filter(Number.isFinite));
+    await closeTabIds(tabIdsToClose);
   }
 
   return { session };
 }
 
-async function countSurvivingTabs(candidates) {
+async function countSurvivingTabIds(tabIds) {
   const all = await queryTabs({});
-  const candidateIds = new Set(candidates.map((t) => t.id).filter(Number.isFinite));
-  return all.filter((tab) => !candidateIds.has(tab.id)).length;
+  const closingIds = new Set(tabIds.filter(Number.isFinite));
+  return all.filter((tab) => !closingIds.has(tab.id)).length;
 }
 
 async function getCandidateTabs(options) {
@@ -883,6 +907,100 @@ async function showPanelDone(session, meta, smartResult) {
     sessionId: session.id,
     llm: Boolean(meta?.method?.includes("llm"))
   });
+}
+
+// Review-before-closing path: tabs are saved but NOT yet closed. Panel shows
+// the categorized list with per-item remove buttons + Cancel/Confirm. Confirm
+// hits confirmPanelReview below to actually close. Cancel deletes the session.
+async function showPanelReview(session) {
+  if (isPopupOpen()) return false;
+  const tabsById = new Map((session.tabs || []).map((t) => [t.id, t]));
+  const groups = (session.categories || [])
+    .map((cat) => ({
+      name: cat.name || "Other",
+      tabs: (cat.tabIds || [])
+        .map((id) => tabsById.get(id))
+        .filter(Boolean)
+        .map((tab) => ({
+          sessionTabId: tab.id,
+          title: tab.title || "",
+          domain: tab.domain || getDomain(tab.url || ""),
+          url: tab.url || ""
+        }))
+    }))
+    .filter((g) => g.tabs.length > 0);
+
+  return setPanelState({
+    mode: "review",
+    sessionId: session.id,
+    groups
+  });
+}
+
+// User confirmed the review. keepOpenSessionTabIds are the session tab IDs
+// the user struck through ("don't close these"). Close everything else in
+// pendingTabIds, drop the kept tabs from the session, mark closed, then
+// transition the panel into the standard done celebration.
+async function confirmPanelReview(sessionId, keepOpenSessionTabIds) {
+  const session = (await getSessions()).find((item) => item.id === sessionId);
+  if (!session) {
+    await setPanelState({ mode: "hidden" });
+    return { ok: true };
+  }
+
+  const keepSet = new Set(keepOpenSessionTabIds || []);
+  const tabsById = new Map((session.tabs || []).map((t) => [t.id, t]));
+  const keepChromeIds = new Set();
+  for (const id of keepSet) {
+    const tab = tabsById.get(id);
+    if (tab) {
+      const chromeId = tab.originalTabId || tab.id;
+      if (Number.isFinite(chromeId)) keepChromeIds.add(chromeId);
+    }
+  }
+
+  const toClose = (session.pendingTabIds || []).filter((id) => !keepChromeIds.has(id));
+
+  // If the user removed everything in review, treat it as a cancel — there's
+  // nothing left to celebrate and the empty session would just be clutter.
+  if (toClose.length === 0) {
+    await deleteSession(sessionId);
+    await setPanelState({ mode: "hidden" });
+    return { ok: true };
+  }
+
+  await closeTabIds(toClose);
+
+  const updated = await updateSession(sessionId, (current) => {
+    const tabs = (current.tabs || []).filter((t) => !keepSet.has(t.id));
+    const categories = (current.categories || [])
+      .map((cat) => ({
+        ...cat,
+        tabIds: (cat.tabIds || []).filter((id) => !keepSet.has(id))
+      }))
+      .filter((cat) => cat.tabIds.length > 0);
+    return {
+      ...current,
+      tabs,
+      categories,
+      closeStatus: "closed",
+      closedAt: nowIso(),
+      pendingTabIds: []
+    };
+  });
+
+  await showPanelDone(updated, updated.categorization || {}, null);
+  return { ok: true, session: updated };
+}
+
+// User cancelled the review. The session was created moments ago and the
+// tabs are still open in the browser — safe to discard outright.
+async function discardPanelReview(sessionId) {
+  if (sessionId) {
+    try { await deleteSession(sessionId); } catch { /* best-effort */ }
+  }
+  await setPanelState({ mode: "hidden" });
+  return { ok: true };
 }
 
 // Tidy now (from the panel's clutter state) — transition through saving and

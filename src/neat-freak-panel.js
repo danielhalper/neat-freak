@@ -558,6 +558,150 @@ function panelMarkup() {
       }
       .tertiary-link:hover { color: #4a5651; }
 
+      /* Review-before-closing list. Sits below .actions, only visible when
+         .card.state-review. Hides the normal expand-wrapper (no recent
+         sessions UI during a review). Also hides the .actions row, which is
+         empty in review mode (CTAs live in .review-footer at the bottom) —
+         otherwise it shows as a white-band gap above the list. */
+      .card.state-review .expand-wrapper { display: none; }
+      .card.state-review .actions { display: none; }
+      .card.state-review .review-shell { display: flex; }
+      .review-shell {
+        display: none;
+        flex-direction: column;
+        gap: 10px;
+        margin-top: 4px;
+      }
+      .review-body {
+        background: #fefefc;
+        border: 1px solid #e3ddd2;
+        border-radius: 10px;
+        max-height: 320px;
+        overflow-y: auto;
+        padding: 6px 4px 6px 8px;
+      }
+      /* Cancel / Confirm tidy footer. Sits BELOW the list so the eye order is
+         title → list → decide → act, matching standard form conventions. */
+      .review-footer {
+        align-items: center;
+        display: flex;
+        gap: 12px;
+        justify-content: space-between;
+        padding-top: 4px;
+      }
+      .review-group + .review-group {
+        border-top: 1px dashed #e3ddd2;
+        margin-top: 6px;
+        padding-top: 6px;
+      }
+      .review-group-head {
+        align-items: baseline;
+        color: #63706b;
+        display: flex;
+        gap: 8px;
+        font-size: 11px;
+        font-weight: 700;
+        letter-spacing: 0.04em;
+        padding: 4px 6px 2px;
+        text-transform: uppercase;
+      }
+      .review-group-count {
+        color: #99a39f;
+        font-weight: 500;
+      }
+      .review-items {
+        list-style: none;
+        margin: 0;
+        padding: 0;
+      }
+      .review-item {
+        align-items: center;
+        border-radius: 6px;
+        cursor: pointer;
+        display: flex;
+        gap: 8px;
+        padding: 6px;
+      }
+      .review-item:hover { background: rgba(15, 118, 110, 0.04); }
+      .review-item.removed { opacity: 0.55; }
+      .review-item.removed .review-item-title,
+      .review-item.removed .review-item-domain {
+        text-decoration: line-through;
+        text-decoration-color: #99a39f;
+      }
+      .review-item-text {
+        display: flex;
+        flex-direction: column;
+        flex: 1 1 auto;
+        gap: 1px;
+        min-width: 0;
+      }
+      .review-item-title {
+        color: #17201d;
+        font-size: 13px;
+        line-height: 1.3;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+      .review-item-domain {
+        color: #99a39f;
+        font-size: 11px;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+      /* Pill button revealed on row hover (or sticky once active). Hidden
+         opacity:0 so the row stays clean by default but layout doesn't shift
+         when it appears. Text labels — "Keep" / "Kept ✓" — eliminate the ×
+         ambiguity (× could read as "close this" or "remove from close-pile";
+         "Keep" is unambiguous). */
+      .review-remove {
+        background: transparent;
+        border: 1px solid #d3ded9;
+        border-radius: 999px;
+        color: #4a5651;
+        cursor: pointer;
+        flex: 0 0 auto;
+        font-family: inherit;
+        font-size: 11px;
+        font-weight: 650;
+        height: 22px;
+        line-height: 1;
+        opacity: 0;
+        padding: 0 10px;
+        transition: opacity 120ms ease, background 120ms ease, color 120ms ease, border-color 120ms ease;
+      }
+      .review-item:hover .review-remove,
+      .review-item:focus-within .review-remove,
+      .review-item.removed .review-remove {
+        opacity: 1;
+      }
+      .review-remove:hover {
+        background: #fff;
+        border-color: #b6c3bd;
+        color: #17201d;
+      }
+      .review-item.removed .review-remove {
+        background: #eef4f2;
+        border-color: #c7dfd9;
+        color: #0f766e;
+      }
+      .review-item.removed .review-remove:hover {
+        background: #ddeae5;
+        color: #0a5a52;
+      }
+      /* Swap "Keep" ↔ "Kept ✓" labels based on the row's removed state. */
+      .review-item .review-remove-text-active { display: none; }
+      .review-item.removed .review-remove-text-default { display: none; }
+      .review-item.removed .review-remove-text-active { display: inline; }
+      .review-empty {
+        color: #63706b;
+        font-size: 12px;
+        padding: 16px 12px;
+        text-align: center;
+      }
+
       .expanded-content {
         /* gap is 0 so the hero's mascot can use a negative bottom margin
            to overlap into the inner card. */
@@ -977,26 +1121,23 @@ function panelMarkup() {
         border-radius: 4px;
       }
 
-      /* Click-the-mascot speech bubble. Anchored at the mascot's mouth
-         level, right edge sits 6px to the left of the mascot's left edge.
-         Tail on the right points horizontally at his mouth.
-         Sized to fit "Stash tabs, free RAM." on a single line — at the new
-         vertical position (well below the wordmark) the bubble can also
-         extend a touch further left into the card's padding, so we get a
-         wider but lower-profile bubble. */
+      /* Click-the-mascot speech bubble. Sits below the mascot's mouth,
+         right-anchored so the text reads toward him with the tail pointing
+         at his face. z-index 6 > the mascot's z-index 2 keeps text legible
+         in any region of overlap. */
       .mascot-bubble {
         position: absolute;
-        top: 60px;            /* ≈ mouth height in the mascot SVG */
-        right: 220px;         /* mascot left edge ≈ 214px from hero right (24+190); add 6px gap */
-        max-width: 140px;     /* fits one line at 11px; bubble can dip ~16px into the card's left padding since the wordmark no longer sits above it at this lower y */
+        top: 71px;
+        right: 150px;
+        width: 200px;
         background: #ffffff;
         border: 1px solid #e8dfc7;
         border-radius: 12px;
-        padding: 6px 10px;
+        padding: 6px 4px 6px 2px;
         font-size: 11px;
         font-weight: 500;
         line-height: 1.35;
-        white-space: nowrap;
+        text-align: right;
         color: #1a2421;
         box-shadow: 0 6px 16px rgba(15, 118, 110, 0.16);
         opacity: 0;
@@ -1012,7 +1153,10 @@ function panelMarkup() {
         pointer-events: auto;
       }
       /* Tail pointing right toward the mouth. White square rotated 45° so
-         only the upper-right two edges show as the tail tip. */
+         only the upper-right two edges show as the tail tip. z-index: -1
+         tucks the tail behind the bubble's text so a long line (the "ram"
+         in "free up ram") reads on top of the diamond, while the part of
+         the tail that sticks out past the bubble's right edge still shows. */
       .mascot-bubble::after {
         content: "";
         position: absolute;
@@ -1025,6 +1169,7 @@ function panelMarkup() {
         border-top: 1px solid #e8dfc7;
         border-right: 1px solid #e8dfc7;
         transform: rotate(45deg);
+        z-index: -1;
       }
 
       /* ===== Mascot animations (ported from NeatFreak.css) =====
@@ -1347,6 +1492,15 @@ function panelMarkup() {
       </div>
       <div class="actions" id="actions"></div>
 
+      <!-- Review-before-closing shell. Only visible when state.mode === "review".
+           Holds the categorized list of tabs about to close (per-item × button
+           to keep open) and its own Cancel / Confirm tidy footer. The standard
+           .expand-wrapper below is hidden in review mode. -->
+      <div class="review-shell" id="review-shell" hidden>
+        <div class="review-body" id="review-body"></div>
+        <div class="review-footer" id="review-footer"></div>
+      </div>
+
       <!-- Wrapper for the expanded view. .card.expanded triggers the wrapper
            to animate from grid-template-rows: 0fr → 1fr, which smoothly
            transitions the panel's height between collapsed and expanded
@@ -1374,7 +1528,7 @@ function panelMarkup() {
                the left of the mascot's mouth; the tail on the right points
                at him to make the speaker clear. -->
           <div class="mascot-bubble" id="mascot-bubble" role="status" aria-live="polite">
-            Stash tabs, free RAM.
+            I'll stash open tabs and free up ram
           </div>
         </header>
 
@@ -1448,6 +1602,13 @@ function applyState(host, state) {
     cancelAutoDismiss();
     expandedMode = false;
     unbindOutsideClickHandler();
+    // In popup context, the host IS the popup window; close it cleanly so
+    // we don't leave an empty popup behind (otherwise dismissPanel would
+    // just remove the panel from document.body and leave a blank window).
+    if (inPopupContext) {
+      try { window.close(); } catch { /* fallthrough */ }
+      return;
+    }
     dismissPanel(host);
     return;
   }
@@ -1489,6 +1650,10 @@ function applyState(host, state) {
   const titleEl = shadow.getElementById("title");
   const subEl = shadow.getElementById("sub");
   const actionsEl = shadow.getElementById("actions");
+  // Show the review shell only in review mode; hidden otherwise so stale
+  // review content never leaks into other states.
+  const reviewShell = shadow.getElementById("review-shell");
+  if (reviewShell) reviewShell.hidden = state.mode !== "review";
 
   cancelAutoDismiss();
 
@@ -1560,6 +1725,98 @@ function applyState(host, state) {
     if (expandedMode && tabCount > 0) loadExpandedData(host);
     return;
   }
+
+  if (state.mode === "review") {
+    const groups = Array.isArray(state.groups) ? state.groups : [];
+    const tabCount = groups.reduce((sum, g) => sum + (g.tabs?.length || 0), 0);
+    const folderCount = groups.length;
+    const sid = String(state.sessionId || "");
+
+    titleEl.textContent = "Ready to tidy?";
+    const folderLabel = folderCount === 1 ? "folder" : "folders";
+    const tabLabel = tabCount === 1 ? "tab" : "tabs";
+    subEl.textContent = folderCount > 0
+      ? `${tabCount} ${tabLabel} across ${folderCount} ${folderLabel}. Hover any tab to keep it open.`
+      : "Hover any tab to keep it open.";
+
+    // Clear the standard actions row — review mode renders its CTAs in
+    // .review-footer at the BOTTOM of the list (below the items the user
+    // is reviewing), not above them.
+    actionsEl.innerHTML = "";
+
+    const reviewBody = shadow.getElementById("review-body");
+    if (reviewBody) {
+      reviewBody.innerHTML = groups.length
+        ? groups.map(renderReviewGroup).join("")
+        : `<p class="review-empty">No tabs to review.</p>`;
+    }
+    const reviewFooter = shadow.getElementById("review-footer");
+    if (reviewFooter) {
+      reviewFooter.innerHTML = `
+        <button class="tertiary-link" data-action="cancel-review" data-session-id="${escapeAttr(sid)}" type="button">Cancel</button>
+        <button class="primary" data-action="confirm-review" data-session-id="${escapeAttr(sid)}" type="button">Confirm tidy →</button>
+      `;
+    }
+    // Review needs full attention — no auto-dismiss.
+    return;
+  }
+}
+
+// Renders one folder group inside the review list. Each item has an × to
+// toggle a "removed" (struck-through) state; confirming closes only the
+// non-struck ones.
+function renderReviewGroup(group) {
+  const name = String(group?.name || "Other");
+  const tabs = Array.isArray(group?.tabs) ? group.tabs : [];
+  return `
+    <div class="review-group">
+      <div class="review-group-head">
+        <span class="review-group-name">${escapeText(name)}</span>
+        <span class="review-group-count">${tabs.length}</span>
+      </div>
+      <ul class="review-items">
+        ${tabs.map(renderReviewItem).join("")}
+      </ul>
+    </div>
+  `;
+}
+
+// Live count update for the review sub-text. Fires on every toggle so the
+// user sees "X will close · Y kept open" reflect their current selection.
+function updateReviewConfirmCount(host) {
+  const shadow = host?.shadowRoot;
+  if (!shadow) return;
+  const subEl = shadow.getElementById("sub");
+  if (!subEl) return;
+  const total = shadow.querySelectorAll(".review-item").length;
+  const removed = shadow.querySelectorAll(".review-item.removed").length;
+  const remaining = Math.max(0, total - removed);
+  if (remaining === 0) {
+    subEl.textContent = "Nothing to close — cancel to back out.";
+    return;
+  }
+  const tabLabel = remaining === 1 ? "tab" : "tabs";
+  subEl.textContent = removed > 0
+    ? `${remaining} ${tabLabel} will close · ${removed} kept open. Confirm when ready.`
+    : `${remaining} ${tabLabel} will close. Hover any tab to keep it open.`;
+}
+
+function renderReviewItem(tab) {
+  const sessionTabId = String(tab?.sessionTabId || "");
+  const title = String(tab?.title || tab?.url || "Untitled");
+  const domain = String(tab?.domain || "");
+  return `
+    <li class="review-item" data-session-tab-id="${escapeAttr(sessionTabId)}" data-action="toggle-review-item">
+      <div class="review-item-text">
+        <span class="review-item-title">${escapeText(title)}</span>
+        <span class="review-item-domain">${escapeText(domain)}</span>
+      </div>
+      <button class="review-remove" data-action="toggle-review-item" type="button" aria-label="Keep this tab open">
+        <span class="review-remove-text-default">Keep</span>
+        <span class="review-remove-text-active">Kept ✓</span>
+      </button>
+    </li>
+  `;
 }
 
 function handlePanelClick(host, event) {
@@ -1587,7 +1844,7 @@ function handlePanelClick(host, event) {
   // No action attribute — check if the body was clicked to trigger expand.
   if (!action) {
     if (!expandedMode && target.closest("[data-clickable-body]")) {
-      if (currentState && currentState.mode !== "saving" && currentState.mode !== "hidden") {
+      if (currentState && currentState.mode !== "saving" && currentState.mode !== "hidden" && currentState.mode !== "review") {
         expandPanel(host);
       }
     }
@@ -1597,6 +1854,18 @@ function handlePanelClick(host, event) {
   // Collapsed action buttons
   if (action === "dismiss") {
     cancelAutoDismiss();
+    // Dismissing during review = discard. The session was created moments
+    // ago and the tabs are still open; nothing's lost. Keeping it around in
+    // a "review" limbo would just leave orphan state in storage.
+    if (currentState?.mode === "review") {
+      safeSendMessage({ type: "PANEL_DISCARD_REVIEW", sessionId: currentState.sessionId || "" });
+      if (inPopupContext) {
+        try { window.close(); } catch { /* fallthrough */ }
+        return;
+      }
+      dismissPanel(host);
+      return;
+    }
     if (inPopupContext) {
       // × in the popup means "close this popup window" — no panel state to clear.
       try { window.close(); } catch { /* fallthrough */ }
@@ -1615,6 +1884,44 @@ function handlePanelClick(host, event) {
     cancelAutoDismiss();
     const sessionId = actionEl.dataset.sessionId || "";
     safeSendMessage({ type: "PANEL_OPEN_MANAGER", sessionId });
+    dismissPanel(host);
+    return;
+  }
+
+  // Review-before-closing actions
+  if (action === "toggle-review-item") {
+    // Either the row (<li>) or the button can carry data-action — both fire
+    // this branch. closest() returns the li in either case (it includes
+    // self), and the aria-label always goes on the button so SR users hear
+    // the right state no matter where the click came from.
+    const li = actionEl.closest(".review-item");
+    if (!li) return;
+    const nowRemoved = li.classList.toggle("removed");
+    const btn = li.querySelector(".review-remove");
+    if (btn) btn.setAttribute("aria-label", nowRemoved ? "Close this tab after all" : "Keep this tab open");
+    updateReviewConfirmCount(host);
+    return;
+  }
+  if (action === "confirm-review") {
+    cancelAutoDismiss();
+    const sessionId = actionEl.dataset.sessionId || "";
+    const shadow = host.shadowRoot;
+    const keepOpenSessionTabIds = shadow
+      ? [...shadow.querySelectorAll(".review-item.removed")]
+          .map((el) => el.dataset.sessionTabId)
+          .filter(Boolean)
+      : [];
+    safeSendMessage({ type: "PANEL_CONFIRM_REVIEW", sessionId, keepOpenSessionTabIds });
+    return;
+  }
+  if (action === "cancel-review") {
+    cancelAutoDismiss();
+    const sessionId = actionEl.dataset.sessionId || "";
+    safeSendMessage({ type: "PANEL_DISCARD_REVIEW", sessionId });
+    if (inPopupContext) {
+      try { window.close(); } catch { /* fallthrough */ }
+      return;
+    }
     dismissPanel(host);
     return;
   }
@@ -1907,6 +2214,9 @@ function determineMood() {
   // of re-checking against the panel-local clutterThreshold (which may be
   // stale until loadExpandedData runs).
   if (currentState?.mode === "clutter") return "nervous";
+  // Review mode is "almost cleaned up but waiting on confirmation" — keep
+  // the mascot in the cleaning pose so the visual cue matches "tidy in flight."
+  if (currentState?.mode === "review") return "cleaning";
   // For other states (idle, etc.), infer from totalTabCount.
   const stateCount = Number(currentState?.tabCount);
   const tabs = Number.isFinite(stateCount) ? stateCount

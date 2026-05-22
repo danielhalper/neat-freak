@@ -853,6 +853,60 @@ svg {
   outline: none;
 }
 
+/* Onboarding tidy-defaults step. Two stacked toggle rows. */
+.welcome-tidy-defaults {
+  display: grid;
+  gap: 12px;
+  margin-top: 4px;
+}
+
+.welcome-toggle {
+  align-items: flex-start;
+  background: #fff;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  cursor: pointer;
+  display: flex;
+  gap: 14px;
+  padding: 16px 18px;
+  transition: border-color 120ms ease, box-shadow 120ms ease;
+}
+
+.welcome-toggle:hover {
+  border-color: var(--accent);
+}
+
+.welcome-toggle:focus-within {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px rgba(15, 118, 110, 0.14);
+}
+
+.welcome-toggle input[type="checkbox"] {
+  accent-color: var(--accent);
+  flex: 0 0 auto;
+  height: 18px;
+  margin-top: 2px;
+  width: 18px;
+}
+
+.welcome-toggle-text {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.welcome-toggle-text strong {
+  color: var(--text);
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.welcome-toggle-text small {
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
 .welcome-fine-print {
   color: var(--muted);
   font-size: 12px;

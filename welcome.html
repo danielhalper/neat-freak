@@ -17,7 +17,8 @@
           <li data-step-indicator="1" class="active"><span>1</span><em>Welcome</em></li>
           <li data-step-indicator="2"><span>2</span><em>How it works</em></li>
           <li data-step-indicator="3"><span>3</span><em>Nudge</em></li>
-          <li data-step-indicator="4"><span>4</span><em>AI features</em></li>
+          <li data-step-indicator="4"><span>4</span><em>Tidy</em></li>
+          <li data-step-indicator="5"><span>5</span><em>AI features</em></li>
         </ol>
       </header>
 
@@ -123,8 +124,39 @@
         </div>
       </section>
 
-      <!-- ===== Step 4: Optional AI setup ===== -->
+      <!-- ===== Step 4: Tidy defaults ===== -->
       <section class="welcome-step" data-step="4" hidden>
+        <div class="welcome-section-head">
+          <p class="welcome-eyebrow">DEFAULTS</p>
+          <h2>When you tidy up…</h2>
+          <p class="welcome-lede small">
+            Two quick choices for how Tidy behaves. You can change these any time in settings.
+          </p>
+        </div>
+        <div class="welcome-tidy-defaults">
+          <label class="welcome-toggle">
+            <input type="checkbox" id="welcome-keep-current-tab" checked>
+            <span class="welcome-toggle-text">
+              <strong>Keep the current tab open</strong>
+              <small>The page you're looking at stays put when the others get tucked away.</small>
+            </span>
+          </label>
+          <label class="welcome-toggle">
+            <input type="checkbox" id="welcome-review-before-close">
+            <span class="welcome-toggle-text">
+              <strong>Review before closing</strong>
+              <small>Preview the list and remove anything you want to keep before tabs close.</small>
+            </span>
+          </label>
+        </div>
+        <div class="welcome-actions">
+          <button class="secondary-button" data-action="back" type="button">← Back</button>
+          <button class="primary-button" data-action="next" type="button">Continue →</button>
+        </div>
+      </section>
+
+      <!-- ===== Step 5: Optional AI setup ===== -->
+      <section class="welcome-step" data-step="5" hidden>
         <div class="welcome-section-head">
           <p class="welcome-eyebrow">OPTIONAL · BETA</p>
           <h2>Want AI-smarter tabs?</h2>
