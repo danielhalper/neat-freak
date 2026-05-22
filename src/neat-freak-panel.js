@@ -120,13 +120,13 @@
     if (window.__neatFreakBrandFontLoaded) return;
     if (!isExtensionValid()) return;
     try {
-      const url = chrome.runtime.getURL("assets/fonts/Fraunces-Bold.woff2");
+      const url = chrome.runtime.getURL("assets/fonts/BricolageGrotesque-ExtraBold.woff2");
       const response = await fetch(url);
       if (!response.ok) throw new Error(`status ${response.status}`);
       const buffer = await response.arrayBuffer();
-      const face = new FontFace("Fraunces", buffer, {
+      const face = new FontFace("Bricolage Grotesque", buffer, {
         style: "normal",
-        weight: "700",
+        weight: "800",
         display: "swap"
       });
       await face.load();
@@ -134,7 +134,7 @@
       window.__neatFreakBrandFontLoaded = true;
     } catch (err) {
       // Falls back to the next entry in the font-family chain.
-      console.warn("[Neat Freak] Fraunces load failed:", err?.message || err);
+      console.warn("[Neat Freak] Bricolage Grotesque load failed:", err?.message || err);
     }
   }
 
@@ -267,10 +267,10 @@ function panelMarkup() {
   // refined in the previous clutter-toast.js iteration — cream card, amber top
   // bar, free-standing mascot with teal drop-shadow.
   //
-  // Brand font (Fraunces Bold) is loaded once at panel init via the FontFace
-  // API (see ensureBrandFont). That adds it to document.fonts, which shadow
-  // DOMs automatically inherit. No @font-face here — the URL-based load
-  // would be blocked by font-src CSP on pages like Slides.
+  // Brand font (Bricolage Grotesque ExtraBold) is loaded once at panel init
+  // via the FontFace API (see ensureBrandFont). That adds it to document.
+  // fonts, which shadow DOMs automatically inherit. No @font-face here —
+  // the URL-based load would be blocked by font-src CSP on pages like Slides.
   return `
     <style>
       :host { all: initial; }
@@ -908,10 +908,10 @@ function panelMarkup() {
       }
       .exp-wordmark {
         margin: 0;
-        font-size: 26px;
-        font-weight: 700;
-        font-family: "Fraunces", Georgia, "Times New Roman", serif;
-        letter-spacing: -0.005em;
+        font-size: 24px;
+        font-weight: 800;
+        font-family: "Bricolage Grotesque", "Archivo Black", system-ui, sans-serif;
+        letter-spacing: -0.015em;
         line-height: 1.0;
         color: #1a2421;
       }

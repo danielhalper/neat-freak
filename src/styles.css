@@ -1,12 +1,12 @@
-/* Brand wordmark font — Fraunces Bold. Modern characterful serif, more
-   distinct than the standard hand-drawn marker fonts and considerably more
-   legible at smaller sizes. */
+/* Brand wordmark font — Bricolage Grotesque ExtraBold. Modern blocky
+   grotesque with subtle optical adjustments. Heavy enough to read as a
+   "wordmark" without leaning on hand-drawn aesthetics. */
 @font-face {
-  font-family: "Fraunces";
+  font-family: "Bricolage Grotesque";
   font-style: normal;
-  font-weight: 700;
+  font-weight: 800;
   font-display: swap;
-  src: url("../assets/fonts/Fraunces-Bold.woff2") format("woff2");
+  src: url("../assets/fonts/BricolageGrotesque-ExtraBold.woff2") format("woff2");
 }
 
 :root {
@@ -144,10 +144,10 @@ svg {
 .popup-header h1,
 .app-header h1 {
   color: var(--text);
-  font-family: "Fraunces", Georgia, "Times New Roman", serif;
-  font-size: 30px;
-  font-weight: 700;
-  letter-spacing: -0.005em;
+  font-family: "Bricolage Grotesque", "Archivo Black", system-ui, sans-serif;
+  font-size: 28px;
+  font-weight: 800;
+  letter-spacing: -0.015em;
   line-height: 1.0;
   margin: 0 0 4px;
   text-transform: none;
