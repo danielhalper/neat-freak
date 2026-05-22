@@ -305,6 +305,17 @@ function panelMarkup() {
         box-shadow: none;
         animation: none;
       }
+      /* The default expanded-content caps at 60vh with an inner scrollbar so
+         the floating injected card doesn't take over the page. In the popup
+         that cap hides the Recent list — there's ~270px of content above
+         (brand + tagline + scope row + Tidy CTA + search) and 60vh of a
+         590px popup is only ~354px, leaving ~80px of list visible behind a
+         near-invisible macOS scrollbar. In popup context, drop the cap and
+         let the Chrome popup shell own scrolling. */
+      .card.in-popup .expanded-content {
+        max-height: none;
+        overflow-y: visible;
+      }
       .card::before {
         content: "";
         position: absolute;
