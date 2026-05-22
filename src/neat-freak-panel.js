@@ -956,33 +956,36 @@ function panelMarkup() {
         transition: transform 140ms ease;
       }
       .exp-character-svg:hover { transform: translateY(-1px) scale(1.02); }
+      /* Suppress the default blue focus ring on click. Keyboard focus
+         (focus-visible) still shows a brand-amber outline for accessibility. */
+      .exp-character-svg:focus { outline: none; }
       .exp-character-svg:focus-visible {
         outline: 2px solid #d59b32;
         outline-offset: 2px;
         border-radius: 4px;
       }
 
-      /* Click-the-mascot speech bubble. Hidden by default; data-show="true"
-         flips it on with a small pop. Overlays the wordmark area when shown
-         since the hero is constrained on width — the user clicked the
-         mascot specifically, the bubble is the focus while open. */
+      /* Click-the-mascot speech bubble. Anchored at the mascot's mouth
+         level, right edge sits 6px to the left of the mascot's left edge.
+         Tail on the right points horizontally at his mouth. */
       .mascot-bubble {
         position: absolute;
-        top: 8px;
-        left: 12px;
-        max-width: 210px;
+        top: 42px;            /* ≈ mouth height in the mascot SVG */
+        right: 220px;         /* mascot left edge ≈ 214px from hero right (24+190); add 6px gap */
+        max-width: 118px;     /* fills the available space left of him without overflowing the hero */
         background: #ffffff;
         border: 1px solid #e8dfc7;
         border-radius: 12px;
-        padding: 10px 12px;
-        font-size: 12px;
-        line-height: 1.4;
+        padding: 7px 10px;
+        font-size: 11.5px;
+        font-weight: 500;
+        line-height: 1.35;
         color: #1a2421;
-        box-shadow: 0 8px 22px rgba(15, 118, 110, 0.18);
+        box-shadow: 0 6px 16px rgba(15, 118, 110, 0.16);
         opacity: 0;
-        transform: scale(0.94) translateX(-2px);
-        transform-origin: top right;
-        transition: opacity 180ms ease, transform 200ms cubic-bezier(0.2, 0.9, 0.3, 1.0);
+        transform: scale(0.92) translateX(4px);
+        transform-origin: right center;
+        transition: opacity 160ms ease, transform 180ms cubic-bezier(0.2, 0.9, 0.3, 1.0);
         pointer-events: none;
         z-index: 6;
       }
@@ -991,16 +994,16 @@ function panelMarkup() {
         transform: scale(1) translateX(0);
         pointer-events: auto;
       }
-      /* Tail pointing right toward the mascot. White square rotated 45° so
-         the upper-right two edges form the tail; border matches the bubble
-         for a clean seam. */
+      /* Tail pointing right toward the mouth. White square rotated 45° so
+         only the upper-right two edges show as the tail tip. */
       .mascot-bubble::after {
         content: "";
         position: absolute;
         right: -6px;
-        top: 18px;
-        width: 11px;
-        height: 11px;
+        top: 50%;
+        margin-top: -5px;
+        width: 10px;
+        height: 10px;
         background: #ffffff;
         border-top: 1px solid #e8dfc7;
         border-right: 1px solid #e8dfc7;
@@ -1350,11 +1353,11 @@ function panelMarkup() {
                xmlns="http://www.w3.org/2000/svg" aria-hidden="true"
                data-action="mascot-info" role="button" tabindex="0"
                aria-label="What does Tidy do?"></svg>
-          <!-- Speech bubble shown when the mascot is clicked. Overlays the
-               wordmark area while visible; the tail on the right points at
-               the mascot to make the speaker clear. -->
+          <!-- Speech bubble shown when the mascot is clicked. Sits just to
+               the left of the mascot's mouth; the tail on the right points
+               at him to make the speaker clear. -->
           <div class="mascot-bubble" id="mascot-bubble" role="status" aria-live="polite">
-            I'll group your open tabs by workstream and close them to free up RAM. Open any folder in one click.
+            Save tabs. Frees up RAM.
           </div>
         </header>
 
