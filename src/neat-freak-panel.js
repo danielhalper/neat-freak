@@ -120,13 +120,13 @@
     if (window.__neatFreakBrandFontLoaded) return;
     if (!isExtensionValid()) return;
     try {
-      const url = chrome.runtime.getURL("assets/fonts/BricolageGrotesque-ExtraBold.woff2");
+      const url = chrome.runtime.getURL("assets/fonts/LilitaOne-Regular.woff2");
       const response = await fetch(url);
       if (!response.ok) throw new Error(`status ${response.status}`);
       const buffer = await response.arrayBuffer();
-      const face = new FontFace("Bricolage Grotesque", buffer, {
+      const face = new FontFace("Lilita One", buffer, {
         style: "normal",
-        weight: "800",
+        weight: "400",
         display: "swap"
       });
       await face.load();
@@ -134,7 +134,7 @@
       window.__neatFreakBrandFontLoaded = true;
     } catch (err) {
       // Falls back to the next entry in the font-family chain.
-      console.warn("[Neat Freak] Bricolage Grotesque load failed:", err?.message || err);
+      console.warn("[Neat Freak] Lilita One load failed:", err?.message || err);
     }
   }
 
@@ -267,10 +267,10 @@ function panelMarkup() {
   // refined in the previous clutter-toast.js iteration — cream card, amber top
   // bar, free-standing mascot with teal drop-shadow.
   //
-  // Brand font (Bricolage Grotesque ExtraBold) is loaded once at panel init
-  // via the FontFace API (see ensureBrandFont). That adds it to document.
-  // fonts, which shadow DOMs automatically inherit. No @font-face here —
-  // the URL-based load would be blocked by font-src CSP on pages like Slides.
+  // Brand font (Lilita One) is loaded once at panel init via the FontFace
+  // API (see ensureBrandFont). That adds it to document.fonts, which shadow
+  // DOMs automatically inherit. No @font-face here — the URL-based load
+  // would be blocked by font-src CSP on pages like Slides.
   return `
     <style>
       :host { all: initial; }
@@ -502,18 +502,24 @@ function panelMarkup() {
       /* Wrapper that animates the panel between collapsed (no expanded
          content visible) and expanded (full expanded content shown). Uses
          the grid-template-rows 0fr → 1fr trick which transitions natural
-         content height without needing a JS-measured target. */
+         content height without needing a JS-measured target.
+         overflow: hidden lives HERE on the wrapper (not the child) so the
+         grid clipping works during the animation while the child's own
+         overflow-y: auto remains effective for in-content scrolling. */
       .expand-wrapper {
         display: grid;
         grid-template-rows: 0fr;
         transition: grid-template-rows 260ms cubic-bezier(0.2, 0.9, 0.3, 1.0);
+        overflow: hidden;
       }
       .card.expanded .expand-wrapper {
         grid-template-rows: 1fr;
       }
       .expand-wrapper > .expanded-content {
         min-height: 0;       /* allows the 0fr collapse to actually clip to 0 */
-        overflow: hidden;
+        /* Intentionally no overflow rule here — let .expanded-content's own
+           overflow-y: auto (or .card.in-popup override to visible) drive
+           the Recent list's scroll behavior. */
       }
       /* In popup context the wrapper is always expanded (idle auto-expands),
          and there's no use case for collapsing — skip the transition so the
@@ -908,10 +914,10 @@ function panelMarkup() {
       }
       .exp-wordmark {
         margin: 0;
-        font-size: 24px;
-        font-weight: 800;
-        font-family: "Bricolage Grotesque", "Archivo Black", system-ui, sans-serif;
-        letter-spacing: -0.015em;
+        font-size: 28px;
+        font-weight: 400; /* Lilita One ships at weight 400 — it's already chunky by design */
+        font-family: "Lilita One", "Arial Rounded MT Bold", "Helvetica Rounded", system-ui, sans-serif;
+        letter-spacing: 0;
         line-height: 1.0;
         color: #1a2421;
       }

@@ -1,12 +1,12 @@
-/* Brand wordmark font — Bricolage Grotesque ExtraBold. Modern blocky
-   grotesque with subtle optical adjustments. Heavy enough to read as a
-   "wordmark" without leaning on hand-drawn aesthetics. */
+/* Brand wordmark font — Lilita One. Chunky rounded display font; blocky
+   weight + rounded terminals match the cartoon mascot's friendly shapes
+   without using a hand-drawn aesthetic. */
 @font-face {
-  font-family: "Bricolage Grotesque";
+  font-family: "Lilita One";
   font-style: normal;
-  font-weight: 800;
+  font-weight: 400;
   font-display: swap;
-  src: url("../assets/fonts/BricolageGrotesque-ExtraBold.woff2") format("woff2");
+  src: url("../assets/fonts/LilitaOne-Regular.woff2") format("woff2");
 }
 
 :root {
@@ -144,10 +144,10 @@ svg {
 .popup-header h1,
 .app-header h1 {
   color: var(--text);
-  font-family: "Bricolage Grotesque", "Archivo Black", system-ui, sans-serif;
-  font-size: 28px;
-  font-weight: 800;
-  letter-spacing: -0.015em;
+  font-family: "Lilita One", "Arial Rounded MT Bold", "Helvetica Rounded", system-ui, sans-serif;
+  font-size: 30px;
+  font-weight: 400;
+  letter-spacing: 0;
   line-height: 1.0;
   margin: 0 0 4px;
   text-transform: none;
