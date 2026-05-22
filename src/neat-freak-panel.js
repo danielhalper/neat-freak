@@ -120,11 +120,11 @@
     if (window.__neatFreakBrandFontLoaded) return;
     if (!isExtensionValid()) return;
     try {
-      const url = chrome.runtime.getURL("assets/fonts/Caveat-Bold.woff2");
+      const url = chrome.runtime.getURL("assets/fonts/Fraunces-Bold.woff2");
       const response = await fetch(url);
       if (!response.ok) throw new Error(`status ${response.status}`);
       const buffer = await response.arrayBuffer();
-      const face = new FontFace("Caveat", buffer, {
+      const face = new FontFace("Fraunces", buffer, {
         style: "normal",
         weight: "700",
         display: "swap"
@@ -134,7 +134,7 @@
       window.__neatFreakBrandFontLoaded = true;
     } catch (err) {
       // Falls back to the next entry in the font-family chain.
-      console.warn("[Neat Freak] Caveat load failed:", err?.message || err);
+      console.warn("[Neat Freak] Fraunces load failed:", err?.message || err);
     }
   }
 
@@ -267,7 +267,7 @@ function panelMarkup() {
   // refined in the previous clutter-toast.js iteration — cream card, amber top
   // bar, free-standing mascot with teal drop-shadow.
   //
-  // Brand font (Caveat Bold) is loaded once at panel init via the FontFace
+  // Brand font (Fraunces Bold) is loaded once at panel init via the FontFace
   // API (see ensureBrandFont). That adds it to document.fonts, which shadow
   // DOMs automatically inherit. No @font-face here — the URL-based load
   // would be blocked by font-src CSP on pages like Slides.
@@ -428,10 +428,14 @@ function panelMarkup() {
       }
       .close:focus-visible { outline: 2px solid #f4bd45; outline-offset: 1px; }
 
+      /* Actions row carries the tertiary link on the LEFT and the primary
+         CTA on the RIGHT (clutter + done states). space-between pins each
+         to its side automatically. Saving state has just a progress bar
+         which is width:100% so the layout reads correctly there too. */
       .actions {
         display: flex;
         align-items: center;
-        justify-content: flex-end;
+        justify-content: space-between;
         gap: 8px;
         margin-top: 12px;
         padding-top: 10px;
@@ -519,10 +523,10 @@ function panelMarkup() {
         transition: none;
       }
 
-      /* Small inline hyperlink shown below "Want me to tidy up?" in the
-         clutter state — points users to the threshold setting if they want
-         these nudges to fire more/less often. Subtle so it doesn't compete
-         with the primary Tidy now button. */
+      /* Small hyperlink that sits on the LEFT side of the actions row,
+         opposite the primary CTA. Used in clutter ("Adjust nudges →") and
+         done ("See closed tabs →") states. Muted so it doesn't compete
+         with the primary button on the right. */
       .tertiary-link {
         background: transparent;
         border: 0;
@@ -531,7 +535,6 @@ function panelMarkup() {
         font-family: inherit;
         cursor: pointer;
         padding: 0;
-        margin-top: 2px;
         text-decoration: underline;
         text-underline-offset: 2px;
       }
@@ -905,10 +908,10 @@ function panelMarkup() {
       }
       .exp-wordmark {
         margin: 0;
-        font-size: 28px;
+        font-size: 26px;
         font-weight: 700;
-        font-family: "Caveat", "Caveat Bold", "Bradley Hand", "Segoe Script", cursive;
-        letter-spacing: 0.005em;
+        font-family: "Fraunces", Georgia, "Times New Roman", serif;
+        letter-spacing: -0.005em;
         line-height: 1.0;
         color: #1a2421;
       }
@@ -916,12 +919,12 @@ function panelMarkup() {
         display: inline-block;
         transform: rotate(-1.5deg);
       }
-      /* Darker amber for accent — #f4bd45 (the bright sparkle/active color)
-         fails AA contrast on the cream background. Uses the same darker
-         amber (#b7791f) that styles.css already defines as --amber for the
-         shared .brand-wordmark; clears AA at ~4.7:1 contrast. */
+      /* Midpoint amber between the bright #f4bd45 used elsewhere (sparkle,
+         brand bar, active button) and the safer #b7791f from earlier — sits
+         around 3.4:1 contrast on cream, clears AA's 3:1 threshold for large
+         text (≥18.66px); the wordmark renders at 26px+ everywhere. */
       .exp-wordmark-accent {
-        color: #b7791f;
+        color: #d59b32;
         display: inline-block;
         transform: rotate(1deg) translateY(1px);
       }
@@ -1410,10 +1413,13 @@ function applyState(host, state) {
   if (state.mode === "clutter") {
     const count = Number(state.tabCount) || 0;
     titleEl.textContent = `${count} tabs open`;
-    // Sub line + tertiary link pointing at the threshold setting, so users
-    // who want these nudges to fire more or less often know where to go.
-    subEl.innerHTML = `Want me to tidy up?<br><button class="tertiary-link" data-action="open-options-link" type="button">Adjust nudges →</button>`;
-    actionsEl.innerHTML = `<button class="primary" data-action="tidy" type="button">Tidy now</button>`;
+    subEl.textContent = "Want me to tidy up?";
+    // Tertiary link on the LEFT, primary CTA on the RIGHT — .actions uses
+    // justify-content: space-between to pin them.
+    actionsEl.innerHTML = `
+      <button class="tertiary-link" data-action="open-options-link" type="button">Adjust nudges →</button>
+      <button class="primary" data-action="tidy" type="button">Tidy now</button>
+    `;
     // Only auto-dismiss when collapsed. If the user has explicitly expanded,
     // they're interacting — don't pull the rug out.
     if (!expandedMode) scheduleAutoDismiss(host);
@@ -1446,13 +1452,15 @@ function applyState(host, state) {
       if (state.looseCount) parts.push(`${state.looseCount} loose`);
       if (state.keepCount)  parts.push(`${state.keepCount} kept open`);
       const summary = parts.join(" · ") || "Ready in your saved sessions.";
-      // Tertiary link follows the same structure as the clutter card's
-      // "Adjust nudges →" — sits on a second sub line, expand-panel action
-      // pops the panel open where the just-saved session is the first item
-      // in the Recent list.
-      subEl.innerHTML = `${escapeText(summary)}<br><button class="tertiary-link" data-action="expand-panel" type="button">See closed tabs →</button>`;
+      subEl.textContent = summary;
+      // Tertiary link on the LEFT, primary CTA on the RIGHT — same layout
+      // as the clutter card. expand-panel pops the panel open where the
+      // just-saved session is the first item in the Recent list.
       const sid = String(state.sessionId || "");
-      actionsEl.innerHTML = `<button class="primary" data-action="open-manager" data-session-id="${escapeAttr(sid)}" type="button">Open manager</button>`;
+      actionsEl.innerHTML = `
+        <button class="tertiary-link" data-action="expand-panel" type="button">See closed tabs →</button>
+        <button class="primary" data-action="open-manager" data-session-id="${escapeAttr(sid)}" type="button">Open manager</button>
+      `;
     }
     if (!expandedMode) scheduleAutoDismiss(host);
     // If we entered done while expanded (e.g. user expanded mid-save), refresh

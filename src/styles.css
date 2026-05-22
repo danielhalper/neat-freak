@@ -1,12 +1,12 @@
-/* Brand wordmark font — Caveat Bold. Replaces Permanent Marker (which was
-   overused across the web and degraded under ~16px). Caveat is cleaner at
-   small sizes, has more individual character, still reads handwritten. */
+/* Brand wordmark font — Fraunces Bold. Modern characterful serif, more
+   distinct than the standard hand-drawn marker fonts and considerably more
+   legible at smaller sizes. */
 @font-face {
-  font-family: "Caveat";
+  font-family: "Fraunces";
   font-style: normal;
   font-weight: 700;
   font-display: swap;
-  src: url("../assets/fonts/Caveat-Bold.woff2") format("woff2");
+  src: url("../assets/fonts/Fraunces-Bold.woff2") format("woff2");
 }
 
 :root {
@@ -144,10 +144,10 @@ svg {
 .popup-header h1,
 .app-header h1 {
   color: var(--text);
-  font-family: "Caveat", "Bradley Hand", "Segoe Script", cursive;
-  font-size: 32px;          /* Caveat reads ~15% smaller than Permanent Marker at the same point size, bumped to compensate. */
+  font-family: "Fraunces", Georgia, "Times New Roman", serif;
+  font-size: 30px;
   font-weight: 700;
-  letter-spacing: 0.005em;
+  letter-spacing: -0.005em;
   line-height: 1.0;
   margin: 0 0 4px;
   text-transform: none;
@@ -159,7 +159,11 @@ svg {
 }
 
 .brand-wordmark .brand-word-accent {
-  color: var(--amber);
+  /* Midpoint amber between the bright sparkle/active #f4bd45 and the
+     accessible-text #b7791f. Sits around 3.4:1 contrast on cream which
+     clears WCAG AA for large text (≥18.66px) — the wordmark renders at
+     26px+ everywhere it appears. */
+  color: #d59b32;
   display: inline-block;
   transform: rotate(1deg) translateY(1px);
 }
