@@ -177,12 +177,18 @@
   }
 
   function ensureHost() {
+    // In popup context the host lives inside <body> so the popup window
+    // wraps it (otherwise it sits as a sibling of body and the cream popup
+    // body renders ABOVE the panel — user has to scroll to find the UI).
+    // In page-injected context we attach to document.documentElement so the
+    // host floats above page content regardless of body styling.
+    const parent = inPopupContext ? document.body : document.documentElement;
     let host = document.getElementById(HOST_ID);
     if (!host) {
       host = createPanelHost();
-      document.documentElement.appendChild(host);
-    } else if (!document.documentElement.contains(host)) {
-      document.documentElement.appendChild(host);
+      parent.appendChild(host);
+    } else if (!parent.contains(host)) {
+      parent.appendChild(host);
     }
     return host;
   }
@@ -334,18 +340,29 @@ function panelMarkup() {
       .title { font-size: 14px; font-weight: 600; line-height: 1.25; margin: 0 0 2px; color: #1a2421; }
       .sub { font-size: 13px; color: #4a5651; margin: 0; line-height: 1.4; display: flex; align-items: center; gap: 6px; }
 
-      .progress-dots { display: inline-flex; gap: 4px; }
-      .progress-dots span {
-        width: 4px; height: 4px;
-        border-radius: 50%;
-        background: #4a5651;
-        animation: dot 1.2s ease-in-out infinite;
+      /* Indeterminate sliding progress bar for the saving state. A thin track
+         + a moving fill ribbon that loops left-to-right. Communicates "work
+         in progress" without needing per-step percentages. */
+      .progress-bar {
+        width: 100%;
+        height: 4px;
+        background: rgba(0, 0, 0, 0.08);
+        border-radius: 999px;
+        overflow: hidden;
+        margin-top: 8px;
       }
-      .progress-dots span:nth-child(2) { animation-delay: 0.18s; }
-      .progress-dots span:nth-child(3) { animation-delay: 0.36s; }
-      @keyframes dot {
-        0%, 80%, 100% { opacity: 0.2; }
-        40%           { opacity: 1;   }
+      .progress-bar::before {
+        content: "";
+        display: block;
+        width: 35%;
+        height: 100%;
+        background: linear-gradient(90deg, #f4bd45 0%, #f6cd6d 100%);
+        border-radius: 999px;
+        animation: progress-slide 1.3s cubic-bezier(0.4, 0, 0.2, 1) infinite;
+      }
+      @keyframes progress-slide {
+        0%   { transform: translateX(-100%); }
+        100% { transform: translateX(400%); }
       }
 
       .close {
@@ -1180,8 +1197,10 @@ function applyState(host, state) {
     setMascot(mascotEl, stressedUrl);
     titleEl.textContent = "Tidying your tabs";
     const label = (state.label && String(state.label)) || "Organizing";
-    subEl.innerHTML = `${escapeText(label)}<span class="progress-dots"><span></span><span></span><span></span></span>`;
-    actionsEl.innerHTML = `<button class="primary" disabled type="button">Working…</button>`;
+    subEl.textContent = label;
+    // Indeterminate sliding bar carries the "in progress" signal; the
+    // disabled "Working…" button it replaces was redundant noise.
+    actionsEl.innerHTML = `<div class="progress-bar" role="progressbar" aria-label="Tidying your tabs"></div>`;
     // Saving doesn't auto-dismiss — completion transitions us to done.
     return;
   }
