@@ -44,6 +44,15 @@
   let selectedScope = "smart";
   let lastLoadedSessions = [];
 
+  // Mascot mood inputs. Mood = sleeping (0 tabs) / happy (≤ threshold) /
+  // nervous (> threshold) / cleaning (saving state) / celebrating (done).
+  // totalTabCountValid stays false until loadExpandedData fills it so the
+  // first paint doesn't flash "sleeping" with a stale 0.
+  let totalTabCount = 0;
+  let totalTabCountValid = false;
+  let clutterThreshold = 20;
+  let currentMood = null;
+
   // When the extension is reloaded (chrome://extensions Reload, version
   // bump from install, etc.), this content script becomes orphaned — its
   // chrome.* references throw "Extension context invalidated" on every
@@ -876,6 +885,134 @@ function panelMarkup() {
         pointer-events: none;
         filter: drop-shadow(0 3px 6px rgba(15, 118, 110, 0.16));
       }
+      .exp-character-svg { overflow: visible; }
+
+      /* ===== Mascot animations (ported from NeatFreak.css) =====
+         Mood-driven keyframes covering blink (always), snore (sleeping),
+         clean-bob (happy + cleaning, different speeds), finger taps
+         (cleaning), bounce (celebrating), shake + pupil scan + sweat drip
+         + bang pop + mouth quiver (nervous). All target nf-state-{mood}
+         on the .exp-character-svg root. */
+      .nf-tilt {
+        transform-origin: 100px 155px;
+        transform-box: fill-box;
+      }
+      .nf-body-g {
+        transform-origin: 100px 155px;
+        transform-box: fill-box;
+      }
+      .nf-eyes {
+        transform-origin: 85px 88px;
+        transform-box: fill-box;
+        animation: nf-blink 5.4s steps(1, end) infinite;
+      }
+      @keyframes nf-blink {
+        0%, 94%, 96.5%, 100% { transform: scaleY(1); }
+        95%, 96%             { transform: scaleY(0.05); }
+      }
+
+      /* sleeping */
+      .nf-state-sleeping .nf-body-g { animation: nf-snore 4s ease-in-out infinite; }
+      @keyframes nf-snore {
+        0%, 100% { transform: translateY(0) scale(1, 1); }
+        50%      { transform: translateY(-2px) scale(1.025, 0.97); }
+      }
+      .nf-z { transform-box: fill-box; transform-origin: center; opacity: 0; }
+      .nf-z--1 { animation: nf-zfloat 3s ease-in-out infinite; }
+      .nf-z--2 { animation: nf-zfloat 3s ease-in-out infinite -1s; }
+      .nf-z--3 { animation: nf-zfloat 3s ease-in-out infinite -2s; }
+      @keyframes nf-zfloat {
+        0%   { transform: translate(0, 14px) scale(0.7); opacity: 0; }
+        20%  { opacity: 1; }
+        80%  { opacity: 1; }
+        100% { transform: translate(-8px, -12px) scale(1.05); opacity: 0; }
+      }
+
+      /* happy + cleaning share keyframes, different speed */
+      .nf-state-happy    .nf-body-g { animation: nf-clean-bob 1.6s ease-in-out infinite; }
+      .nf-state-cleaning .nf-body-g { animation: nf-clean-bob 0.9s ease-in-out infinite; }
+      @keyframes nf-clean-bob {
+        0%, 100% { transform: rotate(-0.6deg) translateY(0); }
+        50%      { transform: rotate(0.6deg)  translateY(-1px); }
+      }
+      .nf-state-cleaning .nf-finger {
+        transform-box: fill-box;
+        transform-origin: center bottom;
+        animation: nf-finger-tap 0.5s ease-in-out infinite;
+      }
+      @keyframes nf-finger-tap {
+        0%, 100% { transform: translateY(0); }
+        50%      { transform: translateY(-4px); }
+      }
+      .nf-state-cleaning .nf-finger--left-0  { animation-delay: 0s; }
+      .nf-state-cleaning .nf-finger--left-1  { animation-delay: -0.32s; }
+      .nf-state-cleaning .nf-finger--left-2  { animation-delay: -0.12s; }
+      .nf-state-cleaning .nf-finger--left-3  { animation-delay: -0.42s; }
+      .nf-state-cleaning .nf-finger--right-0 { animation-delay: -0.22s; }
+      .nf-state-cleaning .nf-finger--right-1 { animation-delay: -0.05s; }
+      .nf-state-cleaning .nf-finger--right-2 { animation-delay: -0.38s; }
+      .nf-state-cleaning .nf-finger--right-3 { animation-delay: -0.18s; }
+
+      /* celebrating */
+      .nf-state-celebrating .nf-body-g {
+        animation: nf-bounce 1.05s cubic-bezier(.5, 0, .5, 1) infinite;
+      }
+      @keyframes nf-bounce {
+        0%, 100% { transform: translateY(0)    scale(1, 1); }
+        40%      { transform: translateY(0)    scale(1.05, 0.92); }
+        65%      { transform: translateY(-7px) scale(0.96, 1.05); }
+        85%      { transform: translateY(-2px) scale(1, 1); }
+      }
+
+      /* nervous */
+      .nf-state-nervous .nf-body-g { animation: nf-shake 0.22s ease-in-out infinite; }
+      .nf-state-nervous .nf-pupils { animation: nf-pupil-scan 1.6s ease-in-out infinite; }
+      @keyframes nf-shake {
+        0%, 100% { transform: translate(0, 0) rotate(0deg); }
+        25%      { transform: translate(-1.2px, 0.5px) rotate(-0.6deg); }
+        75%      { transform: translate(1.2px, -0.4px) rotate(0.6deg); }
+      }
+      @keyframes nf-pupil-scan {
+        0%   { transform: translate(-3.5px, 2px); }
+        50%  { transform: translate(0px,   -4px); }
+        100% { transform: translate(-3.5px, 2px); }
+      }
+      .nf-drop { transform-origin: center top; transform-box: fill-box; opacity: 0; }
+      .nf-drop--1 { animation: nf-drip-side 2.6s ease-in infinite; }
+      .nf-drop--2 { animation: nf-drip-side 2.6s ease-in infinite -1.3s; }
+      @keyframes nf-drip-side {
+        0%   { transform: translateY(0) scale(0); opacity: 0; }
+        18%  { transform: translateY(0) scale(1); opacity: 1; }
+        35%  { transform: translateY(0) scale(1); opacity: 1; }
+        85%  { transform: translateY(38px) scale(1); opacity: 1; }
+        100% { transform: translateY(50px) scale(0.7); opacity: 0; }
+      }
+      .nf-bang {
+        transform-origin: 60px 22px;
+        transform-box: fill-box;
+        animation: nf-bang-pop 0.7s ease infinite;
+      }
+      @keyframes nf-bang-pop {
+        0%, 100% { transform: scale(1) rotate(-6deg); }
+        50%      { transform: scale(1.18) rotate(6deg); }
+      }
+      .nf-state-nervous .nf-mouth {
+        transform-box: fill-box;
+        transform-origin: center;
+        animation: nf-mouth-quiver 0.5s ease-in-out infinite;
+      }
+      @keyframes nf-mouth-quiver {
+        0%, 100% { transform: translate(0, 0); }
+        50%      { transform: translate(0.5px, 0.5px); }
+      }
+
+      @media (prefers-reduced-motion: reduce) {
+        .nf-body-g, .nf-pupils, .nf-drop, .nf-bang,
+        .nf-z, .nf-eyes, .nf-mouth,
+        .nf-state-cleaning .nf-finger {
+          animation: none !important;
+        }
+      }
 
       .exp-inner-card {
         background: #fefefc;
@@ -1070,61 +1207,10 @@ function panelMarkup() {
              surround him. -->
         <header class="exp-hero">
           <h1 class="exp-wordmark"><span>Neat</span> <span class="exp-wordmark-accent">Freak</span></h1>
-          <svg class="exp-character-svg" viewBox="0 0 320 200" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
-            <!-- Decorative hollow circles, behind everything -->
-            <g fill="none" stroke="#9ccfc3" stroke-width="2" opacity="0.75">
-              <circle cx="20" cy="92" r="6"/>
-              <circle cx="302" cy="84" r="5"/>
-              <circle cx="304" cy="156" r="4.5"/>
-              <circle cx="48" cy="172" r="4"/>
-            </g>
-            <!-- 4-point sparkle stars in muted mint so they sit on the
-                 tinted frame as ambient decoration (mock doesn't show
-                 amber sparkles — the amber lives in "Freak" only). -->
-            <g fill="#7eb8ab" opacity="0.85">
-              <path d="M 38 54 Q 38.9 58.1 43 59 Q 38.9 59.9 38 64 Q 37.1 59.9 33 59 Q 37.1 58.1 38 54 Z"/>
-              <path d="M 284 48 Q 284.72 51.28 288 52 Q 284.72 52.72 284 56 Q 283.28 52.72 280 52 Q 283.28 51.28 284 48 Z"/>
-              <path d="M 292 124 Q 292.54 126.46 295 127 Q 292.54 127.54 292 130 Q 291.46 127.54 289 127 Q 291.46 126.46 292 124 Z"/>
-              <path d="M 24 140 Q 24.72 143.28 28 144 Q 24.72 144.72 24 148 Q 23.28 144.72 20 144 Q 23.28 143.28 24 140 Z"/>
-            </g>
-            <!-- Mascot: ported "happy" state from NeatFreak.jsx (hair
-                 omitted), translated into the 320×200 viewBox. Original
-                 character viewBox is 0 0 200 155 — shifted (60, 30) so
-                 the decorations live around the edges. -->
-            <g transform="translate(60 30)">
-              <ellipse cx="100" cy="154" rx="62" ry="3" fill="#093f3b" opacity="0.1"/>
-              <path d="M 16 155 C 12 105, 22 62, 56 50 C 88 38, 130 42, 162 56 C 184 72, 186 120, 182 155 Z" fill="#1f9b8f"/>
-              <g fill="#0f766e" opacity="0.55">
-                <ellipse cx="58" cy="122" rx="6" ry="4"/>
-                <ellipse cx="36" cy="100" rx="4.5" ry="3.2"/>
-                <ellipse cx="148" cy="130" rx="7" ry="4.5"/>
-                <ellipse cx="170" cy="108" rx="4.5" ry="3"/>
-                <ellipse cx="96" cy="140" rx="5" ry="3.2"/>
-                <ellipse cx="128" cy="96" rx="3.5" ry="2.6"/>
-              </g>
-              <path d="M 56 64 Q 70 46 92 42" stroke="#ffffff" stroke-width="6" stroke-linecap="round" opacity="0.13" fill="none"/>
-              <ellipse cx="60" cy="88" rx="10" ry="11" fill="#f7f8f6"/>
-              <ellipse cx="110" cy="88" rx="8" ry="10" fill="#f7f8f6"/>
-              <g transform="translate(-2 -1)">
-                <circle cx="58" cy="84" r="4" fill="#093f3b"/>
-                <circle cx="108" cy="84" r="3.4" fill="#093f3b"/>
-                <circle cx="56.6" cy="82.6" r="1.3" fill="#f7f8f6"/>
-                <circle cx="106.8" cy="82.8" r="1.1" fill="#f7f8f6"/>
-              </g>
-              <path d="M 64 114 Q 80 126 96 114" fill="none" stroke="#093f3b" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round"/>
-              <!-- Hands gripping the ledge — 4 rounded rects each -->
-              <g fill="#3aaca0">
-                <rect x="15.5" y="140" width="9" height="21" rx="4.5"/>
-                <rect x="24.5" y="138" width="9" height="23" rx="4.5"/>
-                <rect x="33.5" y="138" width="9" height="23" rx="4.5"/>
-                <rect x="42.5" y="139" width="9" height="22" rx="4.5"/>
-                <rect x="150.5" y="139" width="9" height="22" rx="4.5"/>
-                <rect x="159.5" y="138" width="9" height="23" rx="4.5"/>
-                <rect x="168.5" y="138" width="9" height="23" rx="4.5"/>
-                <rect x="177.5" y="140" width="9" height="21" rx="4.5"/>
-              </g>
-            </g>
-          </svg>
+          <!-- Mascot SVG is rendered by JS (updateMascot) on first expand so
+               the face + decorations can switch between mood states. -->
+          <svg class="exp-character-svg nf-state-happy" viewBox="0 0 320 200"
+               xmlns="http://www.w3.org/2000/svg" aria-hidden="true"></svg>
         </header>
 
         <div class="exp-inner-card">
@@ -1221,6 +1307,11 @@ function applyState(host, state) {
   if (state.mode === "idle" && !expandedMode) {
     expandPanel(host);
   }
+
+  // Push the mascot to the right mood whenever state transitions. Cleaning
+  // and celebrating come from state.mode; happy/sleeping/nervous come from
+  // totalTabCount vs clutterThreshold (refreshed by loadExpandedData).
+  if (expandedMode) updateMascot(host);
 
   // Show the eyebrow only when expanded — it identifies the panel as Neat Freak
   // since the card is integrated into the page rather than chrome-managed.
@@ -1437,6 +1528,10 @@ function expandPanel(host) {
   shadow.getElementById("expanded-content").hidden = false;
   const eyebrowEl = shadow.getElementById("eyebrow");
   if (eyebrowEl) eyebrowEl.hidden = false;
+  // Paint an initial mascot now using whatever mood we can infer from
+  // currentState (cleaning / celebrating still apply pre-data-load).
+  // loadExpandedData will repaint once it has totalTabCount + threshold.
+  updateMascot(host);
   bindOutsideClickHandler(host);
   loadExpandedData(host);
 }
@@ -1508,11 +1603,15 @@ async function loadExpandedData(host) {
     if (response.settings?.defaultScope) {
       selectedScope = response.settings.defaultScope;
     }
+    totalTabCount = Number(response.totalTabCount) || 0;
+    totalTabCountValid = true;
+    clutterThreshold = Number(response.settings?.clutterThreshold) || clutterThreshold;
     renderScopePicker(host);
     renderPreview(host, response.preview);
     renderMoreOptions(host, response.settings);
     renderSessions(host, response.sessions || []);
     bindSearchInput(host);
+    updateMascot(host);
   } catch (err) {
     console.warn("[Neat Freak] Load expanded data failed:", err?.message || err);
   }
@@ -1579,6 +1678,207 @@ async function runSearch(host, query, mode) {
     if (hint) hint.textContent = "Search failed.";
     console.warn("[Neat Freak] Search failed:", err?.message || err);
   }
+}
+
+// ===== Mascot mood + render =====
+
+function determineMood() {
+  if (currentState?.mode === "saving") return "cleaning";
+  if (currentState?.mode === "done") return "celebrating";
+  // Prefer state.tabCount when present (clutter mode pushes it on every
+  // update); fall back to the freshly loaded totalTabCount; otherwise
+  // default to happy until we have a real number.
+  const stateCount = Number(currentState?.tabCount);
+  const tabs = Number.isFinite(stateCount) ? stateCount
+             : totalTabCountValid ? totalTabCount
+             : null;
+  if (tabs === null) return "happy";
+  if (tabs === 0) return "sleeping";
+  if (tabs > clutterThreshold) return "nervous";
+  return "happy";
+}
+
+function updateMascot(host) {
+  const shadow = host?.shadowRoot;
+  if (!shadow) return;
+  const svg = shadow.querySelector(".exp-character-svg");
+  if (!svg) return;
+  const mood = determineMood();
+  if (mood === currentMood && svg.innerHTML) return;
+  currentMood = mood;
+  svg.classList.remove(
+    "nf-state-sleeping", "nf-state-happy", "nf-state-cleaning",
+    "nf-state-celebrating", "nf-state-nervous"
+  );
+  svg.classList.add(`nf-state-${mood}`);
+  svg.innerHTML = renderMascotInner(mood);
+}
+
+// Builds the mascot SVG contents (everything inside <svg>) for the given
+// mood. Body, hands, ambient decorations are always rendered; face details
+// (brows, eye style, mouth) and state-specific decorations (Zzz, sweat, !)
+// vary by mood. CSS animation rules pick up `.nf-state-<mood>` on the SVG.
+function renderMascotInner(mood) {
+  const sleeping    = mood === "sleeping";
+  const cleaning    = mood === "cleaning";
+  const celebrating = mood === "celebrating";
+  const nervous     = mood === "nervous";
+
+  const browPath = {
+    sleeping:    [null, null],
+    happy:       [null, null],
+    cleaning:    ["M 50 66 Q 60 62 70 68", "M 100 68 Q 110 62 120 66"],
+    nervous:     ["M 46 60 Q 56 50 68 62", "M 100 62 Q 110 50 120 60"],
+    celebrating: ["M 48 62 Q 56 58 66 62", "M 102 62 Q 110 58 118 62"]
+  }[mood] || [null, null];
+  const [browL, browR] = browPath;
+
+  const lookOffset = {
+    sleeping:    { x: 0,  y: 0  },
+    happy:       { x: -2, y: -1 },
+    cleaning:    { x: -2, y: 2  },
+    nervous:     { x: -2, y: 2  },
+    celebrating: { x: -1, y: 0  }
+  }[mood] || { x: 0, y: 0 };
+
+  const mouth = {
+    sleeping:    { d: "M 74 118 Q 80 124 86 118 Q 80 122 74 118 Z",         fill: "#093f3b" },
+    happy:       { d: "M 64 114 Q 80 126 96 114",                           fill: "none"    },
+    cleaning:    { d: "M 76 117 Q 80 122 84 117 Q 80 120 76 117 Z",         fill: "#093f3b" },
+    nervous:     { d: "M 68 118 Q 74 112 80 118 T 92 118",                  fill: "none"    },
+    celebrating: { d: "M 58 110 Q 80 134 102 110 Q 80 124 58 110 Z",        fill: "#093f3b" }
+  }[mood] || { d: "M 64 114 Q 80 126 96 114", fill: "none" };
+
+  const eyesClosed = sleeping;
+  const eyesCurved = celebrating;
+
+  const browsMarkup = (browL || browR) ? `
+    <g class="nf-brows" stroke="#093f3b" stroke-width="4.5" stroke-linecap="round" fill="none">
+      ${browL ? `<path d="${browL}"/>` : ""}
+      ${browR ? `<path d="${browR}"/>` : ""}
+    </g>` : "";
+
+  const eyesMarkup = (!eyesClosed && !eyesCurved) ? `
+    <g class="nf-eyes">
+      <ellipse cx="60"  cy="88" rx="10" ry="11" fill="#f7f8f6"/>
+      <ellipse cx="110" cy="88" rx="8"  ry="10" fill="#f7f8f6"/>
+      <g class="nf-pupils" transform="translate(${lookOffset.x} ${lookOffset.y})">
+        <circle cx="58"    cy="84"   r="4"   fill="#093f3b"/>
+        <circle cx="108"   cy="84"   r="3.4" fill="#093f3b"/>
+        <circle cx="56.6"  cy="82.6" r="1.3" fill="#f7f8f6"/>
+        <circle cx="106.8" cy="82.8" r="1.1" fill="#f7f8f6"/>
+      </g>
+    </g>` : `
+    <g class="nf-eyes nf-eyes-closed" stroke="#093f3b" stroke-width="4" fill="none" stroke-linecap="round">
+      ${eyesCurved
+        ? `<path d="M 50 88 Q 60 78 70 88"/><path d="M 100 88 Q 110 80 120 88"/>`
+        : `<path d="M 50 88 Q 60 94 70 88"/><path d="M 102 88 Q 110 93 118 88"/>`}
+    </g>`;
+
+  const blushMarkup = celebrating ? `
+    <g class="nf-blush" fill="#f4bd45" opacity="0.55">
+      <ellipse cx="42"  cy="108" rx="5" ry="3"/>
+      <ellipse cx="118" cy="108" rx="5" ry="3"/>
+    </g>` : "";
+
+  const zzzMarkup = sleeping ? `
+    <g class="nf-zzz" fill="none" stroke="#093f3b" stroke-width="3" stroke-linejoin="round" stroke-linecap="round" transform="translate(60 30)">
+      <path class="nf-z nf-z--1" d="M 150 60 h 9 l -9 11 h 9"/>
+      <path class="nf-z nf-z--2" d="M 164 35 h 7 l -7 8 h 7"/>
+      <path class="nf-z nf-z--3" d="M 174 15 h 5 l -5 6 h 5"/>
+    </g>` : "";
+
+  const sweatMarkup = nervous ? `
+    <g class="nf-sweat" transform="translate(60 30)">
+      ${nfDropMarkup(20,  70, 0.8, "nf-drop nf-drop--1")}
+      ${nfDropMarkup(178, 75, 0.8, "nf-drop nf-drop--2")}
+    </g>
+    <g class="nf-bang" transform="translate(60 30)">
+      <text x="60" y="22" text-anchor="middle" font-family="ui-sans-serif, system-ui"
+            font-weight="900" font-size="26" fill="#f4bd45"
+            stroke="#093f3b" stroke-width="1.5" paint-order="stroke">!</text>
+    </g>` : "";
+
+  // Hand finger rects. The class names are what nf-finger-tap targets in
+  // the cleaning state; rect coords come straight from NeatFreak.jsx NFHand.
+  const fingerL = [
+    { x: 15.5, y: 140, h: 21 },
+    { x: 24.5, y: 138, h: 23 },
+    { x: 33.5, y: 138, h: 23 },
+    { x: 42.5, y: 139, h: 22 }
+  ];
+  const fingerR = [
+    { x: 150.5, y: 139, h: 22 },
+    { x: 159.5, y: 138, h: 23 },
+    { x: 168.5, y: 138, h: 23 },
+    { x: 177.5, y: 140, h: 21 }
+  ];
+  const fingerRectsL = fingerL.map((f, i) =>
+    `<rect class="nf-finger nf-finger--left-${i}" x="${f.x}" y="${f.y}" width="9" height="${f.h}" rx="4.5" fill="#3aaca0"/>`
+  ).join("");
+  const fingerRectsR = fingerR.map((f, i) =>
+    `<rect class="nf-finger nf-finger--right-${i}" x="${f.x}" y="${f.y}" width="9" height="${f.h}" rx="4.5" fill="#3aaca0"/>`
+  ).join("");
+
+  return `
+    <!-- Ambient mint sparkles + hollow circles, always present per the mock -->
+    <g fill="none" stroke="#9ccfc3" stroke-width="2" opacity="0.75">
+      <circle cx="20"  cy="92"  r="6"/>
+      <circle cx="302" cy="84"  r="5"/>
+      <circle cx="304" cy="156" r="4.5"/>
+      <circle cx="48"  cy="172" r="4"/>
+    </g>
+    <g fill="#7eb8ab" opacity="0.85">
+      <path d="M 38 54 Q 38.9 58.1 43 59 Q 38.9 59.9 38 64 Q 37.1 59.9 33 59 Q 37.1 58.1 38 54 Z"/>
+      <path d="M 284 48 Q 284.72 51.28 288 52 Q 284.72 52.72 284 56 Q 283.28 52.72 280 52 Q 283.28 51.28 284 48 Z"/>
+      <path d="M 292 124 Q 292.54 126.46 295 127 Q 292.54 127.54 292 130 Q 291.46 127.54 289 127 Q 291.46 126.46 292 124 Z"/>
+      <path d="M 24 140 Q 24.72 143.28 28 144 Q 24.72 144.72 24 148 Q 23.28 144.72 20 144 Q 23.28 143.28 24 140 Z"/>
+    </g>
+
+    ${zzzMarkup}
+
+    <ellipse cx="160" cy="184" rx="62" ry="3" fill="#093f3b" opacity="0.1"/>
+
+    <g class="nf-tilt" transform="translate(60 30)">
+      <g class="nf-body-g">
+        <path d="M 16 155 C 12 105, 22 62, 56 50 C 88 38, 130 42, 162 56 C 184 72, 186 120, 182 155 Z" fill="#1f9b8f"/>
+        <g fill="#0f766e" opacity="0.55">
+          <ellipse cx="58"  cy="122" rx="6"   ry="4"/>
+          <ellipse cx="36"  cy="100" rx="4.5" ry="3.2"/>
+          <ellipse cx="148" cy="130" rx="7"   ry="4.5"/>
+          <ellipse cx="170" cy="108" rx="4.5" ry="3"/>
+          <ellipse cx="96"  cy="140" rx="5"   ry="3.2"/>
+          <ellipse cx="128" cy="96"  rx="3.5" ry="2.6"/>
+        </g>
+        <path d="M 56 64 Q 70 46 92 42" stroke="#ffffff" stroke-width="6" stroke-linecap="round" opacity="0.13" fill="none"/>
+        <g class="nf-face">
+          ${browsMarkup}
+          ${eyesMarkup}
+          <path class="nf-mouth" d="${mouth.d}" fill="${mouth.fill}" stroke="#093f3b" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round"/>
+          ${blushMarkup}
+        </g>
+      </g>
+    </g>
+
+    <g class="nf-hands" transform="translate(60 30)">
+      <g class="nf-hand nf-hand--left">${fingerRectsL}</g>
+      <g class="nf-hand nf-hand--right">${fingerRectsR}</g>
+    </g>
+
+    ${sweatMarkup}
+  `;
+}
+
+// Sweat-drop teardrop path matching JSX's NFDrop. Drawn at cx,cy with optional scale.
+function nfDropMarkup(cx, cy, scale, className) {
+  const w = 6 * scale;
+  const h = 13 * scale;
+  const d = `M ${cx} ${cy} C ${cx - w * 0.9} ${cy + h * 0.45}, ${cx - w} ${cy + h}, ${cx} ${cy + h} C ${cx + w} ${cy + h}, ${cx + w * 0.9} ${cy + h * 0.45}, ${cx} ${cy} Z`;
+  return `
+    <g class="${className}">
+      <path d="${d}" fill="#a3d9ff" stroke="#093f3b" stroke-width="1.6" stroke-linejoin="round"/>
+      <ellipse cx="${cx - w * 0.35}" cy="${cy + h * 0.65}" rx="${w * 0.22}" ry="${h * 0.18}" fill="#f7f8f6" opacity="0.75"/>
+    </g>`;
 }
 
 function renderScopePicker(host) {

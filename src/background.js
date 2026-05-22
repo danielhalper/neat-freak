@@ -147,7 +147,15 @@ async function getPopupState() {
     keepCurrentTab: settings.defaultKeepCurrentTab,
     scope: settings.defaultScope
   });
-  return { preview, sessions: sessions.slice(0, 3), settings };
+  // totalTabCount is what drives the mascot mood — preview.count is scoped
+  // (e.g. "Smart" might pick 7 of 50), so it can't tell us if the user is
+  // overall over their clutter budget.
+  let totalTabCount = 0;
+  try {
+    const allTabs = await queryTabs({});
+    totalTabCount = allTabs.length;
+  } catch { /* best-effort */ }
+  return { preview, sessions: sessions.slice(0, 3), settings, totalTabCount };
 }
 
 async function previewTabs(options) {
