@@ -826,15 +826,16 @@ function panelMarkup() {
 
       /* ========== Expanded view: hero + inner card layout ========== */
 
-      /* When expanded, the outer .card becomes a tinted frame holding a
-         hero (mascot + wordmark) on top of a white inner card. */
+      /* When expanded, the outer .card gets a faint teal-cream tint so the
+         inner card (which keeps the panel's cream) reads as a distinct
+         surface — the difference should be a tonal nudge, not a contrast
+         jump. The inner card sits ~3% lighter than the outer frame. */
       .card.expanded {
-        background: #e8f3ef;
+        background: #f1f5f2;
         padding: 0;
-        border-color: #cbe1d9;
       }
       .card.expanded::before { display: none; }
-      .card.expanded.in-popup { background: #e8f3ef; }
+      .card.expanded.in-popup { background: #f1f5f2; }
 
       .exp-hero {
         position: relative;
@@ -874,7 +875,7 @@ function panelMarkup() {
       }
 
       .exp-inner-card {
-        background: #ffffff;
+        background: #fdfcf8;
         border-radius: 12px;
         margin: 0 12px 12px;
         padding: 16px 14px 14px;
@@ -883,7 +884,7 @@ function panelMarkup() {
         gap: 12px;
         position: relative;
         z-index: 1;
-        box-shadow: 0 1px 2px rgba(15, 118, 110, 0.06);
+        box-shadow: 0 1px 2px rgba(15, 118, 110, 0.05);
       }
 
       .scope-label {
