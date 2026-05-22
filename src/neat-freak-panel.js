@@ -496,22 +496,13 @@ function panelMarkup() {
         color: #63706b;
         border: 0;
         border-radius: 999px;
-        padding: 0 12px;
+        padding: 0 14px;
         height: 28px;            /* container's 2px padding × 2 + 28 = 32px total */
         font-size: 12px;
         font-weight: 650;
         font-family: inherit;
         white-space: nowrap;
-        display: inline-flex;
-        align-items: center;
-        gap: 5px;
         transition: background 120ms ease, color 120ms ease;
-      }
-      .scope-button svg {
-        width: 12px;
-        height: 12px;
-        flex-shrink: 0;
-        display: block;
       }
       .scope-button:hover { color: #17201d; }
       .scope-button.active {
@@ -1893,15 +1884,10 @@ function renderScopePicker(host) {
   const shadow = host.shadowRoot;
   const picker = shadow.getElementById("scope-picker");
   if (!picker) return;
-  // Inline SVGs (sparkle / windows / monitor) — kept tiny and currentColor
-  // so they pick up the active/inactive button text color.
-  const smartIcon = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3l1.6 4.4L18 9l-4.4 1.6L12 15l-1.6-4.4L6 9l4.4-1.6L12 3z"/><path d="M19 14l.7 2 2 .7-2 .7-.7 2-.7-2-2-.7 2-.7.7-2z"/></svg>`;
-  const allWindowsIcon = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="5" width="14" height="11" rx="1.6"/><path d="M7 9h6"/><rect x="7" y="9" width="14" height="10" rx="1.6" fill="#ffffff"/><path d="M11 13h6"/></svg>`;
-  const currentIcon = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="13" rx="2"/><path d="M8 21h8"/><path d="M12 17v4"/></svg>`;
   picker.innerHTML = `
-    <button class="scope-button${selectedScope === "smart" ? " active" : ""}" data-action="scope" data-scope-value="smart" type="button">${smartIcon}<span>Smart</span></button>
-    <button class="scope-button${selectedScope === "allWindows" ? " active" : ""}" data-action="scope" data-scope-value="allWindows" type="button">${allWindowsIcon}<span>All windows</span></button>
-    <button class="scope-button${selectedScope === "currentWindow" ? " active" : ""}" data-action="scope" data-scope-value="currentWindow" type="button">${currentIcon}<span>Current</span></button>
+    <button class="scope-button${selectedScope === "smart" ? " active" : ""}" data-action="scope" data-scope-value="smart" type="button">Smart</button>
+    <button class="scope-button${selectedScope === "allWindows" ? " active" : ""}" data-action="scope" data-scope-value="allWindows" type="button">All windows</button>
+    <button class="scope-button${selectedScope === "currentWindow" ? " active" : ""}" data-action="scope" data-scope-value="currentWindow" type="button">Current</button>
   `;
 }
 
