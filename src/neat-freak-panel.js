@@ -227,6 +227,9 @@ function createPanelHost() {
   shadow.innerHTML = panelMarkup();
   shadow.addEventListener("click", (event) => handlePanelClick(host, event));
   shadow.addEventListener("change", (event) => handlePanelChange(host, event));
+  // Paint an initial mascot (defaults to happy until state arrives) so the
+  // collapsed view never flashes empty.
+  updateMascot(host);
   return host;
 }
 
@@ -307,42 +310,22 @@ function panelMarkup() {
         from { transform: translateX(0);     opacity: 1; }
         to   { transform: translateX(380px); opacity: 0; }
       }
-      @keyframes mascot-tilt {
-        0%, 100% { transform: rotate(-3deg); }
-        50%      { transform: rotate(3deg); }
-      }
-      @keyframes mascot-organize {
-        0%   { transform: rotate(-6deg) translateY(0); }
-        25%  { transform: rotate(4deg)  translateY(-1px); }
-        50%  { transform: rotate(-2deg) translateY(0); }
-        75%  { transform: rotate(6deg)  translateY(-1px); }
-        100% { transform: rotate(-6deg) translateY(0); }
-      }
-      @keyframes mascot-settle {
-        0%   { transform: scale(0.92); }
-        60%  { transform: scale(1.05); }
-        100% { transform: scale(1); }
-      }
       .card.leaving { animation: slideout 0.2s ease-in forwards; }
 
       .row { display: flex; gap: 14px; align-items: flex-start; }
 
+      /* Collapsed-view mascot: same mood-driven SVG as the expanded hero,
+         just cropped to the character's bounding box (viewBox 60 30 200 155)
+         and rendered at portrait size. CSS animations on inner .nf-body-g /
+         .nf-pupils / .nf-finger fire automatically via the .nf-state-{mood}
+         class on this element. */
       .mascot {
-        width: 60px;
-        height: 60px;
+        width: 72px;
+        height: auto;
         flex-shrink: 0;
         margin-top: 2px;
+        overflow: visible;
         filter: drop-shadow(0 2px 4px rgba(15, 118, 110, 0.18));
-        transform-origin: 50% 90%;
-      }
-      .card.state-clutter .mascot {
-        animation: mascot-tilt 2.4s ease-in-out 0.3s 2;
-      }
-      .card.state-saving .mascot {
-        animation: mascot-organize 1.05s ease-in-out infinite;
-      }
-      .card.state-done .mascot {
-        animation: mascot-settle 0.4s ease-out;
       }
 
       .body { flex: 1; min-width: 0; padding-top: 4px; }
@@ -1188,7 +1171,11 @@ function panelMarkup() {
         </svg>
       </button>
       <div class="row" data-clickable-body="true">
-        <img class="mascot" id="mascot" src="" alt="" aria-hidden="true">
+        <!-- Mood-driven mascot; viewBox is cropped to the character's body
+             rectangle so the ambient sparkles/circles (which live in the
+             expanded view's 0..320 area) are clipped out for the portrait. -->
+        <svg class="mascot nf-state-happy" id="mascot" viewBox="60 30 200 155"
+             xmlns="http://www.w3.org/2000/svg" aria-hidden="true"></svg>
         <div class="body">
           <p class="eyebrow" id="eyebrow" hidden>NEAT FREAK</p>
           <p class="title" id="title">Loading…</p>
@@ -1311,7 +1298,9 @@ function applyState(host, state) {
   // Push the mascot to the right mood whenever state transitions. Cleaning
   // and celebrating come from state.mode; happy/sleeping/nervous come from
   // totalTabCount vs clutterThreshold (refreshed by loadExpandedData).
-  if (expandedMode) updateMascot(host);
+  // Updated for both surfaces — collapsed portrait and expanded hero share
+  // the same mood, so this fires regardless of expandedMode.
+  updateMascot(host);
 
   // Show the eyebrow only when expanded — it identifies the panel as Neat Freak
   // since the card is integrated into the page rather than chrome-managed.
@@ -1320,18 +1309,13 @@ function applyState(host, state) {
 
   const titleEl = shadow.getElementById("title");
   const subEl = shadow.getElementById("sub");
-  const mascotEl = shadow.getElementById("mascot");
   const actionsEl = shadow.getElementById("actions");
-
-  const calmUrl = chrome.runtime.getURL("assets/mascot-calm.svg");
-  const stressedUrl = chrome.runtime.getURL("assets/mascot-stressed-128.png");
 
   cancelAutoDismiss();
 
   if (state.mode === "idle") {
     // User-opened, no triggering event. Calm mascot, neutral copy, no action
     // button — the user is here for the expanded UI, not the collapsed pill.
-    setMascot(mascotEl, calmUrl);
     titleEl.textContent = "Neat Freak";
     subEl.textContent = "Ready when you are.";
     actionsEl.innerHTML = "";
@@ -1340,7 +1324,6 @@ function applyState(host, state) {
   }
 
   if (state.mode === "clutter") {
-    setMascot(mascotEl, stressedUrl);
     const count = Number(state.tabCount) || 0;
     titleEl.textContent = `${count} tabs open`;
     subEl.textContent = "Want me to tidy up?";
@@ -1352,7 +1335,6 @@ function applyState(host, state) {
   }
 
   if (state.mode === "saving") {
-    setMascot(mascotEl, stressedUrl);
     titleEl.textContent = "Tidying your tabs";
     const label = (state.label && String(state.label)) || "Organizing";
     subEl.textContent = label;
@@ -1364,7 +1346,6 @@ function applyState(host, state) {
   }
 
   if (state.mode === "done") {
-    setMascot(mascotEl, calmUrl);
     const tabCount = Number(state.tabCount) || 0;
     if (tabCount === 0) {
       // "Nothing to tidy" path — user clicked Tidy when there were no
@@ -1388,10 +1369,6 @@ function applyState(host, state) {
     if (expandedMode && tabCount > 0) loadExpandedData(host);
     return;
   }
-}
-
-function setMascot(imgEl, url) {
-  if (imgEl.src !== url) imgEl.src = url;
 }
 
 function handlePanelClick(host, event) {
@@ -1597,7 +1574,6 @@ function unbindOutsideClickHandler() {
 
 async function loadExpandedData(host) {
   try {
-    // Brand mascot is now an inline SVG (see panelMarkup); no img src to set.
     const response = await safeSendMessageAwait({ type: "GET_POPUP_STATE" });
     if (!response?.ok) return;
     if (response.settings?.defaultScope) {
@@ -1707,17 +1683,30 @@ function determineMood() {
 function updateMascot(host) {
   const shadow = host?.shadowRoot;
   if (!shadow) return;
-  const svg = shadow.querySelector(".exp-character-svg");
-  if (!svg) return;
+  // Both surfaces use the same mascot SVG content. The expanded hero uses
+  // a wider viewBox (0 0 320 200) so the ambient sparkles/circles around
+  // the character are visible; the collapsed portrait uses (60 30 200 155)
+  // which crops to just the character. Same renderMascotInner output works
+  // for both — the cropped viewBox simply clips the ambient bits.
+  const targets = [
+    shadow.querySelector(".exp-character-svg"),
+    shadow.getElementById("mascot")
+  ].filter(Boolean);
+  if (!targets.length) return;
   const mood = determineMood();
-  if (mood === currentMood && svg.innerHTML) return;
+  // currentMood is shared across both targets, so we only skip if mood is
+  // unchanged AND every target already has content.
+  if (mood === currentMood && targets.every((el) => el.innerHTML)) return;
   currentMood = mood;
-  svg.classList.remove(
-    "nf-state-sleeping", "nf-state-happy", "nf-state-cleaning",
-    "nf-state-celebrating", "nf-state-nervous"
-  );
-  svg.classList.add(`nf-state-${mood}`);
-  svg.innerHTML = renderMascotInner(mood);
+  const inner = renderMascotInner(mood);
+  for (const el of targets) {
+    el.classList.remove(
+      "nf-state-sleeping", "nf-state-happy", "nf-state-cleaning",
+      "nf-state-celebrating", "nf-state-nervous"
+    );
+    el.classList.add(`nf-state-${mood}`);
+    el.innerHTML = inner;
+  }
 }
 
 // Builds the mascot SVG contents (everything inside <svg>) for the given
