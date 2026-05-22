@@ -145,7 +145,7 @@ export async function categorizeTabs(tabs, settings) {
     ...fallback,
     meta: {
       ...fallback.meta,
-      error: settings.llmEnabled ? "Add an OpenAI API key in settings to enable LLM grouping." : "",
+      error: settings.llmEnabled ? "Add an OpenAI API key in settings to enable the AI features." : "",
       method: "association-graph"
     }
   };
