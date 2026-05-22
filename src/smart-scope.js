@@ -49,14 +49,31 @@ function contentSavabilityScore(tab) {
 
   // Active work surfaces — less savable (negative score).
   if (/docs\.google\.com\/(document|spreadsheets|presentation)/.test(url)) score -= 3;
+  if (/docs\.google\.com\/forms\//.test(url)) score -= 2;
   if (/notion\.so/.test(domain)) score -= 2;
   if (/linear\.app/.test(domain)) score -= 2;
   if (/mail\.google\.com|outlook\.live\.com|outlook\.office/.test(url)) score -= 3;
   if (/calendar\.google\.com/.test(url)) score -= 3;
   if (/figma\.com\/(file|design|board|proto)/.test(url)) score -= 2;
   if (/\/(edit|compose|new)(\?|$|#)/.test(url)) score -= 2;
+  if (/\/(cart|checkout|payment|order)(\/|\?|$|#)/.test(url)) score -= 2;
   if (/(localhost|127\.0\.0\.1):\d+/.test(url)) score -= 2; // dev servers
   return score;
+}
+
+function effectiveAccess(tab, now) {
+  return Number.isFinite(tab?.lastAccessed) ? tab.lastAccessed : now;
+}
+
+function minutesSinceAccess(tab, now) {
+  return (now - effectiveAccess(tab, now)) / 60_000;
+}
+
+function isProtectedWorkSurface(tab) {
+  if (!tab) return true;
+  if (tab.active || tab.audible) return true;
+  if (!Number.isFinite(tab.lastAccessed)) return true;
+  return contentSavabilityScore(tab) <= -2;
 }
 
 /**
@@ -70,7 +87,6 @@ function contentSavabilityScore(tab) {
  * @returns {Set<string>}
  */
 export function computeUrlDedupSaveIds(tabs, now) {
-  const effectiveAccess = (t) => (t && t.lastAccessed) ? t.lastAccessed : now;
   const result = new Set();
   const urlGroups = new Map();
   for (const t of tabs) {
@@ -81,7 +97,7 @@ export function computeUrlDedupSaveIds(tabs, now) {
   }
   for (const group of urlGroups.values()) {
     if (group.length <= 1) continue;
-    group.sort((a, b) => effectiveAccess(b) - effectiveAccess(a));
+    group.sort((a, b) => effectiveAccess(b, now) - effectiveAccess(a, now));
     for (let i = 1; i < group.length; i++) {
       result.add(group[i].id);
     }
@@ -91,11 +107,6 @@ export function computeUrlDedupSaveIds(tabs, now) {
 
 export function applySmartHeuristic(tabs, clusters, now) {
   const tabById = new Map(tabs.map((t) => [t.id, t]));
-
-  // Tabs without a known lastAccessed (e.g., opened in the background via cmd-click,
-  // restored from session) are treated as just-opened. Otherwise the heuristic
-  // mistakes a fresh background tab for an ancient abandoned one and closes it.
-  const effectiveAccess = (t) => (t && t.lastAccessed) ? t.lastAccessed : now;
 
   // Dedup pre-pass: when multiple tabs share an exact-same URL, only the most
   // recently accessed one stays open; the older duplicates are pure clutter
@@ -108,7 +119,7 @@ export function applySmartHeuristic(tabs, clusters, now) {
     let maxLastAccessed = 0;
     for (const tabId of cluster.tabIds) {
       const t = tabById.get(tabId);
-      const ts = effectiveAccess(t);
+      const ts = effectiveAccess(t, now);
       if (ts > maxLastAccessed) maxLastAccessed = ts;
     }
     const minutesSinceMostRecent = maxLastAccessed === 0
@@ -139,7 +150,7 @@ export function applySmartHeuristic(tabs, clusters, now) {
     }
     const status = clusterStatus.get(clusterId);
     const cutoff = status === "stale" ? STALE_GROUP_CUTOFF_MIN : ACTIVE_GROUP_CUTOFF_MIN;
-    const minutesAgo = (now - effectiveAccess(t)) / 60_000;
+    const minutesAgo = minutesSinceAccess(t, now);
     if (minutesAgo > cutoff) saveIds.push(t.id);
     else keepIds.push(t.id);
   }
@@ -161,7 +172,7 @@ export function applySmartHeuristic(tabs, clusters, now) {
         id: t.id,
         // Each content-savability point is worth ~10 minutes of recency, so the
         // content signal dominates in the failure case (all tabs roughly same age).
-        score: (now - effectiveAccess(t)) / 60_000 + contentSavabilityScore(t) * 10
+        score: minutesSinceAccess(t, now) + contentSavabilityScore(t) * 10
       }))
       .sort((a, b) => b.score - a.score); // highest score first
 
@@ -184,6 +195,7 @@ export function applySmartHeuristic(tabs, clusters, now) {
  * @param {object} settings — extension settings (apiKey, llmEnabled)
  * @param {object} [opts]
  * @param {number} [opts.now] — epoch ms for tests
+ * @param {number} [opts.minSaveCount] — hard floor for saved tabs
  * @returns {Promise<{ saveSet: object[], keepSet: object[], categories: object[], mode: "llm"|"heuristic", error?: string }>}
  */
 export async function runSmartScope(tabs, settings, opts = {}) {
@@ -191,17 +203,176 @@ export async function runSmartScope(tabs, settings, opts = {}) {
   if (!tabs.length) {
     return { saveSet: [], keepSet: [], categories: [], mode: "heuristic" };
   }
-  const graph = buildAssociationGraph(tabs);
+  const graph = attachTabsToGraph(buildAssociationGraph(tabs), tabs);
+  const minSaveCount = clampMinSaveCount(opts.minSaveCount, tabs.length);
 
+  let result;
   if (settings.llmEnabled && settings.apiKey) {
     try {
-      return await runLlmPath(tabs, graph, settings, now);
+      result = await runLlmPath(tabs, graph, settings, now, {
+        minSaveCount,
+        totalOpenTabCount: opts.totalOpenTabCount,
+        clutterThreshold: opts.clutterThreshold
+      });
     } catch (error) {
-      const fallback = runHeuristicPath(tabs, graph, now);
-      return { ...fallback, error: error?.message || String(error) };
+      result = { ...runHeuristicPath(tabs, graph, now), error: error?.message || String(error) };
+    }
+  } else {
+    result = runHeuristicPath(tabs, graph, now);
+  }
+
+  // Tab-limit floor: when neither path closed enough to get the user under
+  // their clutter threshold, top up from the keep set. Caller passes
+  // minSaveCount = (total open tabs) - (threshold - 1) so post-save total is
+  // strictly under the limit.
+  if (minSaveCount > result.saveSet.length) {
+    result = enforceMinSaveCount(result, tabs, graph, minSaveCount, now);
+  }
+
+  return result;
+}
+
+function clampMinSaveCount(raw, total) {
+  const n = Number(raw);
+  if (!Number.isFinite(n) || n <= 0) return 0;
+  return Math.min(Math.floor(n), total);
+}
+
+// Expand the save set up to minSaveCount by promoting the safest tabs from
+// keepSet. Ranking is intentionally tiered: stale/reference workstreams first,
+// active work surfaces and unknown lastAccessed tabs last.
+function enforceMinSaveCount(result, tabs, graph, minSaveCount, now) {
+  const savedIdSet = new Set(result.saveSet.map((t) => t.id));
+  const needed = minSaveCount - savedIdSet.size;
+  if (needed <= 0) return result;
+
+  const floorContext = buildFloorClusterInfo(graph, now);
+  const ranked = result.keepSet
+    .map((t) => ({
+      tab: t,
+      score: floorSavePriority(t, floorContext, now)
+    }))
+    .sort((a, b) => b.score - a.score);
+
+  const added = ranked.slice(0, needed).map((r) => r.tab);
+  for (const t of added) savedIdSet.add(t.id);
+
+  const saveSet = tabs.filter((t) => savedIdSet.has(t.id));
+  const keepSet = tabs.filter((t) => !savedIdSet.has(t.id));
+
+  const categories = (result.mode === "llm" && Array.isArray(result.categories) && result.categories.length)
+    ? finalizeLlmCategories(result.categories, saveSet, tabs, graph)
+    : computeSmartCategories(tabs, graph, savedIdSet);
+
+  return { ...result, saveSet, keepSet, categories };
+}
+
+function floorSavePriority(tab, clusterInfo, now) {
+  const cluster = clusterInfo.get(tab.id);
+  const contentScore = contentSavabilityScore(tab);
+  const minutesAgo = minutesSinceAccess(tab, now);
+  const protectedSurface = isProtectedWorkSurface(tab);
+  const staleCluster = cluster ? cluster.minutesSinceMostRecent > ACTIVE_CLUSTER_WINDOW_MIN : false;
+
+  let tier;
+  if (!protectedSurface && staleCluster && contentScore >= 0) tier = 7;
+  else if (!protectedSurface && staleCluster) tier = 6;
+  else if (!protectedSurface && contentScore >= 2) tier = 5;
+  else if (!protectedSurface && minutesAgo > ACTIVE_GROUP_CUTOFF_MIN) tier = 4;
+  else if (!protectedSurface && contentScore > 0) tier = 3;
+  else if (!protectedSurface) tier = 2;
+  else if (!tab?.active && !tab?.audible && Number.isFinite(tab?.lastAccessed) && minutesAgo > ACTIVE_GROUP_CUTOFF_MIN) tier = 1;
+  else tier = 0;
+
+  const clusterStaleness = cluster ? Math.max(0, cluster.minutesSinceMostRecent) : 0;
+  return tier * 1_000_000 + clusterStaleness * 1_000 + contentScore * 100 + minutesAgo;
+}
+
+function buildFloorClusterInfo(graph, now) {
+  const result = new Map();
+  for (const cluster of graph.clusters || []) {
+    const clusterTabs = (cluster.tabIds || [])
+      .map((tabId) => graph.tabById?.get?.(tabId))
+      .filter(Boolean);
+    let mostRecent = 0;
+    for (const tab of clusterTabs) {
+      const accessed = effectiveAccess(tab, now);
+      if (accessed > mostRecent) mostRecent = accessed;
+    }
+    const minutesSinceMostRecent = mostRecent ? (now - mostRecent) / 60_000 : Infinity;
+    for (const tab of clusterTabs) {
+      result.set(tab.id, { id: cluster.id, minutesSinceMostRecent });
     }
   }
-  return runHeuristicPath(tabs, graph, now);
+  return result;
+}
+
+function finalizeLlmCategories(categories, savedTabs, allTabs, graph) {
+  const savedIds = new Set(savedTabs.map((tab) => tab.id));
+  const assigned = new Set();
+  const usedIds = new Set();
+  const normalized = [];
+
+  for (const category of categories || []) {
+    const tabIds = [...new Set(category.tabIds || [])]
+      .filter((tabId) => savedIds.has(tabId) && !assigned.has(tabId));
+    if (!tabIds.length) continue;
+    tabIds.forEach((tabId) => assigned.add(tabId));
+    const id = uniqueCategoryId(category.id || category.name || "Folder", usedIds);
+    normalized.push({ ...category, id, tabIds });
+  }
+
+  const missingTabs = savedTabs.filter((tab) => !assigned.has(tab.id));
+  if (!missingTabs.length) return normalized;
+
+  const missingIds = new Set(missingTabs.map((tab) => tab.id));
+  const supplemental = computeSmartCategories(allTabs, graph, missingIds);
+  if (supplemental.length) {
+    for (const category of supplemental) {
+      const tabIds = [...new Set(category.tabIds || [])]
+        .filter((tabId) => missingIds.has(tabId) && !assigned.has(tabId));
+      if (!tabIds.length) continue;
+      tabIds.forEach((tabId) => assigned.add(tabId));
+      const id = uniqueCategoryId(category.id || category.name || "Folder", usedIds);
+      normalized.push({ ...category, id, tabIds });
+    }
+  }
+
+  const stillMissing = savedTabs.filter((tab) => !assigned.has(tab.id)).map((tab) => tab.id);
+  if (stillMissing.length) {
+    normalized.push({
+      id: uniqueCategoryId("other", usedIds),
+      name: "Other",
+      description: "Saved tabs that did not fit an existing folder.",
+      confidence: 0.2,
+      signals: [],
+      relatedGroupNames: [],
+      tabIds: stillMissing
+    });
+  }
+
+  return normalized;
+}
+
+function uniqueCategoryId(raw, usedIds) {
+  const base = String(raw || "folder")
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "") || "folder";
+  let id = base;
+  let index = 2;
+  while (usedIds.has(id)) {
+    id = `${base}-${index}`;
+    index += 1;
+  }
+  usedIds.add(id);
+  return id;
+}
+
+function attachTabsToGraph(graph, tabs) {
+  if (graph.tabById) return graph;
+  return { ...graph, tabById: new Map(tabs.map((tab) => [tab.id, tab])) };
 }
 
 function runHeuristicPath(tabs, graph, now) {
@@ -225,8 +396,9 @@ function computeSmartCategories(tabs, graph, saveIdSet) {
   return result.categories || [];
 }
 
-async function runLlmPath(tabs, graph, settings, now) {
+async function runLlmPath(tabs, graph, settings, now, floorContext = {}) {
   const snippetBudget = tabs.length >= 60 ? 420 : 720;
+  const minSaveCount = clampMinSaveCount(floorContext.minSaveCount, tabs.length);
   const provisionalClusters = graph.clusters.map((c) => ({
     id: c.id,
     provisionalName: c.provisionalName,
@@ -303,6 +475,12 @@ async function runLlmPath(tabs, graph, settings, now) {
           "",
           "The user clicked Smart because they want clutter cleared. DEFAULT TO 'save'. Aim to save the majority of tabs — most people only need 3-5 focus tabs open at a time. Closing too few is a worse failure than closing too many; saved tabs restore in one click.",
           "",
+          ...(minSaveCount > 0 ? [
+            "HARD TAB-LIMIT FLOOR:",
+            `You must return action: 'save' for at least ${minSaveCount} of the ${tabs.length} candidate tabs. This is the minimum needed to get the user below their tab limit.`,
+            "When meeting this floor, save stale/reference/read-once clusters before active work surfaces. If you must choose among recent tabs, keep docs/forms/mail/calendar/dev surfaces and save ambient content first.",
+            ""
+          ] : []),
           "KEEP only when there is clear signal of active focus:",
           "- Work-in-progress: an open form being filled in, a partially-written draft, an unfinished checkout, a document the user is composing in (Google Docs, Notion, Linear, etc.).",
           "- A primary work surface touched in the last 60 minutes (not a reference link skimmed once).",
@@ -323,7 +501,15 @@ async function runLlmPath(tabs, graph, settings, now) {
       },
       {
         role: "user",
-        content: JSON.stringify({ tabs: tabsPayload, provisionalClusters })
+        content: JSON.stringify({
+          tabs: tabsPayload,
+          provisionalClusters,
+          saveFloor: {
+            minSaveCount,
+            totalOpenTabCount: Number.isFinite(Number(floorContext.totalOpenTabCount)) ? Number(floorContext.totalOpenTabCount) : null,
+            clutterThreshold: Number.isFinite(Number(floorContext.clutterThreshold)) ? Number(floorContext.clutterThreshold) : null
+          }
+        })
       }
     ]
   };
@@ -385,5 +571,5 @@ async function runLlmPath(tabs, graph, settings, now) {
     tabIds: (Array.isArray(g.tabIds) ? g.tabIds : []).filter((id) => saveIdSet.has(id))
   })).filter((c) => c.tabIds.length > 0);
 
-  return { saveSet, keepSet, categories, mode: "llm" };
+  return { saveSet, keepSet, categories: finalizeLlmCategories(categories, saveSet, tabs, graph), mode: "llm" };
 }

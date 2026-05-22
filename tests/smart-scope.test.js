@@ -208,3 +208,157 @@ test("runSmartScope with empty tab list returns empty sets", async () => {
   assert.deepEqual(result.categories, []);
   assert.equal(result.mode, "heuristic");
 });
+
+test("runSmartScope minSaveCount tops up under-threshold smart picks", async () => {
+  // 5 all-recent tabs → heuristic floor doesn't fire (< 8) and the absolute
+  // cutoff saves nothing. Without minSaveCount, this returns 0 saves.
+  // minSaveCount = 3 forces top-up; ranking prefers skim-once content over
+  // active work surfaces.
+  const tabs = [
+    { id: "doc",   title: "Doc",   url: "https://docs.google.com/document/d/a/edit", domain: "docs.google.com", lastAccessed: minutesAgo(2) },
+    { id: "mail",  title: "Mail",  url: "https://mail.google.com/mail/u/0/#inbox",   domain: "mail.google.com", lastAccessed: minutesAgo(4) },
+    { id: "blog1", title: "Blog 1", url: "https://medium.com/blog/post-1",            domain: "medium.com",      lastAccessed: minutesAgo(6) },
+    { id: "blog2", title: "Blog 2", url: "https://medium.com/blog/post-2",            domain: "medium.com",      lastAccessed: minutesAgo(8) },
+    { id: "blog3", title: "Blog 3", url: "https://medium.com/blog/post-3",            domain: "medium.com",      lastAccessed: minutesAgo(10) },
+  ];
+  const result = await runSmartScope(
+    tabs, { llmEnabled: false, apiKey: "" }, { now: NOW, minSaveCount: 3 }
+  );
+  assert.equal(result.saveSet.length, 3, `expected 3 saves, got ${result.saveSet.length}`);
+  const savedIds = new Set(result.saveSet.map((t) => t.id));
+  for (const blog of ["blog1", "blog2", "blog3"]) {
+    assert.ok(savedIds.has(blog), `expected ${blog} saved`);
+  }
+  for (const surface of ["doc", "mail"]) {
+    assert.ok(!savedIds.has(surface), `expected ${surface} kept`);
+  }
+  // Every saved tab is covered by exactly one category.
+  const categorized = result.categories.flatMap((c) => c.tabIds);
+  for (const id of savedIds) {
+    assert.ok(categorized.includes(id), `expected category coverage for ${id}`);
+  }
+});
+
+test("runSmartScope minSaveCount protects never-activated background tabs", async () => {
+  const tabs = [
+    { id: "bg", title: "Background article", url: "https://medium.com/blog/background", domain: "medium.com" },
+    { id: "blog1", title: "Blog 1", url: "https://medium.com/blog/post-1", domain: "medium.com", lastAccessed: minutesAgo(20) },
+    { id: "blog2", title: "Blog 2", url: "https://medium.com/blog/post-2", domain: "medium.com", lastAccessed: minutesAgo(25) },
+    { id: "doc", title: "Doc", url: "https://docs.google.com/document/d/a/edit", domain: "docs.google.com", lastAccessed: minutesAgo(10) },
+  ];
+  const result = await runSmartScope(
+    tabs, { llmEnabled: false, apiKey: "" }, { now: NOW, minSaveCount: 2 }
+  );
+  const savedIds = new Set(result.saveSet.map((tabItem) => tabItem.id));
+  assert.ok(savedIds.has("blog1"));
+  assert.ok(savedIds.has("blog2"));
+  assert.ok(!savedIds.has("bg"), "never-activated background tab should be a last-resort save");
+  assert.ok(!savedIds.has("doc"), "active work surface should be a last-resort save");
+});
+
+test("runSmartScope minSaveCount of 0 is a no-op", async () => {
+  const tabs = [
+    { id: "a", title: "A", url: "https://example.com/a", lastAccessed: minutesAgo(5) },
+    { id: "b", title: "B", url: "https://example.com/b", lastAccessed: minutesAgo(10) },
+  ];
+  const result = await runSmartScope(
+    tabs, { llmEnabled: false, apiKey: "" }, { now: NOW, minSaveCount: 0 }
+  );
+  assert.equal(result.saveSet.length, 0);
+});
+
+test("runSmartScope minSaveCount caps at total tab count", async () => {
+  // Caller asked for more saves than we have tabs — cap, save everything.
+  const tabs = [
+    { id: "a", title: "A", url: "https://example.com/a", lastAccessed: minutesAgo(5) },
+    { id: "b", title: "B", url: "https://example.com/b", lastAccessed: minutesAgo(10) },
+  ];
+  const result = await runSmartScope(
+    tabs, { llmEnabled: false, apiKey: "" }, { now: NOW, minSaveCount: 99 }
+  );
+  assert.equal(result.saveSet.length, 2);
+});
+
+test("runSmartScope does not undo smart's own picks when floor is small", async () => {
+  // One ancient tab — heuristic saves it on its own. minSaveCount=0 must not
+  // shrink that pick.
+  const tabs = [
+    { id: "old",    title: "Old",    url: "https://example.com/old",                  lastAccessed: minutesAgo(900) },
+    { id: "recent", title: "Recent", url: "https://docs.google.com/document/d/x/edit", lastAccessed: minutesAgo(5) },
+  ];
+  const result = await runSmartScope(
+    tabs, { llmEnabled: false, apiKey: "" }, { now: NOW, minSaveCount: 0 }
+  );
+  assert.ok(result.saveSet.some((t) => t.id === "old"));
+});
+
+test("runSmartScope LLM receives the save floor and keeps floor-added tabs out of unrelated LLM folders", async (t) => {
+  const originalFetch = globalThis.fetch;
+  t.after(() => { globalThis.fetch = originalFetch; });
+
+  globalThis.fetch = async (_url, init) => {
+    const body = JSON.parse(init.body);
+    const userPayload = JSON.parse(body.messages[1].content);
+    assert.equal(userPayload.saveFloor.minSaveCount, 2);
+    assert.equal(userPayload.saveFloor.totalOpenTabCount, 4);
+    assert.equal(userPayload.saveFloor.clutterThreshold, 3);
+    assert.match(body.messages[0].content, /at least 2/);
+
+    return {
+      ok: true,
+      async json() {
+        return {
+          choices: [{
+            message: {
+              content: JSON.stringify({
+                groups: [{
+                  name: "Proposal",
+                  description: "Client proposal work",
+                  confidence: 0.9,
+                  signals: ["proposal"],
+                  tabIds: ["doc"]
+                }],
+                tabActions: [
+                  { tabId: "doc", action: "save", reason: "old proposal reference" },
+                  { tabId: "blog", action: "keep", reason: "recent" },
+                  { tabId: "search", action: "keep", reason: "recent" }
+                ]
+              })
+            }
+          }]
+        };
+      }
+    };
+  };
+
+  const tabs = [
+    { id: "doc", title: "Proposal", url: "https://docs.google.com/document/d/p/edit", domain: "docs.google.com", lastAccessed: minutesAgo(240) },
+    { id: "blog", title: "API blog post", url: "https://medium.com/blog/api-post", domain: "medium.com", lastAccessed: minutesAgo(12) },
+    { id: "search", title: "API search", url: "https://www.google.com/search?q=api", domain: "www.google.com", lastAccessed: minutesAgo(8) },
+  ];
+  const result = await runSmartScope(tabs, { llmEnabled: true, apiKey: "test-key" }, {
+    now: NOW,
+    minSaveCount: 2,
+    totalOpenTabCount: 4,
+    clutterThreshold: 3
+  });
+
+  assert.equal(result.mode, "llm");
+  assert.equal(result.saveSet.length, 2);
+  const addedIds = result.saveSet.map((tabItem) => tabItem.id).filter((id) => id !== "doc");
+  assert.equal(addedIds.length, 1);
+
+  const proposal = result.categories.find((category) => category.name === "Proposal");
+  assert.ok(proposal, "expected LLM Proposal category");
+  assert.deepEqual(proposal.tabIds, ["doc"], "floor-added tab should not be merged into Proposal");
+
+  const categoryHits = new Map();
+  for (const category of result.categories) {
+    for (const tabId of category.tabIds) {
+      categoryHits.set(tabId, (categoryHits.get(tabId) || 0) + 1);
+    }
+  }
+  for (const tabItem of result.saveSet) {
+    assert.equal(categoryHits.get(tabItem.id), 1, `expected one category for ${tabItem.id}`);
+  }
+});
