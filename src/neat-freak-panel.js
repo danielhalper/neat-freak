@@ -831,11 +831,11 @@ function panelMarkup() {
          surface — the difference should be a tonal nudge, not a contrast
          jump. The inner card sits ~3% lighter than the outer frame. */
       .card.expanded {
-        background: #f1f5f2;
+        background: #e8f2ec;
         padding: 0;
       }
       .card.expanded::before { display: none; }
-      .card.expanded.in-popup { background: #f1f5f2; }
+      .card.expanded.in-popup { background: #e8f2ec; }
 
       .exp-hero {
         position: relative;
@@ -875,7 +875,7 @@ function panelMarkup() {
       }
 
       .exp-inner-card {
-        background: #fdfcf8;
+        background: #fefefc;
         border-radius: 12px;
         margin: 0 12px 12px;
         padding: 16px 14px 14px;
@@ -1075,24 +1075,21 @@ function panelMarkup() {
               <circle cx="304" cy="156" r="4.5"/>
               <circle cx="48" cy="172" r="4"/>
             </g>
-            <!-- Amber 4-point sparkle stars -->
-            <g fill="#f4bd45">
-              <path d="M 36 50 Q 37.08 54.92 42 56 Q 37.08 57.08 36 62 Q 34.92 57.08 30 56 Q 34.92 54.92 36 50 Z"/>
-              <path d="M 286 46 Q 286.9 50.1 291 51 Q 286.9 51.9 286 56 Q 285.1 51.9 281 51 Q 285.1 50.1 286 46 Z"/>
-              <path d="M 290 122 Q 290.72 125.28 294 126 Q 290.72 126.72 290 130 Q 289.28 126.72 286 126 Q 289.28 125.28 290 122 Z"/>
-              <path d="M 22 138 Q 22.9 142.1 27 143 Q 22.9 143.9 22 148 Q 21.1 143.9 17 143 Q 21.1 142.1 22 138 Z"/>
+            <!-- Amber 4-point sparkle stars — slightly smaller and softer
+                 than full saturation so they feel ambient, not loud. With
+                 hair dropped, these and "Freak" carry the amber accent. -->
+            <g fill="#f4bd45" opacity="0.7">
+              <path d="M 38 54 Q 38.9 58.1 43 59 Q 38.9 59.9 38 64 Q 37.1 59.9 33 59 Q 37.1 58.1 38 54 Z"/>
+              <path d="M 284 48 Q 284.72 51.28 288 52 Q 284.72 52.72 284 56 Q 283.28 52.72 280 52 Q 283.28 51.28 284 48 Z"/>
+              <path d="M 292 124 Q 292.54 126.46 295 127 Q 292.54 127.54 292 130 Q 291.46 127.54 289 127 Q 291.46 126.46 292 124 Z"/>
+              <path d="M 24 140 Q 24.72 143.28 28 144 Q 24.72 144.72 24 148 Q 23.28 144.72 20 144 Q 23.28 143.28 24 140 Z"/>
             </g>
-            <!-- Mascot: ported "happy" state from NeatFreak.jsx, translated
-                 into the 320×200 viewBox. Original character viewBox is
-                 0 0 200 155 — we shift it (60, 30) so it's centered with
-                 the decorations free to live around the edges. -->
+            <!-- Mascot: ported "happy" state from NeatFreak.jsx (hair
+                 omitted), translated into the 320×200 viewBox. Original
+                 character viewBox is 0 0 200 155 — shifted (60, 30) so
+                 the decorations live around the edges. -->
             <g transform="translate(60 30)">
               <ellipse cx="100" cy="154" rx="62" ry="3" fill="#093f3b" opacity="0.1"/>
-              <g stroke="#c69325" stroke-width="1.6" stroke-linejoin="round">
-                <path d="M 96 44 C 92 26, 100 18, 106 26 C 110 32, 106 42, 100 46 Z" fill="#f4bd45"/>
-                <path d="M 86 46 C 76 32, 78 22, 88 24 C 96 28, 96 40, 92 50 Z" fill="#f4bd45"/>
-                <path d="M 108 46 C 116 36, 124 32, 122 42 C 120 50, 112 52, 108 50 Z" fill="#f4bd45"/>
-              </g>
               <path d="M 16 155 C 12 105, 22 62, 56 50 C 88 38, 130 42, 162 56 C 184 72, 186 120, 182 155 Z" fill="#1f9b8f"/>
               <g fill="#0f766e" opacity="0.55">
                 <ellipse cx="58" cy="122" rx="6" ry="4"/>
@@ -1102,7 +1099,13 @@ function panelMarkup() {
                 <ellipse cx="96" cy="140" rx="5" ry="3.2"/>
                 <ellipse cx="128" cy="96" rx="3.5" ry="2.6"/>
               </g>
-              <path d="M 56 64 Q 70 46 92 42" stroke="#ffffff" stroke-width="6" stroke-linecap="round" opacity="0.13" fill="none"/>
+              <path d="M 56 64 Q 70 44 94 40" stroke="#ffffff" stroke-width="7" stroke-linecap="round" opacity="0.22" fill="none"/>
+              <!-- Eyebrows: thick, arched upward in the middle.
+                   Not in JSX's "happy" state — added per mock. -->
+              <g stroke="#093f3b" stroke-width="5.5" stroke-linecap="round" fill="none">
+                <path d="M 46 72 Q 58 60 72 70"/>
+                <path d="M 98 70 Q 112 60 124 72"/>
+              </g>
               <ellipse cx="60" cy="88" rx="10" ry="11" fill="#f7f8f6"/>
               <ellipse cx="110" cy="88" rx="8" ry="10" fill="#f7f8f6"/>
               <g transform="translate(-2 -1)">
