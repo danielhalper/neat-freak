@@ -457,10 +457,12 @@ function panelMarkup() {
 
       .expanded-content {
         /* No top divider needed — the collapsed view (.row + .actions) is
-           hidden when expanded, so there's nothing to divide from. */
+           hidden when expanded, so there's nothing to divide from.
+           gap is 0 so the hero's mascot can use a negative bottom margin
+           to overlap into the inner card. */
         display: flex;
         flex-direction: column;
-        gap: 14px;
+        gap: 0;
         max-height: 60vh;
         overflow-y: auto;
         animation: fadein 180ms ease-out;
@@ -491,13 +493,22 @@ function panelMarkup() {
         color: #63706b;
         border: 0;
         border-radius: 999px;
-        padding: 0 14px;
+        padding: 0 12px;
         height: 28px;            /* container's 2px padding × 2 + 28 = 32px total */
         font-size: 12px;
         font-weight: 650;
         font-family: inherit;
         white-space: nowrap;
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
         transition: background 120ms ease, color 120ms ease;
+      }
+      .scope-button svg {
+        width: 13px;
+        height: 13px;
+        flex-shrink: 0;
+        display: block;
       }
       .scope-button:hover { color: #17201d; }
       .scope-button.active {
@@ -813,25 +824,21 @@ function panelMarkup() {
         font-style: italic;
       }
 
-      /* ========== Expanded view: brand header & layout ========== */
-      .exp-header {
-        display: flex;
-        align-items: center;
-        gap: 10px;
+      /* ========== Expanded view: hero + inner card layout ========== */
+
+      /* When expanded, the outer .card becomes a tinted frame holding a
+         hero (mascot + wordmark) on top of a white inner card. */
+      .card.expanded {
+        background: #e8f3ef;
+        padding: 0;
+        border-color: #cbe1d9;
       }
-      .exp-brand-mascot {
-        width: 32px;
-        height: 32px;
-        flex-shrink: 0;
-        display: inline-flex;
-        align-items: center;
-        justify-content: center;
-      }
-      .exp-brand-mascot svg {
-        width: 100%;
-        height: 100%;
-        border-radius: 7px;
-        display: block;
+      .card.expanded::before { display: none; }
+      .card.expanded.in-popup { background: #e8f3ef; }
+
+      .exp-hero {
+        position: relative;
+        padding: 14px 16px 0;
       }
       .exp-wordmark {
         margin: 0;
@@ -840,7 +847,6 @@ function panelMarkup() {
         font-family: "Permanent Marker", Georgia, "Times New Roman", serif;
         letter-spacing: 0.01em;
         line-height: 1.0;
-        flex: 1;
         color: #1a2421;
       }
       .exp-wordmark span:first-child {
@@ -852,26 +858,41 @@ function panelMarkup() {
         display: inline-block;
         transform: rotate(1deg) translateY(1px);
       }
-      .exp-icon-btn {
-        background: transparent;
-        border: 1px solid #e8dfc7;
-        color: #4a5651;
-        width: 32px;
-        height: 32px;
-        border-radius: 8px;
-        cursor: pointer;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        font-family: inherit;
-      }
-      .exp-icon-btn:hover { background: #f6f3e8; color: #1a2421; }
 
-      .exp-tagline {
+      /* Mascot peeks down over the inner card — negative bottom margin lets
+         the hands overlap into the white surface, z-index keeps them on top. */
+      .exp-character-svg {
+        display: block;
+        width: 78%;
+        max-width: 240px;
+        height: auto;
+        margin: 6px auto -22px;
+        position: relative;
+        z-index: 2;
+        pointer-events: none;
+        filter: drop-shadow(0 4px 8px rgba(15, 118, 110, 0.18));
+      }
+
+      .exp-inner-card {
+        background: #ffffff;
+        border-radius: 12px;
+        margin: 0 12px 12px;
+        padding: 16px 14px 14px;
+        display: flex;
+        flex-direction: column;
+        gap: 12px;
+        position: relative;
+        z-index: 1;
+        box-shadow: 0 1px 2px rgba(15, 118, 110, 0.06);
+      }
+
+      .scope-label {
+        font-size: 10px;
+        font-weight: 700;
+        letter-spacing: 0.16em;
+        color: #8a948f;
         margin: 0;
-        font-size: 13px;
-        color: #4a5651;
-        line-height: 1.4;
+        text-transform: uppercase;
       }
 
       /* Scope picker on the left grows naturally; More options sits on the
@@ -957,11 +978,12 @@ function panelMarkup() {
         flex-direction: column;
         align-items: center;
         gap: 2px;
-        padding: 13px 16px;
+        padding: 14px 16px;
       }
       .tidy-cta-title {
-        font-size: 15px;
+        font-size: 16px;
         font-weight: 700;
+        letter-spacing: 0.01em;
       }
       .tidy-cta-sub {
         font-size: 12px;
@@ -1036,85 +1058,129 @@ function panelMarkup() {
 
       <!-- Expanded-only content. Hidden until the user clicks the body. -->
       <div class="expanded-content" id="expanded-content" hidden>
-        <!-- Compact brand header matching the popup's visual framework -->
-        <header class="exp-header">
-          <!-- Inlined SVG (rather than <img src=chrome-extension://...>) so
-               strict-CSP pages like Google Slides don't block the load via
-               img-src directive. -->
-          <span class="exp-brand-mascot" aria-hidden="true">
-            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 160 160">
-              <rect width="160" height="160" rx="36" fill="#0f766e"/>
-              <path d="M30 56 L72 48" stroke="#093f3b" stroke-width="7" stroke-linecap="round"/>
-              <path d="M92 48 L130 58" stroke="#093f3b" stroke-width="7" stroke-linecap="round"/>
-              <circle cx="56" cy="82" r="22" fill="#f7f8f6"/>
-              <circle cx="63" cy="86" r="10" fill="#093f3b"/>
-              <circle cx="65" cy="83" r="3" fill="#ffffff"/>
-              <circle cx="108" cy="84" r="25" fill="#f7f8f6"/>
-              <circle cx="100" cy="88" r="11" fill="#093f3b"/>
-              <circle cx="102" cy="85" r="3" fill="#ffffff"/>
-              <path d="M64 128 Q80 138 96 128" fill="none" stroke="#093f3b" stroke-width="7" stroke-linecap="round"/>
-              <rect x="77" y="130" width="6" height="6" rx="1" fill="#f7f8f6"/>
-              <path d="M134 28 L138 40 L150 44 L138 48 L134 60 L130 48 L118 44 L130 40 Z" fill="#f4bd45"/>
-              <path d="M24 96 Q22 102 26 106 Q30 102 28 96 Z" fill="#f4bd45" opacity="0.9"/>
-            </svg>
-          </span>
+        <!-- Hero: tinted area with wordmark top-left and the static "happy"
+             mascot peeking down over the inner card, with amber sparkles
+             and decorative outline circles drawn in the same SVG. The
+             character paths are ported from _refactor_assets/dist/NeatFreak.jsx
+             (happy state) and drawn into a wider viewBox so the decorations
+             surround him. -->
+        <header class="exp-hero">
           <h1 class="exp-wordmark"><span>Neat</span> <span class="exp-wordmark-accent">Freak</span></h1>
+          <svg class="exp-character-svg" viewBox="0 0 320 200" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+            <!-- Decorative hollow circles, behind everything -->
+            <g fill="none" stroke="#9ccfc3" stroke-width="2" opacity="0.75">
+              <circle cx="20" cy="92" r="6"/>
+              <circle cx="302" cy="84" r="5"/>
+              <circle cx="304" cy="156" r="4.5"/>
+              <circle cx="48" cy="172" r="4"/>
+            </g>
+            <!-- Amber 4-point sparkle stars -->
+            <g fill="#f4bd45">
+              <path d="M 36 50 Q 37.08 54.92 42 56 Q 37.08 57.08 36 62 Q 34.92 57.08 30 56 Q 34.92 54.92 36 50 Z"/>
+              <path d="M 286 46 Q 286.9 50.1 291 51 Q 286.9 51.9 286 56 Q 285.1 51.9 281 51 Q 285.1 50.1 286 46 Z"/>
+              <path d="M 290 122 Q 290.72 125.28 294 126 Q 290.72 126.72 290 130 Q 289.28 126.72 286 126 Q 289.28 125.28 290 122 Z"/>
+              <path d="M 22 138 Q 22.9 142.1 27 143 Q 22.9 143.9 22 148 Q 21.1 143.9 17 143 Q 21.1 142.1 22 138 Z"/>
+            </g>
+            <!-- Mascot: ported "happy" state from NeatFreak.jsx, translated
+                 into the 320×200 viewBox. Original character viewBox is
+                 0 0 200 155 — we shift it (60, 30) so it's centered with
+                 the decorations free to live around the edges. -->
+            <g transform="translate(60 30)">
+              <ellipse cx="100" cy="154" rx="62" ry="3" fill="#093f3b" opacity="0.1"/>
+              <g stroke="#c69325" stroke-width="1.6" stroke-linejoin="round">
+                <path d="M 96 44 C 92 26, 100 18, 106 26 C 110 32, 106 42, 100 46 Z" fill="#f4bd45"/>
+                <path d="M 86 46 C 76 32, 78 22, 88 24 C 96 28, 96 40, 92 50 Z" fill="#f4bd45"/>
+                <path d="M 108 46 C 116 36, 124 32, 122 42 C 120 50, 112 52, 108 50 Z" fill="#f4bd45"/>
+              </g>
+              <path d="M 16 155 C 12 105, 22 62, 56 50 C 88 38, 130 42, 162 56 C 184 72, 186 120, 182 155 Z" fill="#1f9b8f"/>
+              <g fill="#0f766e" opacity="0.55">
+                <ellipse cx="58" cy="122" rx="6" ry="4"/>
+                <ellipse cx="36" cy="100" rx="4.5" ry="3.2"/>
+                <ellipse cx="148" cy="130" rx="7" ry="4.5"/>
+                <ellipse cx="170" cy="108" rx="4.5" ry="3"/>
+                <ellipse cx="96" cy="140" rx="5" ry="3.2"/>
+                <ellipse cx="128" cy="96" rx="3.5" ry="2.6"/>
+              </g>
+              <path d="M 56 64 Q 70 46 92 42" stroke="#ffffff" stroke-width="6" stroke-linecap="round" opacity="0.13" fill="none"/>
+              <ellipse cx="60" cy="88" rx="10" ry="11" fill="#f7f8f6"/>
+              <ellipse cx="110" cy="88" rx="8" ry="10" fill="#f7f8f6"/>
+              <g transform="translate(-2 -1)">
+                <circle cx="58" cy="84" r="4" fill="#093f3b"/>
+                <circle cx="108" cy="84" r="3.4" fill="#093f3b"/>
+                <circle cx="56.6" cy="82.6" r="1.3" fill="#f7f8f6"/>
+                <circle cx="106.8" cy="82.8" r="1.1" fill="#f7f8f6"/>
+              </g>
+              <path d="M 64 114 Q 80 126 96 114" fill="none" stroke="#093f3b" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round"/>
+              <!-- Hands gripping the ledge — 4 rounded rects each -->
+              <g fill="#3aaca0">
+                <rect x="15.5" y="140" width="9" height="21" rx="4.5"/>
+                <rect x="24.5" y="138" width="9" height="23" rx="4.5"/>
+                <rect x="33.5" y="138" width="9" height="23" rx="4.5"/>
+                <rect x="42.5" y="139" width="9" height="22" rx="4.5"/>
+                <rect x="150.5" y="139" width="9" height="22" rx="4.5"/>
+                <rect x="159.5" y="138" width="9" height="23" rx="4.5"/>
+                <rect x="168.5" y="138" width="9" height="23" rx="4.5"/>
+                <rect x="177.5" y="140" width="9" height="21" rx="4.5"/>
+              </g>
+            </g>
+          </svg>
         </header>
-        <p class="exp-tagline">Stash open tabs into folders, free up RAM.</p>
 
-        <div class="scope-row">
-          <div class="scope-picker" id="scope-picker">
-            <button class="scope-button" data-action="scope" data-scope-value="smart" type="button">Smart</button>
-            <button class="scope-button" data-action="scope" data-scope-value="allWindows" type="button">All windows</button>
-            <button class="scope-button" data-action="scope" data-scope-value="currentWindow" type="button">Current</button>
+        <div class="exp-inner-card">
+          <p class="scope-label">SCOPE</p>
+          <div class="scope-row">
+            <div class="scope-picker" id="scope-picker">
+              <button class="scope-button" data-action="scope" data-scope-value="smart" type="button">Smart</button>
+              <button class="scope-button" data-action="scope" data-scope-value="allWindows" type="button">All windows</button>
+              <button class="scope-button" data-action="scope" data-scope-value="currentWindow" type="button">Current</button>
+            </div>
+            <button class="more-options-toggle" data-action="toggle-more-options" type="button" aria-expanded="false" title="More options" aria-label="More options">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <line x1="4" y1="6" x2="20" y2="6"></line>
+                <line x1="4" y1="12" x2="20" y2="12"></line>
+                <line x1="4" y1="18" x2="20" y2="18"></line>
+                <circle cx="10" cy="6" r="2" fill="currentColor"></circle>
+                <circle cx="14" cy="12" r="2" fill="currentColor"></circle>
+                <circle cx="8" cy="18" r="2" fill="currentColor"></circle>
+              </svg>
+            </button>
           </div>
-          <button class="more-options-toggle" data-action="toggle-more-options" type="button" aria-expanded="false" title="More options" aria-label="More options">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-              <line x1="4" y1="6" x2="20" y2="6"></line>
-              <line x1="4" y1="12" x2="20" y2="12"></line>
-              <line x1="4" y1="18" x2="20" y2="18"></line>
-              <circle cx="10" cy="6" r="2" fill="currentColor"></circle>
-              <circle cx="14" cy="12" r="2" fill="currentColor"></circle>
-              <circle cx="8" cy="18" r="2" fill="currentColor"></circle>
-            </svg>
-          </button>
-        </div>
-        <div class="more-options-panel" id="more-options-panel" hidden>
-          <label class="check-row">
-            <input type="checkbox" id="opt-include-pinned"> <span>Include pinned tabs</span>
-          </label>
-          <label class="check-row">
-            <input type="checkbox" id="opt-keep-current"> <span>Keep current tab open</span>
-          </label>
-          <label class="check-row">
-            <input type="checkbox" id="opt-review"> <span>Review before closing</span>
-          </label>
-          <button class="more-options-settings-link" data-action="open-options-link" type="button">
-            More settings →
-          </button>
-        </div>
-
-        <button class="tidy-cta" data-action="tidy-expanded" type="button">
-          <span class="tidy-cta-title">Tidy my tabs</span>
-          <span class="tidy-cta-sub" id="tidy-cta-sub"></span>
-        </button>
-
-        <section class="sessions-section">
-          <header class="sessions-header">
-            <h3 id="sessions-heading">RECENT</h3>
-            <button class="link-button" data-action="open-manager-link" type="button">Open manager</button>
-          </header>
-          <div class="search-wrap">
-            <svg class="search-icon" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-              <circle cx="11" cy="11" r="7"></circle>
-              <path d="m21 21-4.4-4.4"></path>
-            </svg>
-            <input class="search-input" id="panel-search" type="search" placeholder="Search saved tabs, or ask a question…" autocomplete="off">
+          <div class="more-options-panel" id="more-options-panel" hidden>
+            <label class="check-row">
+              <input type="checkbox" id="opt-include-pinned"> <span>Include pinned tabs</span>
+            </label>
+            <label class="check-row">
+              <input type="checkbox" id="opt-keep-current"> <span>Keep current tab open</span>
+            </label>
+            <label class="check-row">
+              <input type="checkbox" id="opt-review"> <span>Review before closing</span>
+            </label>
+            <button class="more-options-settings-link" data-action="open-options-link" type="button">
+              More settings →
+            </button>
           </div>
-          <p class="search-hint" id="panel-search-hint">Press <kbd>↵</kbd> for smart search</p>
-          <div class="session-list" id="session-list"></div>
-        </section>
 
+          <button class="tidy-cta" data-action="tidy-expanded" type="button">
+            <span class="tidy-cta-title">Tidy my tabs</span>
+            <span class="tidy-cta-sub" id="tidy-cta-sub"></span>
+          </button>
+
+          <section class="sessions-section">
+            <header class="sessions-header">
+              <h3 id="sessions-heading">RECENT</h3>
+              <button class="link-button" data-action="open-manager-link" type="button">Open manager</button>
+            </header>
+            <div class="search-wrap">
+              <svg class="search-icon" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <circle cx="11" cy="11" r="7"></circle>
+                <path d="m21 21-4.4-4.4"></path>
+              </svg>
+              <input class="search-input" id="panel-search" type="search" placeholder="Search saved tabs, or ask a question…" autocomplete="off">
+            </div>
+            <p class="search-hint" id="panel-search-hint">Press <kbd>↵</kbd> for smart search</p>
+            <div class="session-list" id="session-list"></div>
+          </section>
+        </div>
       </div>
     </div>
   `;
@@ -1518,11 +1584,15 @@ function renderScopePicker(host) {
   const shadow = host.shadowRoot;
   const picker = shadow.getElementById("scope-picker");
   if (!picker) return;
-  // Re-render with data-action wired (the static markup doesn't have it yet)
+  // Inline SVGs (sparkle / windows / monitor) — kept tiny and currentColor
+  // so they pick up the active/inactive button text color.
+  const smartIcon = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3l1.6 4.4L18 9l-4.4 1.6L12 15l-1.6-4.4L6 9l4.4-1.6L12 3z"/><path d="M19 14l.7 2 2 .7-2 .7-.7 2-.7-2-2-.7 2-.7.7-2z"/></svg>`;
+  const allWindowsIcon = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="5" width="14" height="11" rx="1.6"/><path d="M7 9h6"/><rect x="7" y="9" width="14" height="10" rx="1.6" fill="#ffffff"/><path d="M11 13h6"/></svg>`;
+  const currentIcon = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="13" rx="2"/><path d="M8 21h8"/><path d="M12 17v4"/></svg>`;
   picker.innerHTML = `
-    <button class="scope-button${selectedScope === "smart" ? " active" : ""}" data-action="scope" data-scope-value="smart" type="button">Smart</button>
-    <button class="scope-button${selectedScope === "allWindows" ? " active" : ""}" data-action="scope" data-scope-value="allWindows" type="button">All windows</button>
-    <button class="scope-button${selectedScope === "currentWindow" ? " active" : ""}" data-action="scope" data-scope-value="currentWindow" type="button">Current</button>
+    <button class="scope-button${selectedScope === "smart" ? " active" : ""}" data-action="scope" data-scope-value="smart" type="button">${smartIcon}<span>Smart</span></button>
+    <button class="scope-button${selectedScope === "allWindows" ? " active" : ""}" data-action="scope" data-scope-value="allWindows" type="button">${allWindowsIcon}<span>All windows</span></button>
+    <button class="scope-button${selectedScope === "currentWindow" ? " active" : ""}" data-action="scope" data-scope-value="currentWindow" type="button">${currentIcon}<span>Current</span></button>
   `;
 }
 
