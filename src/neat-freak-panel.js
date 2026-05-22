@@ -495,24 +495,56 @@ function panelMarkup() {
         text-transform: uppercase;
       }
 
+      /* Wrapper that animates the panel between collapsed (no expanded
+         content visible) and expanded (full expanded content shown). Uses
+         the grid-template-rows 0fr → 1fr trick which transitions natural
+         content height without needing a JS-measured target. */
+      .expand-wrapper {
+        display: grid;
+        grid-template-rows: 0fr;
+        transition: grid-template-rows 260ms cubic-bezier(0.2, 0.9, 0.3, 1.0);
+      }
+      .card.expanded .expand-wrapper {
+        grid-template-rows: 1fr;
+      }
+      .expand-wrapper > .expanded-content {
+        min-height: 0;       /* allows the 0fr collapse to actually clip to 0 */
+        overflow: hidden;
+      }
+      /* In popup context the wrapper is always expanded (idle auto-expands),
+         and there's no use case for collapsing — skip the transition so the
+         popup mounts at its final size with no settle animation. */
+      .card.in-popup .expand-wrapper {
+        grid-template-rows: 1fr;
+        transition: none;
+      }
+
+      /* Small inline hyperlink shown below "Want me to tidy up?" in the
+         clutter state — points users to the threshold setting if they want
+         these nudges to fire more/less often. Subtle so it doesn't compete
+         with the primary Tidy now button. */
+      .tertiary-link {
+        background: transparent;
+        border: 0;
+        color: #8a948f;
+        font-size: 11px;
+        font-family: inherit;
+        cursor: pointer;
+        padding: 0;
+        margin-top: 2px;
+        text-decoration: underline;
+        text-underline-offset: 2px;
+      }
+      .tertiary-link:hover { color: #4a5651; }
+
       .expanded-content {
-        /* No top divider needed — the collapsed view (.row + .actions) is
-           hidden when expanded, so there's nothing to divide from.
-           gap is 0 so the hero's mascot can use a negative bottom margin
+        /* gap is 0 so the hero's mascot can use a negative bottom margin
            to overlap into the inner card. */
         display: flex;
         flex-direction: column;
         gap: 0;
         max-height: 60vh;
         overflow-y: auto;
-        animation: fadein 180ms ease-out;
-      }
-      /* Class rule above is more specific than UA [hidden] — explicit override
-         needed, otherwise the section never actually hides when toggled. */
-      .expanded-content[hidden] { display: none; }
-      @keyframes fadein {
-        from { opacity: 0; transform: translateY(-4px); }
-        to   { opacity: 1; transform: translateY(0); }
       }
 
       /* Scope picker — pill container with rounded segmented buttons,
@@ -1227,8 +1259,12 @@ function panelMarkup() {
       </div>
       <div class="actions" id="actions"></div>
 
-      <!-- Expanded-only content. Hidden until the user clicks the body. -->
-      <div class="expanded-content" id="expanded-content" hidden>
+      <!-- Wrapper for the expanded view. .card.expanded triggers the wrapper
+           to animate from grid-template-rows: 0fr → 1fr, which smoothly
+           transitions the panel's height between collapsed and expanded
+           without needing a JS-measured target height. -->
+      <div class="expand-wrapper">
+      <div class="expanded-content" id="expanded-content">
         <!-- Hero: tinted area with wordmark top-left and the static "happy"
              mascot peeking down over the inner card, with amber sparkles
              and decorative outline circles drawn in the same SVG. The
@@ -1297,9 +1333,10 @@ function panelMarkup() {
             <p class="search-hint" id="panel-search-hint">Press <kbd>↵</kbd> for smart search</p>
             <div class="session-list" id="session-list"></div>
           </section>
-        </div>
-      </div>
-    </div>
+        </div><!-- /.exp-inner-card -->
+      </div><!-- /.expanded-content -->
+      </div><!-- /.expand-wrapper -->
+    </div><!-- /.card -->
   `;
 }
 
@@ -1369,7 +1406,9 @@ function applyState(host, state) {
   if (state.mode === "clutter") {
     const count = Number(state.tabCount) || 0;
     titleEl.textContent = `${count} tabs open`;
-    subEl.textContent = "Want me to tidy up?";
+    // Sub line + tertiary link pointing at the threshold setting, so users
+    // who want these nudges to fire more or less often know where to go.
+    subEl.innerHTML = `Want me to tidy up?<br><button class="tertiary-link" data-action="open-options-link" type="button">Adjust nudges →</button>`;
     actionsEl.innerHTML = `<button class="primary" data-action="tidy" type="button">Tidy now</button>`;
     // Only auto-dismiss when collapsed. If the user has explicitly expanded,
     // they're interacting — don't pull the rug out.
@@ -1545,7 +1584,8 @@ function expandPanel(host) {
   const shadow = host.shadowRoot;
   const card = shadow.getElementById("card");
   card.classList.add("expanded");
-  shadow.getElementById("expanded-content").hidden = false;
+  // Wrapper visibility is now controlled by .card.expanded via CSS grid trick
+  // (see .expand-wrapper rules). No need to toggle the hidden attribute here.
   const eyebrowEl = shadow.getElementById("eyebrow");
   if (eyebrowEl) eyebrowEl.hidden = false;
   // Paint an initial mascot now using whatever mood we can infer from
@@ -1565,8 +1605,8 @@ function suppressExpansionUI(host) {
   const shadow = host.shadowRoot;
   const card = shadow.getElementById("card");
   card.classList.remove("expanded");
-  const expandedContent = shadow.getElementById("expanded-content");
-  if (expandedContent) expandedContent.hidden = true;
+  // Wrapper collapses back to 0fr automatically via the CSS transition once
+  // .expanded is removed. No need to toggle the hidden attribute here.
   const eyebrowEl = shadow.getElementById("eyebrow");
   if (eyebrowEl) eyebrowEl.hidden = true;
   unbindOutsideClickHandler();
