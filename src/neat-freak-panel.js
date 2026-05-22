@@ -504,12 +504,12 @@ function panelMarkup() {
         white-space: nowrap;
         display: inline-flex;
         align-items: center;
-        gap: 6px;
+        gap: 5px;
         transition: background 120ms ease, color 120ms ease;
       }
       .scope-button svg {
-        width: 13px;
-        height: 13px;
+        width: 12px;
+        height: 12px;
         flex-shrink: 0;
         display: block;
       }
@@ -842,7 +842,8 @@ function panelMarkup() {
 
       .exp-hero {
         position: relative;
-        padding: 14px 16px 0;
+        padding: 10px 16px 0;
+        min-height: 96px;
       }
       .exp-wordmark {
         margin: 0;
@@ -863,18 +864,17 @@ function panelMarkup() {
         transform: rotate(1deg) translateY(1px);
       }
 
-      /* Mascot peeks down over the inner card — negative bottom margin lets
-         the hands overlap into the white surface, z-index keeps them on top.
-         Pushed slightly right of center (margin-left: auto + 36px right
-         margin) so he's not under the close × and reads as standing
-         off-center rather than dead-center symmetrical. */
+      /* Mascot is absolutely positioned inside .exp-hero so it can sit on
+         the same vertical plane as the wordmark (overlapping it) and still
+         dangle far enough down to peek over the inner card. Right-anchored
+         clear of the close × button at top-right. */
       .exp-character-svg {
-        display: block;
+        position: absolute;
+        top: -4px;
+        right: 36px;
         width: 56%;
-        max-width: 200px;
+        max-width: 190px;
         height: auto;
-        margin: 4px 36px -20px auto;
-        position: relative;
         z-index: 2;
         pointer-events: none;
         overflow: visible;
@@ -1107,18 +1107,20 @@ function panelMarkup() {
       }
       .more-options-settings-link:hover { color: #115e59; }
 
-      /* Subtitle for the Tidy CTA showing eligible tab count */
+      /* Subtitle for the Tidy CTA showing eligible tab count.
+         Only delta from the original popup sizing: title is 1px larger
+         (15 → 16) for the "primary text slightly bigger" emphasis. Padding,
+         weight, sub size, all unchanged. */
       .tidy-cta {
         display: flex;
         flex-direction: column;
         align-items: center;
         gap: 2px;
-        padding: 14px 16px;
+        padding: 13px 16px;
       }
       .tidy-cta-title {
         font-size: 16px;
         font-weight: 700;
-        letter-spacing: 0.01em;
       }
       .tidy-cta-sub {
         font-size: 12px;
