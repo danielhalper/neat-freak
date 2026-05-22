@@ -42,7 +42,8 @@
         "assets/mascot-stressed-128.png",
         "assets/mascot-calm.svg",
         "assets/logo.svg",
-        "assets/fonts/PermanentMarker-Regular.woff2"
+        "assets/fonts/PermanentMarker-Regular.woff2",
+        "assets/fonts/Caveat-Bold.woff2"
       ],
       "matches": ["<all_urls>"]
     }

@@ -25,7 +25,7 @@ src/
 tests/
   smart-scope.test.js    Node --test runner. Covers applySmartHeuristic + runSmartScope.
 docs/specs/              Design docs for major features
-assets/                  Mascot SVGs (calm + stressed), PNGs, brand logo, Permanent Marker woff2
+assets/                  Mascot SVGs (calm + stressed), PNGs, brand logo, Caveat-Bold woff2 (brand wordmark font)
 ```
 
 ## Running the extension

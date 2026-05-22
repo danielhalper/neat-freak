@@ -1,9 +1,12 @@
+/* Brand wordmark font — Caveat Bold. Replaces Permanent Marker (which was
+   overused across the web and degraded under ~16px). Caveat is cleaner at
+   small sizes, has more individual character, still reads handwritten. */
 @font-face {
-  font-family: "Permanent Marker";
+  font-family: "Caveat";
   font-style: normal;
-  font-weight: 400;
+  font-weight: 700;
   font-display: swap;
-  src: url("../assets/fonts/PermanentMarker-Regular.woff2") format("woff2");
+  src: url("../assets/fonts/Caveat-Bold.woff2") format("woff2");
 }
 
 :root {
@@ -141,10 +144,10 @@ svg {
 .popup-header h1,
 .app-header h1 {
   color: var(--text);
-  font-family: "Permanent Marker", Georgia, "Times New Roman", serif;
-  font-size: 28px;
-  font-weight: 400;
-  letter-spacing: 0.01em;
+  font-family: "Caveat", "Bradley Hand", "Segoe Script", cursive;
+  font-size: 32px;          /* Caveat reads ~15% smaller than Permanent Marker at the same point size, bumped to compensate. */
+  font-weight: 700;
+  letter-spacing: 0.005em;
   line-height: 1.0;
   margin: 0 0 4px;
   text-transform: none;

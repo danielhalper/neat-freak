@@ -120,21 +120,21 @@
     if (window.__neatFreakBrandFontLoaded) return;
     if (!isExtensionValid()) return;
     try {
-      const url = chrome.runtime.getURL("assets/fonts/PermanentMarker-Regular.woff2");
+      const url = chrome.runtime.getURL("assets/fonts/Caveat-Bold.woff2");
       const response = await fetch(url);
       if (!response.ok) throw new Error(`status ${response.status}`);
       const buffer = await response.arrayBuffer();
-      const face = new FontFace("Permanent Marker", buffer, {
+      const face = new FontFace("Caveat", buffer, {
         style: "normal",
-        weight: "400",
+        weight: "700",
         display: "swap"
       });
       await face.load();
       document.fonts.add(face);
       window.__neatFreakBrandFontLoaded = true;
     } catch (err) {
-      // Falls back to the next entry in the font-family chain (Georgia, etc.).
-      console.warn("[Neat Freak] Permanent Marker load failed:", err?.message || err);
+      // Falls back to the next entry in the font-family chain.
+      console.warn("[Neat Freak] Caveat load failed:", err?.message || err);
     }
   }
 
@@ -267,10 +267,10 @@ function panelMarkup() {
   // refined in the previous clutter-toast.js iteration — cream card, amber top
   // bar, free-standing mascot with teal drop-shadow.
   //
-  // Brand font (Permanent Marker) is loaded once at panel init via the
-  // FontFace API (see ensureBrandFont). That adds it to document.fonts,
-  // which shadow DOMs automatically inherit. No @font-face here — the
-  // URL-based load would be blocked by font-src CSP on pages like Slides.
+  // Brand font (Caveat Bold) is loaded once at panel init via the FontFace
+  // API (see ensureBrandFont). That adds it to document.fonts, which shadow
+  // DOMs automatically inherit. No @font-face here — the URL-based load
+  // would be blocked by font-src CSP on pages like Slides.
   return `
     <style>
       :host { all: initial; }
@@ -905,10 +905,10 @@ function panelMarkup() {
       }
       .exp-wordmark {
         margin: 0;
-        font-size: 24px;
-        font-weight: 400;
-        font-family: "Permanent Marker", Georgia, "Times New Roman", serif;
-        letter-spacing: 0.01em;
+        font-size: 28px;
+        font-weight: 700;
+        font-family: "Caveat", "Caveat Bold", "Bradley Hand", "Segoe Script", cursive;
+        letter-spacing: 0.005em;
         line-height: 1.0;
         color: #1a2421;
       }
@@ -916,8 +916,12 @@ function panelMarkup() {
         display: inline-block;
         transform: rotate(-1.5deg);
       }
+      /* Darker amber for accent — #f4bd45 (the bright sparkle/active color)
+         fails AA contrast on the cream background. Uses the same darker
+         amber (#b7791f) that styles.css already defines as --amber for the
+         shared .brand-wordmark; clears AA at ~4.7:1 contrast. */
       .exp-wordmark-accent {
-        color: #f4bd45;
+        color: #b7791f;
         display: inline-block;
         transform: rotate(1deg) translateY(1px);
       }
