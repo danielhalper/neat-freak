@@ -979,19 +979,24 @@ function panelMarkup() {
 
       /* Click-the-mascot speech bubble. Anchored at the mascot's mouth
          level, right edge sits 6px to the left of the mascot's left edge.
-         Tail on the right points horizontally at his mouth. */
+         Tail on the right points horizontally at his mouth.
+         Sized to fit "Stash tabs, free RAM." on a single line — at the new
+         vertical position (well below the wordmark) the bubble can also
+         extend a touch further left into the card's padding, so we get a
+         wider but lower-profile bubble. */
       .mascot-bubble {
         position: absolute;
-        top: 42px;            /* ≈ mouth height in the mascot SVG */
+        top: 60px;            /* ≈ mouth height in the mascot SVG */
         right: 220px;         /* mascot left edge ≈ 214px from hero right (24+190); add 6px gap */
-        max-width: 118px;     /* fills the available space left of him without overflowing the hero */
+        max-width: 140px;     /* fits one line at 11px; bubble can dip ~16px into the card's left padding since the wordmark no longer sits above it at this lower y */
         background: #ffffff;
         border: 1px solid #e8dfc7;
         border-radius: 12px;
-        padding: 7px 10px;
-        font-size: 11.5px;
+        padding: 6px 10px;
+        font-size: 11px;
         font-weight: 500;
         line-height: 1.35;
+        white-space: nowrap;
         color: #1a2421;
         box-shadow: 0 6px 16px rgba(15, 118, 110, 0.16);
         opacity: 0;
@@ -1369,7 +1374,7 @@ function panelMarkup() {
                the left of the mascot's mouth; the tail on the right points
                at him to make the speaker clear. -->
           <div class="mascot-bubble" id="mascot-bubble" role="status" aria-live="polite">
-            I'll stash open tabs and free up RAM.
+            Stash tabs, free RAM.
           </div>
         </header>
 
