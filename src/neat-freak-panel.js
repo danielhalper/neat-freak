@@ -947,9 +947,64 @@ function panelMarkup() {
         max-width: 190px;
         height: auto;
         z-index: 2;
-        pointer-events: none;
+        /* Clickable now — toggles the .mascot-bubble. cursor: help signals
+           "info about this thing" rather than a primary action. */
+        pointer-events: auto;
+        cursor: help;
         overflow: visible;
         filter: drop-shadow(0 3px 6px rgba(15, 118, 110, 0.16));
+        transition: transform 140ms ease;
+      }
+      .exp-character-svg:hover { transform: translateY(-1px) scale(1.02); }
+      .exp-character-svg:focus-visible {
+        outline: 2px solid #d59b32;
+        outline-offset: 2px;
+        border-radius: 4px;
+      }
+
+      /* Click-the-mascot speech bubble. Hidden by default; data-show="true"
+         flips it on with a small pop. Overlays the wordmark area when shown
+         since the hero is constrained on width — the user clicked the
+         mascot specifically, the bubble is the focus while open. */
+      .mascot-bubble {
+        position: absolute;
+        top: 8px;
+        left: 12px;
+        max-width: 210px;
+        background: #ffffff;
+        border: 1px solid #e8dfc7;
+        border-radius: 12px;
+        padding: 10px 12px;
+        font-size: 12px;
+        line-height: 1.4;
+        color: #1a2421;
+        box-shadow: 0 8px 22px rgba(15, 118, 110, 0.18);
+        opacity: 0;
+        transform: scale(0.94) translateX(-2px);
+        transform-origin: top right;
+        transition: opacity 180ms ease, transform 200ms cubic-bezier(0.2, 0.9, 0.3, 1.0);
+        pointer-events: none;
+        z-index: 6;
+      }
+      .mascot-bubble[data-show="true"] {
+        opacity: 1;
+        transform: scale(1) translateX(0);
+        pointer-events: auto;
+      }
+      /* Tail pointing right toward the mascot. White square rotated 45° so
+         the upper-right two edges form the tail; border matches the bubble
+         for a clean seam. */
+      .mascot-bubble::after {
+        content: "";
+        position: absolute;
+        right: -6px;
+        top: 18px;
+        width: 11px;
+        height: 11px;
+        background: #ffffff;
+        border-top: 1px solid #e8dfc7;
+        border-right: 1px solid #e8dfc7;
+        transform: rotate(45deg);
       }
 
       /* ===== Mascot animations (ported from NeatFreak.css) =====
@@ -1287,9 +1342,20 @@ function panelMarkup() {
         <header class="exp-hero">
           <h1 class="exp-wordmark"><span>Neat</span> <span class="exp-wordmark-accent">Freak</span></h1>
           <!-- Mascot SVG is rendered by JS (updateMascot) on first expand so
-               the face + decorations can switch between mood states. -->
+               the face + decorations can switch between mood states.
+               data-action makes the mascot clickable — toggles the speech
+               bubble below. updateMascot only writes innerHTML, so this
+               attribute survives mood transitions. -->
           <svg class="exp-character-svg nf-state-happy" viewBox="0 0 320 200"
-               xmlns="http://www.w3.org/2000/svg" aria-hidden="true"></svg>
+               xmlns="http://www.w3.org/2000/svg" aria-hidden="true"
+               data-action="mascot-info" role="button" tabindex="0"
+               aria-label="What does Tidy do?"></svg>
+          <!-- Speech bubble shown when the mascot is clicked. Overlays the
+               wordmark area while visible; the tail on the right points at
+               the mascot to make the speaker clear. -->
+          <div class="mascot-bubble" id="mascot-bubble" role="status" aria-live="polite">
+            I'll group your open tabs by workstream and close them to free up RAM. Open any folder in one click.
+          </div>
         </header>
 
         <div class="exp-inner-card">
@@ -1483,6 +1549,18 @@ function handlePanelClick(host, event) {
   // Previously instanceof HTMLElement excluded them and silently dropped
   // the click (broken × button in the popup).
   if (!(target instanceof Element)) return;
+
+  // If the mascot's speech bubble is open, any click outside both the
+  // mascot and the bubble itself dismisses it. (Mascot click is handled
+  // below by the toggle handler so we don't preempt the toggle.)
+  const shadow = host.shadowRoot;
+  const bubble = shadow?.getElementById("mascot-bubble");
+  if (bubble?.getAttribute("data-show") === "true") {
+    const isMascot = target.closest("[data-action='mascot-info']");
+    const isBubble = target.closest(".mascot-bubble");
+    if (!isMascot && !isBubble) bubble.removeAttribute("data-show");
+  }
+
   const actionEl = target.closest("[data-action]");
   const action = actionEl?.dataset?.action || "";
 
@@ -1545,6 +1623,14 @@ function handlePanelClick(host, event) {
     // Tertiary "See closed tabs →" link in the done state — pops the panel
     // open where the just-saved session sits at the top of the Recent list.
     if (!expandedMode) expandPanel(host);
+    return;
+  }
+  if (action === "mascot-info") {
+    // Click on the mascot in the expanded hero — toggle the speech bubble
+    // that explains what Tidy does. Stop here so the body-click handler
+    // (which would try to expand the panel) doesn't also fire.
+    event.stopPropagation();
+    toggleMascotBubble(host);
     return;
   }
   if (action === "open-options-link") {
@@ -1638,7 +1724,24 @@ function suppressExpansionUI(host) {
   // .expanded is removed. No need to toggle the hidden attribute here.
   const eyebrowEl = shadow.getElementById("eyebrow");
   if (eyebrowEl) eyebrowEl.hidden = true;
+  // Dismiss the mascot's speech bubble too — it lives inside the expanded
+  // view so a stale "show" state would re-appear on next expand.
+  const bubble = shadow.getElementById("mascot-bubble");
+  if (bubble) bubble.removeAttribute("data-show");
   unbindOutsideClickHandler();
+}
+
+// Toggle the mascot's speech bubble (data-show attribute drives the CSS
+// transition). Clicking the mascot a second time hides it.
+function toggleMascotBubble(host) {
+  const shadow = host.shadowRoot;
+  const bubble = shadow?.getElementById("mascot-bubble");
+  if (!bubble) return;
+  if (bubble.getAttribute("data-show") === "true") {
+    bubble.removeAttribute("data-show");
+  } else {
+    bubble.setAttribute("data-show", "true");
+  }
 }
 
 // User-initiated collapse (outside-click, × in idle mode). For idle, the
