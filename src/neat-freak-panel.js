@@ -380,7 +380,7 @@ function panelMarkup() {
         box-shadow: 0 1px 2px rgba(0, 0, 0, 0.06);
         transition: color 120ms ease, border-color 120ms ease, box-shadow 120ms ease;
       }
-      .close svg { width: 12px; height: 12px; display: block; }
+      .close svg { width: 12px; height: 12px; display: block; pointer-events: none; }
       .close:hover {
         color: #1a2421;
         border-color: #d9ce9a;
@@ -1238,10 +1238,11 @@ function setMascot(imgEl, url) {
 
 function handlePanelClick(host, event) {
   const target = event.target;
-  if (!(target instanceof HTMLElement)) return;
-  // Find the nearest action-bearing element. The button-inside-summary case
-  // (folder Open-all inside a click-to-toggle row) works because closest()
-  // matches the inner button first, not the wrapping row.
+  // Element covers both HTMLElement and SVGElement — the close × button
+  // wraps an inline SVG, and clicks on the SVG paths fall in here too.
+  // Previously instanceof HTMLElement excluded them and silently dropped
+  // the click (broken × button in the popup).
+  if (!(target instanceof Element)) return;
   const actionEl = target.closest("[data-action]");
   const action = actionEl?.dataset?.action || "";
 
