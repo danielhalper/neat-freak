@@ -52,6 +52,12 @@
   let totalTabCountValid = false;
   let clutterThreshold = 20;
   let currentMood = null;
+  // Idle-mode whimsy: ~50% of the time, show the sleeping mascot when the
+  // user opens the panel and lets it sit. Wakes up the moment they click
+  // anything actionable. idleSleepingRolled prevents re-rolling if applyState
+  // fires multiple times within the same idle session.
+  let idleSleepingRolled = false;
+  let idleSleeping = false;
 
   // When the extension is reloaded (chrome://extensions Reload, version
   // bump from install, etc.), this content script becomes orphaned — its
@@ -1133,7 +1139,7 @@ function panelMarkup() {
         background: #ffffff;
         border: 1px solid #e8dfc7;
         border-radius: 12px;
-        padding: 6px 4px 6px 2px;
+        padding: 6px 4px 6px 0;
         font-size: 11px;
         font-weight: 500;
         line-height: 1.35;
@@ -1528,7 +1534,7 @@ function panelMarkup() {
                the left of the mascot's mouth; the tail on the right points
                at him to make the speaker clear. -->
           <div class="mascot-bubble" id="mascot-bubble" role="status" aria-live="polite">
-            I'll stash open tabs and free up ram
+            I'll stash open tabs and free up RAM
           </div>
         </header>
 
@@ -1635,6 +1641,17 @@ function applyState(host, state) {
     expandPanel(host);
   }
 
+  // Idle-mode sleeping mascot: leaving idle clears the roll so a future
+  // idle entry gets a fresh 50/50. Entering idle (and not yet rolled) flips
+  // the coin now so updateMascot below picks it up on first paint.
+  if (state.mode !== "idle") {
+    idleSleepingRolled = false;
+    idleSleeping = false;
+  } else if (!idleSleepingRolled) {
+    idleSleeping = Math.random() < 0.5;
+    idleSleepingRolled = true;
+  }
+
   // Push the mascot to the right mood whenever state transitions. Cleaning
   // and celebrating come from state.mode; happy/sleeping/nervous come from
   // totalTabCount vs clutterThreshold (refreshed by loadExpandedData).
@@ -1660,6 +1677,8 @@ function applyState(host, state) {
   if (state.mode === "idle") {
     // User-opened, no triggering event. Calm mascot, neutral copy, no action
     // button — the user is here for the expanded UI, not the collapsed pill.
+    // The sleeping-mascot roll happens above (before updateMascot) so first
+    // paint already reflects it.
     titleEl.textContent = "Neat Freak";
     subEl.textContent = "Ready when you are.";
     actionsEl.innerHTML = "";
@@ -1849,6 +1868,14 @@ function handlePanelClick(host, event) {
       }
     }
     return;
+  }
+
+  // Wake the sleeping mascot on any action click. We keep idleSleepingRolled
+  // true so a re-render doesn't re-roll mid-session — the user has engaged,
+  // the mascot stays awake until next idle entry.
+  if (idleSleeping) {
+    idleSleeping = false;
+    updateMascot(host);
   }
 
   // Collapsed action buttons
@@ -2222,9 +2249,18 @@ function determineMood() {
   const tabs = Number.isFinite(stateCount) ? stateCount
              : totalTabCountValid ? totalTabCount
              : null;
+  // Over threshold → nervous, regardless of state.mode (including idle).
+  // Calm and sleeping moods are reserved for "things are under control."
+  // Note: >= threshold reads as nervous to match the clutter watcher, which
+  // fires the clutter card at tabCount >= threshold.
+  if (tabs !== null && tabs >= clutterThreshold) return "nervous";
+  // Idle whimsy: ~50% chance the mascot is napping when the user opens the
+  // panel without a triggering event. Only kicks in when below threshold —
+  // a sleeping mascot above the limit reads as oblivious, not cute. Wakes
+  // on first click (handlePanelClick clears idleSleeping and re-renders).
+  if (currentState?.mode === "idle" && idleSleeping) return "sleeping";
   if (tabs === null) return "happy";
   if (tabs === 0) return "sleeping";
-  if (tabs > clutterThreshold) return "nervous";
   return "happy";
 }
 
