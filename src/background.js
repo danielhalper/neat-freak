@@ -1052,8 +1052,15 @@ if (chrome.notifications?.onClicked) {
 
 const CLUTTER_HYSTERESIS = 3; // count must dip to (threshold - this) before we'll alert again
 const CLUTTER_THRESHOLD_FALLBACK = 20; // used only if reading settings fails
+const CLUTTER_TIER_STEP = 7; // re-alert once when N tabs over the threshold
+const CLUTTER_MAX_ALERT_TIER = 1; // cap: tier 0 at threshold, tier 1 at +STEP, no further escalation
 const CLUTTER_DISABLED_KEY = "neatFreakClutterDisabled";
-const CLUTTER_ALERTED_KEY = "neatFreakClutterAlerted"; // session-scoped: were we already at/over threshold?
+// session-scoped: highest tier we've already alerted at this session. -1 (or
+// missing) means not yet alerted. Tier 0 = threshold, tier 1 = threshold + STEP.
+// Capped at CLUTTER_MAX_ALERT_TIER so heavy-tab users get a max of 2 nudges
+// per session — once you dismiss at +STEP the watcher goes quiet until tab
+// count dips below threshold - HYSTERESIS, then climbs back up.
+const CLUTTER_ALERTED_TIER_KEY = "neatFreakClutterAlertedTier";
 const CLUTTER_BADGE_COLOR = "#dc2626";
 const CLUTTER_CHECK_DEBOUNCE_MS = 3000;
 const CLUTTER_ALARM_NAME = "neat-freak-clutter-check";
@@ -1160,25 +1167,32 @@ async function checkClutter() {
 
     if (disabled) return;
 
-    const sessionState = (await chrome.storage.session?.get?.(CLUTTER_ALERTED_KEY)) || {};
-    const alreadyAlerted = Boolean(sessionState[CLUTTER_ALERTED_KEY]);
+    const sessionState = (await chrome.storage.session?.get?.(CLUTTER_ALERTED_TIER_KEY)) || {};
+    const rawTier = sessionState[CLUTTER_ALERTED_TIER_KEY];
+    const lastAlertedTier = Number.isFinite(rawTier) ? rawTier : -1;
 
     if (tabCount < threshold) {
-      // Once we've dropped enough below threshold, clear the alerted flag so the
+      // Once we've dropped enough below threshold, reset the tier so the
       // next time the user climbs back above we'll show the toast again.
-      if (alreadyAlerted && tabCount < threshold - CLUTTER_HYSTERESIS) {
-        await chrome.storage.session?.set?.({ [CLUTTER_ALERTED_KEY]: false });
+      if (lastAlertedTier >= 0 && tabCount < threshold - CLUTTER_HYSTERESIS) {
+        await chrome.storage.session?.set?.({ [CLUTTER_ALERTED_TIER_KEY]: -1 });
       }
       return;
     }
 
-    if (alreadyAlerted) return; // edge-triggered: don't re-show until they dip and climb again
+    // Tier 0 at the threshold, tier 1 at threshold + STEP. Capped at
+    // CLUTTER_MAX_ALERT_TIER so we never fire more than 2 alerts per
+    // session (threshold=20 / step=7 → nudge at 20 and at 27, then silent
+    // until tabs dip below 17 and climb back up).
+    const uncappedTier = Math.floor((tabCount - threshold) / CLUTTER_TIER_STEP);
+    const currentTier = Math.min(uncappedTier, CLUTTER_MAX_ALERT_TIER);
+    if (currentTier <= lastAlertedTier) return;
 
     const shown = await showPanelClutter(tabCount);
     if (shown) {
-      await chrome.storage.session?.set?.({ [CLUTTER_ALERTED_KEY]: true });
+      await chrome.storage.session?.set?.({ [CLUTTER_ALERTED_TIER_KEY]: currentTier });
     }
-    // If we couldn't show the toast (privileged page), DON'T set alerted —
+    // If we couldn't show the toast (privileged page), DON'T update tier —
     // we'll try again on the next event when the user switches to a regular tab.
   } catch (err) {
     // Best-effort — the clutter watcher should never break the rest of the extension.
