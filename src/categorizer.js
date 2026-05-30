@@ -462,12 +462,15 @@ function scoreProfiles(a, b) {
   if (a.lastAccessed && b.lastAccessed) {
     const minsApart = Math.abs(a.lastAccessed - b.lastAccessed) / 60_000;
     if (minsApart <= 2) {
-      proximityScore += 0.50;
+      proximityScore += 0.52;
       tightlyTimed = true;
       reasons.push("touched together (<2m)");
+    } else if (minsApart <= 5) {
+      proximityScore += 0.44;
+      tightlyTimed = true;
+      reasons.push("touched within ~5m");
     } else if (minsApart <= 10) {
       proximityScore += 0.36;
-      tightlyTimed = minsApart <= 5;
       reasons.push("touched within ~10m");
     } else if (minsApart <= 60) {
       proximityScore += 0.24;

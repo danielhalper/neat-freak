@@ -16,7 +16,7 @@ const BASE = 1_700_000_000_000;
 
 test("proximity alone cannot union two tabs (cap holds below threshold)", () => {
   // Adjacent in the strip AND touched 30s apart = maxed-out proximity
-  // (0.30 + 0.50 + 0.08 = 0.88 raw) but zero content overlap. The PROXIMITY_CAP
+  // (0.30 + 0.52 + 0.08 = 0.90 raw) but zero content overlap. The PROXIMITY_CAP
   // must clamp the contribution to 0.6 so the edge stays under the 0.74 union
   // threshold — otherwise two tabs you merely clicked between would merge.
   const graph = buildAssociationGraph([
@@ -43,4 +43,28 @@ test("a sliver of content glue lets proximate tabs union", () => {
   assert.ok(edge, "expected a recorded edge between the two tabs");
   assert.ok(edge.score >= 0.74, `content + capped proximity should union, got ${edge.score}`);
   assert.equal(graph.clusters.length, 1, "content-glued proximate tabs should union");
+});
+
+// Isolate the temporal signal: different windows kill the positional bonus and
+// the distinct content kills everything else, so the sole edge score reflects
+// only the temporal bucket (all bucket values sit under PROXIMITY_CAP, so none
+// is clamped). Guards the gradient — including the new <=5m tier sitting below
+// <=2m and above <=10m — without pinning exact decimals that we'll keep tuning.
+function temporalEdgeScore(minsApart) {
+  const graph = buildAssociationGraph([
+    { id: "a", title: "Zebra Conservation Fund", url: "https://zebra-trust.org/x", windowId: 1, index: 0, lastAccessed: BASE },
+    { id: "b", title: "Quarterly Payroll Spreadsheet", url: "https://payrollpro.example/y", windowId: 2, index: 0, lastAccessed: BASE + minsApart * 60_000 }
+  ]);
+  return soleEdge(graph)?.score ?? 0;
+}
+
+test("temporal proximity weakens monotonically as the gap widens", () => {
+  const within2m = temporalEdgeScore(1);
+  const within5m = temporalEdgeScore(4);
+  const within10m = temporalEdgeScore(8);
+  const within1h = temporalEdgeScore(30);
+
+  assert.ok(within2m > within5m, `<=2m (${within2m}) should outrank <=5m (${within5m})`);
+  assert.ok(within5m > within10m, `<=5m (${within5m}) should outrank <=10m (${within10m})`);
+  assert.ok(within10m > within1h, `<=10m (${within10m}) should outrank <=1h (${within1h})`);
 });
