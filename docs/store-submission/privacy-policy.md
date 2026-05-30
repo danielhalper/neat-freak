@@ -1,6 +1,6 @@
 # Privacy Policy — Neat Freak
 
-**Last updated: 2026-05-19**
+**Last updated: 2026-05-27**
 
 Neat Freak is a Chrome extension that saves open browser tabs into local, searchable folders. This policy explains what data Neat Freak handles, where it goes, and what we do (and don't do) with it.
 

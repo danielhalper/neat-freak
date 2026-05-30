@@ -6,13 +6,14 @@ Everything you need is in this folder. The actual submission has to happen from 
 
 | File | Purpose |
 |------|---------|
-| `neat-freak-v1.0.0.zip` | The packaged extension. Upload this. |
+| `neat-freak-v1.2.1.zip` | The packaged extension. Upload this. |
 | `listing.md` | Name, summary, full description, category, and search keywords — copy/paste into the listing form. |
 | `privacy-policy.md` | The privacy policy. You must host this somewhere publicly accessible (GitHub Pages, your own site, a Notion public page works in a pinch). The URL goes in the store form. |
 | `permissions-justifications.md` | One paragraph per permission the reviewer will ask about. |
-| `../deck/store-screenshot-1.png` | Hero screenshot (1280×800). |
-| `../deck/store-screenshot-2.png` | "How it works" screenshot (1280×800). |
-| `../deck/store-screenshot-3.png` | Search demo screenshot (1280×800). |
+| `../deck/store-screenshot-1.png` | Hero — wordmark + tagline + mascot (1280×800). |
+| `../deck/store-screenshot-2.png` | Tidy + Review-before-closing (1280×800). |
+| `../deck/store-screenshot-3.png` | Smart grouping by workstream (1280×800). |
+| `../deck/store-screenshot-4.png` | Search demo (1280×800). |
 | `../deck/store-promo-440x280.png` | Small promo tile (440×280). |
 
 ## Before you submit
@@ -48,7 +49,7 @@ The store needs a real email address for user contact. A Gmail alias works. Upda
 ### Step 1 — Upload the ZIP
 
 1. In the developer console, click **"New item"**.
-2. Drag in `neat-freak-v1.0.0.zip`.
+2. Drag in `neat-freak-v1.2.1.zip`.
 3. Wait for the upload + parse to finish (~30 seconds).
 
 ### Step 2 — Fill the "Store listing" tab

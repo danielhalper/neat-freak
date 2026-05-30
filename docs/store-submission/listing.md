@@ -39,22 +39,27 @@ Save every open tab into memory-light folders, grouped by what you're working on
 ## Detailed description (max 16,000 characters)
 
 ```
-Neat Freak is a tab-saver with a brain.
+Neat Freak is a tab-saver with a brain (and a face).
 
-Click once, and every open tab in every window collapses into a memory-light session — automatically grouped into folders by what you're actually working on. Not by domain. Not by date. By workstream.
+Click "Tidy tabs," and every open window collapses into a memory-light session — automatically grouped into folders by what you're actually working on. Not by domain. Not by date. By workstream.
 
 Chrome reclaims the RAM. You keep the context.
 
-— THREE JOBS. ONE CLICK. —
+— ONE-CLICK TIDY —
 
-SAVE
-Snapshot every open tab into a memory-light session. Tabs close, Chrome frees up memory. Pinned tabs stay open by default.
+Hit the Neat Freak icon, click "Tidy tabs," and the floating panel takes it from there. It captures every open tab, groups them into folders, and closes the originals. Your current tab stays open by default. Pinned tabs stay open by default. You're back to a clean window in a couple of seconds.
 
-GROUP
-Tabs auto-organize into folders by topic. The grouping engine reads titles, domains, and a short page summary to figure out which tabs belong together — your active workstreams, not just "all your Google Docs."
+— REVIEW BEFORE CLOSING (OPTIONAL) —
 
-FIND
-Search every saved tab by keyword, or ask in plain English ("ux applicants I looked up?") and Neat Freak finds them. Restore one tab, a whole folder, or an entire session.
+If you'd rather see the list before anything closes, turn on "Review before closing" in onboarding or settings. After Neat Freak organizes your tabs, the panel expands to show the categorized list — click any row to keep that tab open, then confirm. Nothing closes that you didn't approve.
+
+— SMART GROUPING —
+
+The grouping engine reads titles, domains, and a short page summary to figure out which tabs belong together — your active workstreams, not just "all your Google Docs." Tabs you opened in the same burst stay together (temporal proximity is a strong signal — "everything from that Tuesday research session"). Active work surfaces (drafting docs, mid-checkout, mail/calendar) are protected so you don't lose work-in-progress.
+
+— FIND ANYTHING LATER —
+
+Search every saved tab by keyword, or hit Enter and ask in plain English ("ux applicants I looked up?") to surface tabs by intent, even if the words aren't in the title. Restore one tab, a whole folder, or an entire session.
 
 — WHY IT'S DIFFERENT —
 
@@ -62,19 +67,24 @@ OneTab and similar extensions give you a flat list of URLs. Useful for memory. U
 
 Neat Freak organizes those URLs into folders by what you were actually doing — so when you come back to a session, you see "Hiring & Candidates" and "Q4 Planning" and "That Plumber Search From Tuesday," not 87 unsorted links.
 
+— GENTLE NUDGES, NOT NAGS —
+
+When your open tabs cross your clutter threshold (default 20), the floating panel appears in the corner with a calm "want me to tidy up?" The mascot's mood reflects the situation — sleepy when it's quiet, nervous when tabs pile up, celebrating after a tidy. Dismiss the nudge by clicking ×, swiping the panel away, or just ignoring it. It escalates a few times if you ignore it, then stays quiet.
+
 — PRIVACY —
 
-Everything is stored in your browser's local extension storage. Nothing is sent to any server.
+Everything is stored in your browser's local extension storage. Nothing is sent to any server we operate (we don't have one).
 
-The exception: if you turn on AI-smart group naming in settings, tab titles and short page summaries are sent to OpenAI using YOUR own API key. This is optional, off by default, and the key is stored only on your device.
+The exception: if you turn on AI-smart grouping in settings, tab titles and short page summaries are sent to OpenAI using YOUR own API key. This is optional, off by default, and the key is stored only on your device.
 
 — OPTIONAL POWER-USER UPGRADE —
 
-Drop your own OpenAI API key in settings and Neat Freak uses gpt-5-mini to:
+Drop your own OpenAI API key in settings and Neat Freak uses gpt-5.4-mini to:
+- Pick which tabs to save vs. leave open in Smart mode (work-in-progress stays, reference tabs get filed)
 - Pick workstream-aware folder names ("Job Hunt: UX Roles" instead of "linkedin.com group")
 - Power natural-language search across every saved tab
 
-Without a key, local grouping still works great. The AI is polish, not a requirement.
+Without a key, local heuristic grouping still works great. The AI is polish, not a requirement.
 
 — PERFECT FOR —
 
@@ -88,7 +98,7 @@ People who:
 
 No account. No sync. No ads. No telemetry. No data leaves your browser unless you explicitly turn on AI grouping with your own API key.
 
-Just save, group, find. Pin Neat Freak to your toolbar and click it whenever your tabs get out of hand.
+Just tidy, find, restore. Pin Neat Freak to your toolbar and click it whenever your tabs get out of hand.
 ```
 
 ---
