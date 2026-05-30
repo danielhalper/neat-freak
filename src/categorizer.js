@@ -2,6 +2,11 @@ import { getDomain, slugify, truncateText } from "./utils.js";
 
 const OPENAI_CHAT_COMPLETIONS_URL = "https://api.openai.com/v1/chat/completions";
 const ASSOCIATION_THRESHOLD = 0.74;
+// Cap on the combined no-content (positional + temporal) contribution to an
+// edge. Held below ASSOCIATION_THRESHOLD on purpose: proximity signals bias a
+// merge hard but must never clear the bar alone — a pair still needs some
+// content/entity/domain glue to actually union.
+const PROXIMITY_CAP = 0.6;
 const LLM_MODEL = "gpt-5.4-mini";
 
 const STOP_WORDS = new Set([
@@ -427,50 +432,61 @@ function scoreProfiles(a, b) {
     reasons.push(`same domain family: ${a.domainFamily}`);
   }
 
+  // Positional + temporal are "no-content" proximity signals. They accumulate
+  // into proximityScore separately from the content signals above, then get
+  // capped (PROXIMITY_CAP) before being folded in — see the constant for why.
+  let proximityScore = 0;
+
   let adjacentInWindow = false;
   if (a.windowId === b.windowId) {
     const positionsApart = Math.abs(a.index - b.index);
     if (positionsApart === 1) {
-      score += 0.30;
+      proximityScore += 0.30;
       adjacentInWindow = true;
       reasons.push("adjacent tabs");
     } else if (positionsApart <= 3) {
-      score += 0.12;
+      proximityScore += 0.12;
       reasons.push("nearby tabs");
     }
   }
 
   // Temporal proximity — tabs touched close together probably belong to the
-  // same task. The reward is steep at the short end (near-simultaneous opens
-  // are an almost-certain same-burst signal) and tapers within the hour;
-  // beyond ~1h the gap is too noisy to mean anything on its own, so we stop
-  // scoring it and let content/entity overlap decide the long-tail of a sprint.
+  // same task. Note lastAccessed is Chrome *focus* time, not open time, so
+  // "<2m apart" really means "recently switched between," not "opened in one
+  // burst." That's a strong same-session hint but a noisy one (two adjacent
+  // tabs you merely clicked between qualify), which is exactly why the stack is
+  // capped. Reward is steep at the short end and tapers within the hour; beyond
+  // ~1h the gap is too noisy to mean anything on its own, so we stop scoring it
+  // and let content/entity overlap decide the long-tail of a sprint.
   let tightlyTimed = false;
   if (a.lastAccessed && b.lastAccessed) {
     const minsApart = Math.abs(a.lastAccessed - b.lastAccessed) / 60_000;
     if (minsApart <= 2) {
-      score += 0.50;
+      proximityScore += 0.50;
       tightlyTimed = true;
-      reasons.push("opened together (<2m)");
+      reasons.push("touched together (<2m)");
     } else if (minsApart <= 10) {
-      score += 0.36;
+      proximityScore += 0.36;
       tightlyTimed = minsApart <= 5;
       reasons.push("touched within ~10m");
     } else if (minsApart <= 60) {
-      score += 0.24;
+      proximityScore += 0.24;
       reasons.push("touched within ~1h");
     }
   }
 
-  // Adjacent in the strip AND opened within a few minutes is about the
-  // strongest "same workflow" signal there is without content overlap.
+  // Adjacent in the strip AND touched within a few minutes is about the
+  // strongest "same workflow" hint there is without content overlap — but it's
+  // still only a hint, which is why the whole proximity stack is capped below.
   // tab.index is current strip position (noisy once tabs get reordered), so we
   // only lean on it for the tight-time case — you rarely shuffle tabs you just
-  // opened together.
+  // touched together.
   if (adjacentInWindow && tightlyTimed) {
-    score += 0.08;
-    reasons.push("adjacent + opened together");
+    proximityScore += 0.08;
+    reasons.push("adjacent + touched together");
   }
+
+  score += Math.min(PROXIMITY_CAP, proximityScore);
 
   return {
     source: a.id,
