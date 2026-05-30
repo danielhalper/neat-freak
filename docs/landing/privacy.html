@@ -1,0 +1,149 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Privacy Policy — Neat Freak</title>
+  <meta name="description" content="How Neat Freak handles your data: everything stays in your browser. No account, no analytics, nothing leaves your device unless you opt into AI grouping with your own key.">
+  <meta name="theme-color" content="#093f3b">
+  <link rel="icon" type="image/svg+xml" href="favicon.svg">
+  <link rel="apple-touch-icon" href="favicon.svg">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Lilita+One&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --teal-dark: #093f3b; --teal: #0f766e; --gold: #f4bd45; --amber: #d59b32;
+      --ink: #0b1f1d; --body: #1f2937; --muted: #64748b; --cream: #fafaf7;
+      --mist: #f0fdfa; --border: #e6e2d6;
+    }
+    * { box-sizing: border-box; }
+    html { scroll-behavior: smooth; }
+    body {
+      margin: 0; background: var(--cream); color: var(--body);
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      line-height: 1.65;
+    }
+    a { color: var(--teal); }
+    .wrap { max-width: 760px; margin: 0 auto; padding: 0 24px; }
+
+    .topbar { background: var(--teal-dark); padding: 20px 0; }
+    .topbar .wrap { display: flex; align-items: center; justify-content: space-between; max-width: 1080px; }
+    .wordmark { font-family: "Lilita One", Georgia, sans-serif; font-size: 24px; color: #fff; }
+    .wordmark .accent { color: var(--gold); }
+    .topbar a { color: rgba(255,255,255,0.82); text-decoration: none; font-size: 15px; }
+    .topbar a:hover { color: #fff; }
+
+    main { padding: 56px 0 72px; }
+    h1 { font-family: Georgia, serif; color: var(--ink); font-size: 40px; line-height: 1.1; margin: 0 0 8px; }
+    .updated { color: var(--muted); font-size: 14px; margin: 0 0 32px; }
+    h2 { font-family: Georgia, serif; color: var(--ink); font-size: 23px; margin: 38px 0 10px; }
+    p { margin: 0 0 14px; }
+    ul { margin: 0 0 14px; padding-left: 22px; }
+    li { margin: 6px 0; }
+    code { background: var(--mist); border: 1px solid #d6ebe5; border-radius: 5px; padding: 1px 6px; font-size: 90%; }
+
+    .tldr {
+      background: #fff; border: 1px solid var(--border); border-left: 4px solid var(--gold);
+      border-radius: 12px; padding: 18px 22px; margin: 0 0 28px;
+    }
+    .tldr strong { color: var(--ink); }
+
+    footer { background: var(--teal-dark); color: rgba(255,255,255,0.8); padding: 32px 0; }
+    footer .wrap { max-width: 1080px; display: flex; justify-content: space-between; align-items: center; gap: 16px; flex-wrap: wrap; }
+    footer a { color: rgba(255,255,255,0.8); text-decoration: none; margin-left: 20px; }
+    footer a:hover { color: #fff; }
+    .foot-note { font-size: 13px; color: rgba(217,240,232,0.6); }
+    @media (max-width: 600px) {
+      h1 { font-size: 32px; }
+      footer .wrap { flex-direction: column; text-align: center; }
+      footer a { margin: 0 10px; }
+    }
+  </style>
+</head>
+<body>
+  <div class="topbar">
+    <div class="wrap">
+      <a href="index.html" style="display:flex;align-items:center;">
+        <span class="wordmark">Neat <span class="accent">Freak</span></span>
+      </a>
+      <a href="index.html">← Back to home</a>
+    </div>
+  </div>
+
+  <main>
+    <div class="wrap">
+      <h1>Privacy Policy</h1>
+      <p class="updated">Last updated: May 27, 2026</p>
+
+      <div class="tldr">
+        <strong>TL;DR —</strong> Neat Freak stores everything in your browser. We have no server, no
+        account system, and no analytics. Nothing leaves your device unless you explicitly turn on
+        AI-smart grouping, in which case tab titles, URLs, and short page summaries are sent to OpenAI
+        using <strong>your own API key</strong>.
+      </div>
+
+      <h2>What Neat Freak stores on your device</h2>
+      <p>Saved locally via <code>chrome.storage.local</code>, never transmitted to any server we control (we don't have one):</p>
+      <ul>
+        <li><strong>Saved tab sessions</strong> — for each session: the URLs, titles, favicon URLs, and a short text summary of each page at the time you saved it.</li>
+        <li><strong>Tab grouping metadata</strong> — folder names, signals, and confidence scores.</li>
+        <li><strong>Your settings</strong> — capture defaults, whether AI grouping is enabled, and your OpenAI API key (if you provide one).</li>
+      </ul>
+      <p>All of this lives in your browser's extension storage. Uninstalling Neat Freak removes it.</p>
+
+      <h2>What gets sent to OpenAI (only if you opt in)</h2>
+      <p>If — and only if — you (a) provide your own OpenAI API key in settings and (b) leave AI grouping enabled, then:</p>
+      <ul>
+        <li>When you tidy, Neat Freak sends tab titles, URLs, domains, and short page summaries to OpenAI's API to decide what to keep open and to generate workstream-aware folder names.</li>
+        <li>When you run a smart search, Neat Freak sends your query plus the same per-tab metadata to OpenAI to rank matches.</li>
+      </ul>
+      <p>The request goes directly from your browser to <code>api.openai.com</code> using your API key. We are not a middleman — we do not log, proxy, or otherwise observe this traffic. It's governed by <a href="https://openai.com/policies/privacy-policy" target="_blank" rel="noopener noreferrer">OpenAI's privacy policy</a> and your API agreement with them; per OpenAI's API terms, data sent through the API is not used to train their models by default.</p>
+      <p>If you do not provide an API key, <strong>no data leaves your device</strong> — grouping runs entirely in your browser.</p>
+
+      <h2>What we do NOT collect</h2>
+      <ul>
+        <li>No analytics or telemetry (no Google Analytics, no Mixpanel, no Sentry, nothing).</li>
+        <li>No user accounts. There is no Neat Freak account system.</li>
+        <li>No advertising identifiers. We do not show ads.</li>
+        <li>No tracking across sessions or devices. Each install is independent.</li>
+        <li>No selling, renting, or sharing of any data. (We don't have any to share.)</li>
+      </ul>
+
+      <h2>Permissions and why we need them</h2>
+      <ul>
+        <li><code>storage</code> — to save your sessions and settings on your device.</li>
+        <li><code>tabs</code> — to read the list of open tabs (title, URL, favicon, pinned status) when you tidy, and to reopen URLs when you click Restore.</li>
+        <li><code>scripting</code> — to extract a short text summary of each page at save time, which improves grouping. This runs only at the moment of save, only on tabs you are saving.</li>
+        <li><code>notifications</code> — to let you know when a save finishes, so you can move on.</li>
+        <li><code>alarms</code> — to periodically check whether you're over your clutter threshold.</li>
+        <li><strong>Host access (<code>http/https</code>)</strong> — required so the <code>scripting</code> permission can run on the pages you save. Neat Freak does not read your pages at any other time.</li>
+        <li><strong>Host access (<code>api.openai.com</code>)</strong> — only used when you enable AI grouping with your own key.</li>
+      </ul>
+
+      <h2>Data retention</h2>
+      <p>Sessions stay in your browser until you delete them (or uninstall Neat Freak). There is no remote backup, no sync, no automatic deletion.</p>
+
+      <h2>Children's privacy</h2>
+      <p>Neat Freak does not knowingly collect data from anyone under 13. Since we don't collect data from anyone, this is somewhat redundant — but we state it explicitly.</p>
+
+      <h2>Changes to this policy</h2>
+      <p>If we update this policy, we'll change the "Last updated" date above and publish the new version at the same URL. Material changes (e.g., adding any kind of server-side data handling) will be announced in the extension's update notes.</p>
+
+      <h2>Contact</h2>
+      <p>Questions about this policy: <a href="mailto:danielhalper4@gmail.com">danielhalper4@gmail.com</a></p>
+    </div>
+  </main>
+
+  <footer>
+    <div class="wrap">
+      <span class="wordmark" style="font-size:20px;">Neat <span class="accent">Freak</span></span>
+      <nav>
+        <a href="index.html">Home</a>
+        <a href="https://docs.google.com/forms/d/e/1FAIpQLScCJ75hY97O_cTcMTrcxAX9T2cSlLX8Ow3k-IGYomjWEiNHeQ/viewform" target="_blank" rel="noopener noreferrer">Feedback</a>
+        <a href="https://github.com/danielhalper/neat-freak" target="_blank" rel="noopener noreferrer">GitHub</a>
+      </nav>
+    </div>
+  </footer>
+</body>
+</html>

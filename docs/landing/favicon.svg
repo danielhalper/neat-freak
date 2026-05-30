@@ -1,0 +1,23 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128">
+  <rect width="128" height="128" rx="28" fill="#0f766e"/>
+
+  <!-- Furrowed brows -->
+  <path d="M22 44 L56 38" stroke="#093f3b" stroke-width="6" stroke-linecap="round"/>
+  <path d="M74 38 L104 46" stroke="#093f3b" stroke-width="6" stroke-linecap="round"/>
+
+  <!-- Left eye -->
+  <circle cx="44" cy="66" r="18" fill="#f7f8f6"/>
+  <circle cx="50" cy="69" r="8" fill="#093f3b"/>
+  <circle cx="52" cy="67" r="2.5" fill="#ffffff"/>
+
+  <!-- Right eye (bigger, slightly cross-eyed) -->
+  <circle cx="86" cy="67" r="20" fill="#f7f8f6"/>
+  <circle cx="80" cy="70" r="9" fill="#093f3b"/>
+  <circle cx="82" cy="68" r="2.5" fill="#ffffff"/>
+
+  <!-- Tight little grin -->
+  <path d="M50 102 Q64 110 78 102" fill="none" stroke="#093f3b" stroke-width="6" stroke-linecap="round"/>
+
+  <!-- Gold sparkle -->
+  <path d="M107 22 L110 31 L119 34 L110 37 L107 46 L104 37 L95 34 L104 31 Z" fill="#f4bd45"/>
+</svg>

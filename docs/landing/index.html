@@ -6,6 +6,10 @@
   <title>Neat Freak — Tidy your tabs. Find your work.</title>
   <meta name="description" content="Neat Freak saves every open Chrome tab into memory-light folders, grouped by what you're actually working on — and restores them in one click. No account. Yours.">
 
+  <meta name="theme-color" content="#093f3b">
+  <link rel="icon" type="image/svg+xml" href="favicon.svg">
+  <link rel="apple-touch-icon" href="favicon.svg">
+
   <!-- Open Graph / social preview -->
   <meta property="og:title" content="Neat Freak — Tidy your tabs. Find your work.">
   <meta property="og:description" content="A smart tab saver. It keeps your live work open, files the rest into folders, and restores in one click.">
@@ -229,8 +233,7 @@
         <span class="links">
           <a href="#how">How it works</a>
           <a href="#privacy">Privacy</a>
-          <!-- TODO: replace href with your Chrome Web Store listing URL -->
-          <a class="btn btn-primary" href="#" id="cta-nav">Add to Chrome</a>
+          <a class="btn btn-primary" href="#" data-store>Add to Chrome</a>
         </span>
       </nav>
 
@@ -239,8 +242,7 @@
           <h1>Tidy your tabs.<br><em>Find your work.</em></h1>
           <p class="sub">Save every open tab into memory-light folders, grouped by what you're actually working on — and restore them in one click.</p>
           <div class="hero-cta">
-            <!-- TODO: replace href with your Chrome Web Store listing URL -->
-            <a class="btn btn-primary" href="#" id="cta-hero">Add to Chrome — it's free</a>
+            <a class="btn btn-primary" href="#" data-store>Add to Chrome — it's free</a>
             <a class="btn btn-ghost" href="#how">See how it works</a>
           </div>
           <p class="hero-fine">A Chrome extension. No account. Yours.</p>
@@ -340,8 +342,7 @@
       <p class="eyebrow">Privacy</p>
       <h2>Everything stays in your browser.</h2>
       <p class="lede">No account. No sync. No ads. No telemetry. Nothing leaves your device — unless you opt into AI grouping with your own OpenAI key, which is off by default and stored only on your machine.</p>
-      <!-- TODO: replace href with your Chrome Web Store listing URL -->
-      <a class="btn btn-primary" href="#" id="cta-foot">Add to Chrome — it's free</a>
+      <a class="btn btn-primary" href="#" data-store>Add to Chrome — it's free</a>
     </div>
   </section>
 
@@ -351,7 +352,7 @@
       <span class="wordmark" style="font-size:22px;">Neat <span class="accent">Freak</span></span>
       <nav>
         <a href="#how">How it works</a>
-        <a href="#privacy">Privacy</a>
+        <a href="privacy.html">Privacy Policy</a>
         <a href="https://docs.google.com/forms/d/e/1FAIpQLScCJ75hY97O_cTcMTrcxAX9T2cSlLX8Ow3k-IGYomjWEiNHeQ/viewform" target="_blank" rel="noopener noreferrer">Feedback</a>
         <a href="https://github.com/danielhalper/neat-freak" target="_blank" rel="noopener noreferrer">GitHub</a>
       </nav>
@@ -360,6 +361,21 @@
       <p class="foot-note">© Neat Freak. A Chrome extension for tidying tabs. Tidy · Group · Find.</p>
     </div>
   </footer>
+
+  <script>
+    // ▼▼▼ ONE thing to set: paste your published Chrome Web Store listing URL.
+    //     e.g. "https://chromewebstore.google.com/detail/your-extension-id"
+    //     Until you set it, the "Add to Chrome" buttons stay inert.
+    const STORE_URL = "#";
+    // ▲▲▲ Nothing else to edit.
+    if (STORE_URL && STORE_URL !== "#") {
+      document.querySelectorAll("[data-store]").forEach(function (el) {
+        el.href = STORE_URL;
+        el.target = "_blank";
+        el.rel = "noopener noreferrer";
+      });
+    }
+  </script>
 
 </body>
 </html>
