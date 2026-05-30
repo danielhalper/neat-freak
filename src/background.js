@@ -104,6 +104,13 @@ async function routeMessage(message) {
     case "PANEL_DISMISS":
       await setPanelState({ mode: "hidden" });
       return {};
+    case "PANEL_DISMISS_SAVING":
+      // User closed the loader mid-save. Remember it so progress steps stop
+      // re-showing it; the save keeps running and the done result still
+      // surfaces when finished.
+      try { await chrome.storage.session?.set?.({ [SAVE_LOADER_DISMISSED_KEY]: true }); } catch { /* tolerate */ }
+      await setPanelState({ mode: "hidden" });
+      return {};
     case "PANEL_CONFIRM_REVIEW":
       return confirmPanelReview(message.sessionId, message.keepOpenSessionTabIds || []);
     case "PANEL_DISCARD_REVIEW":
@@ -194,12 +201,15 @@ function emitProgress(payload) {
     // chrome.storage.session may be unavailable in some older Chromiums; tolerate it.
   }
 
-  // Mirror progress into the floating panel's saving state so the sub-text
-  // updates per step ("Capturing N URLs…" → "Grouping…" → "Saving…"). Skipped
-  // if the popup is open — popup handles its own progress UI.
+  // Mirror progress into the floating panel's saving state. Skipped if the
+  // popup is open (it handles its own progress UI) or if the user dismissed
+  // the loader for this save (so it doesn't pop back on the next step).
   if (!isPopupOpen() && payload?.step && payload.step !== "done") {
     const label = progressLabelFor(payload);
-    setPanelState({ mode: "saving", label }).catch(() => undefined);
+    isSaveLoaderDismissed().then((dismissed) => {
+      if (dismissed) return;
+      setPanelState({ mode: "saving", label }).catch(() => undefined);
+    });
   }
 }
 
@@ -219,6 +229,10 @@ function progressLabelFor(payload) {
 }
 
 async function saveTabs(options) {
+  // New save → clear any leftover "loader dismissed" flag so this save's
+  // progress panel shows fresh (the user can dismiss it again if they want).
+  try { await chrome.storage.session?.remove?.(SAVE_LOADER_DISMISSED_KEY); } catch { /* tolerate */ }
+
   const settings = await getSettings();
   const captureOptions = {
     includePinned: Boolean(options.includePinned ?? settings.defaultIncludePinned),
@@ -858,6 +872,21 @@ function notifySessionReady(session, meta) {
 // re-render against the new state.
 
 const PANEL_STATE_KEY = "neatFreakPanelState";
+// Session flag: set when the user dismisses the panel DURING a save (× / swipe
+// / Close). While set, emitProgress stops re-injecting the "saving" panel so a
+// dismissed loader doesn't pop back on the next progress step. Cleared at the
+// start of each save. The "done" result still surfaces regardless — it's the
+// payoff the user is waiting for, and it finds them on their active tab.
+const SAVE_LOADER_DISMISSED_KEY = "neatFreakSaveLoaderDismissed";
+
+function isSaveLoaderDismissed() {
+  return new Promise((resolve) => {
+    try {
+      chrome.storage.session.get(SAVE_LOADER_DISMISSED_KEY, (r) =>
+        resolve(Boolean(r && r[SAVE_LOADER_DISMISSED_KEY])));
+    } catch { resolve(false); }
+  });
+}
 
 async function setPanelState(state) {
   try {
@@ -1052,15 +1081,26 @@ if (chrome.notifications?.onClicked) {
 
 const CLUTTER_HYSTERESIS = 3; // count must dip to (threshold - this) before we'll alert again
 const CLUTTER_THRESHOLD_FALLBACK = 20; // used only if reading settings fails
-const CLUTTER_TIER_STEP = 7; // re-alert once when N tabs over the threshold
-const CLUTTER_MAX_ALERT_TIER = 1; // cap: tier 0 at threshold, tier 1 at +STEP, no further escalation
+// Tier schedule expressed as tabs OVER threshold. With threshold=20 this
+// fires at 20 (tier 0), 27 (tier 1), 40 (tier 2), 70 (tier 3 at +50). Picked so
+// the first two come quickly (catch-and-correct) and the later two are
+// big jumps (real escalation for habitual heavy-tab users). Keep sorted
+// ascending — currentTier scan relies on it.
+const CLUTTER_TIER_OFFSETS = [0, 7, 20, 50];
+// Catches the "lives at 35 tabs in one Chrome session for a month" user.
+// Once the highest tier alerted has fired and the schedule is silent, we
+// still re-fire once every REENGAGE_MS as long as the user is over threshold.
+// Doesn't escalate the tier — just re-shows the existing nudge.
+const CLUTTER_REENGAGE_MS = 48 * 60 * 60 * 1000;
 const CLUTTER_DISABLED_KEY = "neatFreakClutterDisabled";
-// session-scoped: highest tier we've already alerted at this session. -1 (or
-// missing) means not yet alerted. Tier 0 = threshold, tier 1 = threshold + STEP.
-// Capped at CLUTTER_MAX_ALERT_TIER so heavy-tab users get a max of 2 nudges
-// per session — once you dismiss at +STEP the watcher goes quiet until tab
-// count dips below threshold - HYSTERESIS, then climbs back up.
+// session-scoped: highest tier index we've already alerted at this session.
+// -1 (or missing) means not yet alerted. Each tier fires once. Once tab
+// count dips below threshold - HYSTERESIS the tier resets to -1 so the next
+// climb starts the schedule fresh.
 const CLUTTER_ALERTED_TIER_KEY = "neatFreakClutterAlertedTier";
+// Wall-clock ms of the last alert in this Chrome session. Pairs with the
+// tier key so the 48h re-engage check can run without a separate timer.
+const CLUTTER_LAST_ALERT_AT_KEY = "neatFreakClutterLastAlertAt";
 const CLUTTER_BADGE_COLOR = "#dc2626";
 const CLUTTER_CHECK_DEBOUNCE_MS = 3000;
 const CLUTTER_ALARM_NAME = "neat-freak-clutter-check";
@@ -1167,33 +1207,55 @@ async function checkClutter() {
 
     if (disabled) return;
 
-    const sessionState = (await chrome.storage.session?.get?.(CLUTTER_ALERTED_TIER_KEY)) || {};
+    const sessionState = (await chrome.storage.session?.get?.([
+      CLUTTER_ALERTED_TIER_KEY,
+      CLUTTER_LAST_ALERT_AT_KEY
+    ])) || {};
     const rawTier = sessionState[CLUTTER_ALERTED_TIER_KEY];
     const lastAlertedTier = Number.isFinite(rawTier) ? rawTier : -1;
+    const lastAlertAt = Number(sessionState[CLUTTER_LAST_ALERT_AT_KEY]) || 0;
 
     if (tabCount < threshold) {
-      // Once we've dropped enough below threshold, reset the tier so the
-      // next time the user climbs back above we'll show the toast again.
+      // Once we've dropped enough below threshold, reset BOTH tier and
+      // timestamp so the next time the user climbs back above the schedule
+      // (and the re-engage timer) starts fresh.
       if (lastAlertedTier >= 0 && tabCount < threshold - CLUTTER_HYSTERESIS) {
-        await chrome.storage.session?.set?.({ [CLUTTER_ALERTED_TIER_KEY]: -1 });
+        await chrome.storage.session?.set?.({
+          [CLUTTER_ALERTED_TIER_KEY]: -1,
+          [CLUTTER_LAST_ALERT_AT_KEY]: 0
+        });
       }
       return;
     }
 
-    // Tier 0 at the threshold, tier 1 at threshold + STEP. Capped at
-    // CLUTTER_MAX_ALERT_TIER so we never fire more than 2 alerts per
-    // session (threshold=20 / step=7 → nudge at 20 and at 27, then silent
-    // until tabs dip below 17 and climb back up).
-    const uncappedTier = Math.floor((tabCount - threshold) / CLUTTER_TIER_STEP);
-    const currentTier = Math.min(uncappedTier, CLUTTER_MAX_ALERT_TIER);
-    if (currentTier <= lastAlertedTier) return;
+    // Highest tier whose offset the user has met. At threshold=20 the
+    // schedule [0, 7, 20, 50] fires at 20, 27, 40, 70. Dropping below
+    // threshold - HYSTERESIS resets lastAlertedTier and the schedule
+    // starts fresh on the next climb.
+    const tabsOver = tabCount - threshold;
+    const currentTier = CLUTTER_TIER_OFFSETS.findLastIndex((offset) => tabsOver >= offset);
+    const tierEscalated = currentTier > lastAlertedTier;
+    // Once the schedule has gone silent (no new tier to escalate to), still
+    // re-fire every REENGAGE_MS as long as the user remains over threshold.
+    // Catches the "never quit Chrome / oscillates between 35 and 60" user.
+    const sufficientlyStale = lastAlertedTier > -1
+      && lastAlertAt > 0
+      && Date.now() - lastAlertAt >= CLUTTER_REENGAGE_MS;
+    if (!tierEscalated && !sufficientlyStale) return;
 
     const shown = await showPanelClutter(tabCount);
     if (shown) {
-      await chrome.storage.session?.set?.({ [CLUTTER_ALERTED_TIER_KEY]: currentTier });
+      // Keep the highest tier we've ever hit (the stale-rearm case shouldn't
+      // demote tier memory if user happens to be in a lower tier now). Always
+      // update timestamp so the next 48h window starts from this alert.
+      await chrome.storage.session?.set?.({
+        [CLUTTER_ALERTED_TIER_KEY]: Math.max(currentTier, lastAlertedTier),
+        [CLUTTER_LAST_ALERT_AT_KEY]: Date.now()
+      });
     }
-    // If we couldn't show the toast (privileged page), DON'T update tier —
-    // we'll try again on the next event when the user switches to a regular tab.
+    // If we couldn't show the toast (privileged page), DON'T update tier or
+    // timestamp — we'll try again on the next event when the user switches
+    // to a regular tab.
   } catch (err) {
     // Best-effort — the clutter watcher should never break the rest of the extension.
     console.warn("[Neat Freak] Clutter watcher threw:", err?.message || err);

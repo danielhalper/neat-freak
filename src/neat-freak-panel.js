@@ -240,6 +240,10 @@ function createPanelHost() {
   shadow.innerHTML = panelMarkup();
   shadow.addEventListener("click", (event) => handlePanelClick(host, event));
   shadow.addEventListener("change", (event) => handlePanelChange(host, event));
+  // Swipe-to-dismiss the collapsed card. Skips popup context, expanded view,
+  // and states with explicit actions (saving / review).
+  const cardForSwipe = shadow.getElementById("card");
+  if (cardForSwipe) bindSwipeToDismiss(host, cardForSwipe);
   // Favicon <img> tags previously used onerror="..." inline to hide
   // themselves when a domain's favicon failed to load. Strict-CSP pages
   // (Slides, etc.) block inline event handlers, so we replace it with a
@@ -414,6 +418,25 @@ function panelMarkup() {
         0%   { transform: translateX(-100%); }
         100% { transform: translateX(400%); }
       }
+
+      /* Explicit "Close" affordance in the saving state — small muted text
+         button under the progress bar. Reinforces that the panel is
+         non-blocking; the save keeps running and the result still surfaces. */
+      .saving-close {
+        display: inline-block;
+        margin-top: 8px;
+        padding: 2px 0;
+        background: none;
+        border: 0;
+        font-family: inherit;
+        font-size: 12px;
+        color: #63706b;
+        cursor: pointer;
+        text-decoration: underline;
+        text-underline-offset: 2px;
+      }
+      .saving-close:hover { color: #17201d; }
+      .saving-close:focus-visible { outline: 2px solid #f4bd45; outline-offset: 2px; border-radius: 3px; }
 
       .close {
         position: absolute;
@@ -1178,6 +1201,51 @@ function panelMarkup() {
         z-index: -1;
       }
 
+      /* Saving-state speech bubble in the collapsed card. Lives in the ~115px
+         gap to the left of the collapsed mascot (which is right:24px, ~190px
+         wide). Tail on the right points at the monster. Shown only while the
+         card is in the saving state. */
+      .save-bubble {
+        position: absolute;
+        top: 44px;
+        right: 206px;
+        width: 122px;
+        background: #ffffff;
+        border: 1px solid #e8dfc7;
+        border-radius: 12px;
+        padding: 7px 9px;
+        font-size: 11px;
+        font-weight: 500;
+        line-height: 1.3;
+        text-align: right;
+        color: #1a2421;
+        box-shadow: 0 6px 16px rgba(15, 118, 110, 0.16);
+        opacity: 0;
+        transform: scale(0.92) translateX(4px);
+        transform-origin: right center;
+        transition: opacity 200ms ease 120ms, transform 220ms cubic-bezier(0.2, 0.9, 0.3, 1.0) 120ms;
+        pointer-events: none;
+        z-index: 6;
+      }
+      .card.state-saving .save-bubble {
+        opacity: 1;
+        transform: scale(1) translateX(0);
+      }
+      .save-bubble::after {
+        content: "";
+        position: absolute;
+        right: -6px;
+        top: 50%;
+        margin-top: -5px;
+        width: 10px;
+        height: 10px;
+        background: #ffffff;
+        border-top: 1px solid #e8dfc7;
+        border-right: 1px solid #e8dfc7;
+        transform: rotate(45deg);
+        z-index: -1;
+      }
+
       /* ===== Mascot animations (ported from NeatFreak.css) =====
          Mood-driven keyframes covering blink (always), snore (sleeping),
          clean-bob (happy + cleaning, different speeds), finger taps
@@ -1495,6 +1563,12 @@ function panelMarkup() {
           <p class="title" id="title">Loading…</p>
           <p class="sub" id="sub"></p>
         </div>
+        <!-- Saving-state speech bubble. Sits in the space to the LEFT of the
+             collapsed mascot, tail pointing right at him. Only visible while
+             .card.state-saving (CSS-gated). Reassures the user they can carry
+             on in another tab — the panel re-injects into whatever tab is
+             active when the save finishes, so it "finds" them. -->
+        <div class="save-bubble" id="save-bubble" role="status" aria-live="polite">No need to wait —<br>I'll find you.</div>
       </div>
       <div class="actions" id="actions"></div>
 
@@ -1704,11 +1778,19 @@ function applyState(host, state) {
 
   if (state.mode === "saving") {
     titleEl.textContent = "Tidying your tabs";
-    const label = (state.label && String(state.label)) || "Organizing";
-    subEl.textContent = label;
-    // Indeterminate sliding bar carries the "in progress" signal; the
-    // disabled "Working…" button it replaces was redundant noise.
-    actionsEl.innerHTML = `<div class="progress-bar" role="progressbar" aria-label="Tidying your tabs"></div>`;
+    // The reassurance ("No need to wait — I'll find you.") lives in the
+    // .save-bubble speaking from the monster, shown via .card.state-saving CSS.
+    // Clear the sub so the bubble + progress bar are the only message and
+    // nothing competes in the left column. (The per-step label still drives
+    // the popup's own progress UI; the in-page panel leads with reassurance.)
+    subEl.textContent = "";
+    // Indeterminate sliding bar carries the "in progress" signal, plus an
+    // explicit "Close" affordance so it's clear the panel is non-blocking —
+    // you can dismiss it (or swipe it away) and the result still finds you.
+    actionsEl.innerHTML = `
+      <div class="progress-bar" role="progressbar" aria-label="Tidying your tabs"></div>
+      <button class="saving-close" data-action="dismiss-saving" type="button">Hide</button>
+    `;
     // Saving doesn't auto-dismiss — completion transitions us to done.
     return;
   }
@@ -1878,14 +1960,28 @@ function handlePanelClick(host, event) {
     updateMascot(host);
   }
 
-  // Collapsed action buttons
-  if (action === "dismiss") {
+  // Collapsed action buttons.
+  // "dismiss-saving" is the explicit Close text in the saving state; it routes
+  // through the same saving-dismiss path as the × below.
+  if (action === "dismiss" || action === "dismiss-saving") {
     cancelAutoDismiss();
     // Dismissing during review = discard. The session was created moments
     // ago and the tabs are still open; nothing's lost. Keeping it around in
     // a "review" limbo would just leave orphan state in storage.
     if (currentState?.mode === "review") {
       safeSendMessage({ type: "PANEL_DISCARD_REVIEW", sessionId: currentState.sessionId || "" });
+      if (inPopupContext) {
+        try { window.close(); } catch { /* fallthrough */ }
+        return;
+      }
+      dismissPanel(host);
+      return;
+    }
+    // Dismissing during a save: the save keeps running in the background and
+    // the done result still surfaces when finished. PANEL_DISMISS_SAVING tells
+    // the background to stop re-showing the loader on later progress steps.
+    if (currentState?.mode === "saving") {
+      safeSendMessage({ type: "PANEL_DISMISS_SAVING" });
       if (inPopupContext) {
         try { window.close(); } catch { /* fallthrough */ }
         return;
@@ -2139,6 +2235,107 @@ function unbindOutsideClickHandler() {
   if (!outsideClickHandler) return;
   document.removeEventListener("click", outsideClickHandler, true);
   outsideClickHandler = null;
+}
+
+// Swipe-to-dismiss for the floating panel. Only fires in the in-page
+// (injected) context — the toolbar popup is a Chrome-managed window that
+// can't be swiped. Engages once horizontal movement crosses ENGAGE_THRESHOLD
+// (below that, clicks fire normally). On release past 30% of card width or
+// 80px (whichever is larger), the card flies off in the swipe direction
+// and PANEL_DISMISS is sent.
+function bindSwipeToDismiss(host, card) {
+  if (inPopupContext) return;
+
+  const ENGAGE_THRESHOLD = 8;
+  let drag = null;
+
+  card.addEventListener("pointerdown", (event) => {
+    // Only primary mouse button or touch — ignore right/middle-click, pen, etc.
+    if (event.button !== 0 && event.pointerType !== "touch") return;
+    // Don't initiate drag on interactive elements — let normal clicks run.
+    const interactive = event.target instanceof Element
+      && event.target.closest("button, input, select, textarea, a, [data-action]");
+    if (interactive) return;
+    // States that own their own action surface or have no card to swipe.
+    // Saving IS swipe-dismissible (the save keeps running in the background);
+    // review has its own Cancel/Confirm footer; hidden has nothing to swipe.
+    if (expandedMode) return;
+    if (!currentState) return;
+    if (currentState.mode === "review" || currentState.mode === "hidden") return;
+    // Expanded view + review-shell contain scrollable content — never
+    // co-opt drags inside them as swipes even if the user happened to
+    // start outside the standard collapsed row.
+    if (event.target instanceof Element && event.target.closest(".expand-wrapper, .review-shell")) return;
+
+    drag = {
+      startX: event.clientX,
+      currentX: event.clientX,
+      engaged: false,
+      pointerId: event.pointerId,
+      cardWidth: card.offsetWidth
+    };
+  });
+
+  card.addEventListener("pointermove", (event) => {
+    if (!drag || event.pointerId !== drag.pointerId) return;
+    const deltaX = event.clientX - drag.startX;
+    if (!drag.engaged) {
+      if (Math.abs(deltaX) < ENGAGE_THRESHOLD) return;
+      drag.engaged = true;
+      try { card.setPointerCapture(drag.pointerId); } catch { /* best-effort */ }
+      card.style.transition = "none";
+      card.style.cursor = "grabbing";
+    }
+    drag.currentX = event.clientX;
+    const fadeRange = Math.max(120, drag.cardWidth * 0.5);
+    card.style.transform = `translateX(${deltaX}px)`;
+    card.style.opacity = String(Math.max(0.25, 1 - Math.abs(deltaX) / fadeRange));
+  });
+
+  const endDrag = (event) => {
+    if (!drag || event.pointerId !== drag.pointerId) return;
+    const deltaX = drag.currentX - drag.startX;
+    const dismissThreshold = Math.max(80, drag.cardWidth * 0.3);
+    const wasEngaged = drag.engaged;
+    drag = null;
+    card.style.cursor = "";
+    if (!wasEngaged) return; // never crossed the engage threshold — normal click runs
+
+    if (Math.abs(deltaX) > dismissThreshold) {
+      // Commit dismiss. Animate off-screen in the swipe direction, then
+      // remove the host BEFORE sending PANEL_DISMISS so the storage-change
+      // listener doesn't try to fire its own dismiss animation on top.
+      const direction = deltaX > 0 ? 1 : -1;
+      const exitX = direction * (card.offsetWidth + 60);
+      // Swiping away the saving loader stops it re-popping on later steps but
+      // lets the save finish + surface its result; any other state is a plain
+      // dismiss.
+      const dismissType = currentState?.mode === "saving" ? "PANEL_DISMISS_SAVING" : "PANEL_DISMISS";
+      card.style.transition = "transform 200ms ease-out, opacity 200ms ease-out";
+      card.style.transform = `translateX(${exitX}px)`;
+      card.style.opacity = "0";
+      setTimeout(() => {
+        host.remove();
+        safeSendMessage({ type: dismissType });
+      }, 200);
+    } else {
+      // Spring back, then clear inline overrides so future CSS-driven
+      // changes aren't fighting a stale inline transition.
+      card.style.transition = "transform 220ms cubic-bezier(0.2, 0.9, 0.3, 1), opacity 200ms ease-out";
+      card.style.transform = "translateX(0)";
+      card.style.opacity = "1";
+      setTimeout(() => {
+        if (!drag) {
+          card.style.transition = "";
+          card.style.transform = "";
+          card.style.opacity = "";
+        }
+      }, 260);
+    }
+  };
+
+  card.addEventListener("pointerup", endDrag);
+  card.addEventListener("pointercancel", endDrag);
 }
 
 async function loadExpandedData(host) {
