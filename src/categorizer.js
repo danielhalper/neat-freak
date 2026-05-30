@@ -427,27 +427,49 @@ function scoreProfiles(a, b) {
     reasons.push(`same domain family: ${a.domainFamily}`);
   }
 
-  if (a.windowId === b.windowId && Math.abs(a.index - b.index) <= 3) {
-    score += 0.1;
-    reasons.push("nearby tabs");
+  let adjacentInWindow = false;
+  if (a.windowId === b.windowId) {
+    const positionsApart = Math.abs(a.index - b.index);
+    if (positionsApart === 1) {
+      score += 0.22;
+      adjacentInWindow = true;
+      reasons.push("adjacent tabs");
+    } else if (positionsApart <= 3) {
+      score += 0.12;
+      reasons.push("nearby tabs");
+    }
   }
 
-  // Temporal proximity — tabs touched in the same work-session window
-  // probably belong together even when content/domain don't obviously match.
-  // Brackets are intentionally broad: typical work sessions span an hour or
-  // two, and tightening them would miss the second half of a research sprint.
+  // Temporal proximity — tabs touched close together probably belong to the
+  // same task. The reward is steep at the short end (near-simultaneous opens
+  // are an almost-certain same-burst signal) and tapers within the hour;
+  // beyond ~1h the gap is too noisy to mean anything on its own, so we stop
+  // scoring it and let content/entity overlap decide the long-tail of a sprint.
+  let tightlyTimed = false;
   if (a.lastAccessed && b.lastAccessed) {
     const minsApart = Math.abs(a.lastAccessed - b.lastAccessed) / 60_000;
-    if (minsApart <= 60) {
-      score += 0.30;
-      reasons.push("touched together (<1h)");
-    } else if (minsApart <= 180) {
-      score += 0.15;
-      reasons.push("touched within ~3h");
-    } else if (minsApart <= 360) {
-      score += 0.06;
-      reasons.push("touched within ~6h");
+    if (minsApart <= 2) {
+      score += 0.50;
+      tightlyTimed = true;
+      reasons.push("opened together (<2m)");
+    } else if (minsApart <= 10) {
+      score += 0.36;
+      tightlyTimed = minsApart <= 5;
+      reasons.push("touched within ~10m");
+    } else if (minsApart <= 60) {
+      score += 0.24;
+      reasons.push("touched within ~1h");
     }
+  }
+
+  // Adjacent in the strip AND opened within a few minutes is about the
+  // strongest "same workflow" signal there is without content overlap.
+  // tab.index is current strip position (noisy once tabs get reordered), so we
+  // only lean on it for the tight-time case — you rarely shuffle tabs you just
+  // opened together.
+  if (adjacentInWindow && tightlyTimed) {
+    score += 0.08;
+    reasons.push("adjacent + opened together");
   }
 
   return {
