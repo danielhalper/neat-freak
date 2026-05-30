@@ -1207,8 +1207,8 @@ function panelMarkup() {
          cover the eyes). Shown only while the card is in the saving state. */
       .save-bubble {
         position: absolute;
-        top: 66px;
-        right: 132px;
+        top: 72px;
+        right: 142px;
         max-width: 232px;
         white-space: nowrap;
         background: #ffffff;
