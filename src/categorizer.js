@@ -431,7 +431,7 @@ function scoreProfiles(a, b) {
   if (a.windowId === b.windowId) {
     const positionsApart = Math.abs(a.index - b.index);
     if (positionsApart === 1) {
-      score += 0.22;
+      score += 0.30;
       adjacentInWindow = true;
       reasons.push("adjacent tabs");
     } else if (positionsApart <= 3) {
