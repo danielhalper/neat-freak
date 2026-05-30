@@ -279,6 +279,26 @@ test("runSmartScope minSaveCount caps at total tab count", async () => {
   assert.equal(result.saveSet.length, 2);
 });
 
+test("runSmartScope never closes the active tab, even under a maxed-out floor", async () => {
+  // The tab the user is on (active) and an audio-playing tab must never end
+  // up in the save set — not even when minSaveCount would force-save all.
+  const tabs = [
+    { id: "current", title: "Current", url: "https://example.com/now", lastAccessed: minutesAgo(1), active: true },
+    { id: "music",   title: "Music",   url: "https://music.example.com", lastAccessed: minutesAgo(3), audible: true },
+    { id: "blog",    title: "Blog",    url: "https://medium.com/blog/x", lastAccessed: minutesAgo(40) },
+  ];
+  const result = await runSmartScope(
+    tabs, { llmEnabled: false, apiKey: "" }, { now: NOW, minSaveCount: 99 }
+  );
+  const savedIds = new Set(result.saveSet.map((t) => t.id));
+  assert.ok(!savedIds.has("current"), "active tab must never be saved/closed");
+  assert.ok(!savedIds.has("music"), "audible tab must never be saved/closed");
+  // No category should reference a protected tab either.
+  const categorized = result.categories.flatMap((c) => c.tabIds);
+  assert.ok(!categorized.includes("current"), "active tab must not appear in a folder");
+  assert.ok(!categorized.includes("music"), "audible tab must not appear in a folder");
+});
+
 test("runSmartScope does not undo smart's own picks when floor is small", async () => {
   // One ancient tab — heuristic saves it on its own. minSaveCount=0 must not
   // shrink that pick.

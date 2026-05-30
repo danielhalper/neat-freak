@@ -229,7 +229,34 @@ export async function runSmartScope(tabs, settings, opts = {}) {
     result = enforceMinSaveCount(result, tabs, graph, minSaveCount, now);
   }
 
+  // Hard safety net, applied last: never auto-close the tab the user is
+  // actively on (active) or a tab playing audio. The LLM gets no "active"
+  // signal and defaults unmarked tabs to save, and the floor ranks purely by
+  // savability — so without this, either could close the current tab. This is
+  // the final word and overrides every prior decision, even the floor.
+  result = forceKeepActiveTabs(result, tabs, graph);
+
   return result;
+}
+
+// Pull any active / audible tab back out of the save set. Returns result
+// unchanged if nothing needs protecting.
+function forceKeepActiveTabs(result, tabs, graph) {
+  const protectedIds = new Set(
+    tabs.filter((t) => t && (t.active || t.audible)).map((t) => t.id)
+  );
+  if (!protectedIds.size) return result;
+  const savedIdSet = new Set(
+    result.saveSet.map((t) => t.id).filter((id) => !protectedIds.has(id))
+  );
+  if (savedIdSet.size === result.saveSet.length) return result; // none were at risk
+
+  const saveSet = tabs.filter((t) => savedIdSet.has(t.id));
+  const keepSet = tabs.filter((t) => !savedIdSet.has(t.id));
+  const categories = (result.mode === "llm" && Array.isArray(result.categories) && result.categories.length)
+    ? finalizeLlmCategories(result.categories, saveSet, tabs, graph)
+    : computeSmartCategories(tabs, graph, savedIdSet);
+  return { ...result, saveSet, keepSet, categories };
 }
 
 function clampMinSaveCount(raw, total) {
