@@ -1201,19 +1201,20 @@ function panelMarkup() {
         z-index: -1;
       }
 
-      /* Saving-state speech bubble in the collapsed card. Lives in the ~115px
-         gap to the left of the collapsed mascot (which is right:24px, ~190px
-         wide). Tail on the right points at the monster. Shown only while the
-         card is in the saving state. */
+      /* Saving-state speech bubble in the collapsed card. One line, sitting
+         over the monster's left cheek with the tail landing at his mouth
+         (the face features are in his right half, so the overlap doesn't
+         cover the eyes). Shown only while the card is in the saving state. */
       .save-bubble {
         position: absolute;
-        top: 44px;
-        right: 206px;
-        width: 122px;
+        top: 66px;
+        right: 132px;
+        max-width: 232px;
+        white-space: nowrap;
         background: #ffffff;
         border: 1px solid #e8dfc7;
         border-radius: 12px;
-        padding: 7px 9px;
+        padding: 6px 9px;
         font-size: 11px;
         font-weight: 500;
         line-height: 1.3;
@@ -1568,7 +1569,7 @@ function panelMarkup() {
              .card.state-saving (CSS-gated). Reassures the user they can carry
              on in another tab — the panel re-injects into whatever tab is
              active when the save finishes, so it "finds" them. -->
-        <div class="save-bubble" id="save-bubble" role="status" aria-live="polite">No need to wait —<br>I'll find you.</div>
+        <div class="save-bubble" id="save-bubble" role="status" aria-live="polite">No need to wait — I'll find you.</div>
       </div>
       <div class="actions" id="actions"></div>
 

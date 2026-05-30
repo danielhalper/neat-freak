@@ -9,7 +9,7 @@ export const DEFAULT_SETTINGS = {
   collectPageSummaries: true,
   defaultIncludePinned: false,
   defaultKeepCurrentTab: true,
-  defaultReviewBeforeClose: false,
+  defaultReviewBeforeClose: true,
   defaultScope: "smart",
   llmEnabled: true,
   maxSnippetChars: 720,
