@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "name": "Neat Freak",
   "version": "1.3.0",
-  "description": "Tidy your tabs. Save every open tab into memory-light folders, grouped by what you're working on. Restore in one click.",
+  "description": "Intelligently stashes and organizes the tabs you're done with into tidy folders by project. Restore any of them in one click.",
   "permissions": [
     "storage",
     "tabs",
