@@ -129,11 +129,27 @@ danielhalper4@gmail.com
 
 ---
 
-## Homepage URL (optional but recommended)
+## Homepage URL
 
-A small landing page or GitHub README. Suggestions:
-- A GitHub repo (`https://github.com/yourname/neat-freak`)
-- A simple landing page on Vercel/Netlify (one HTML file is fine)
+```
+https://neat-freak.netlify.app
+```
+
+Paste into the dashboard's **Homepage URL** field (no verification needed).
+Do NOT use the "Official URL" field — that requires Google Search Console
+domain verification and is meant for owned custom domains; skip it.
+
+(Source for this page lives in `docs/landing/`, deployed to Netlify.)
+
+---
+
+## Privacy policy URL (required)
+
+```
+https://neat-freak.netlify.app/privacy.html
+```
+
+Served by the same Netlify deploy — no separate hosting needed.
 
 ---
 
