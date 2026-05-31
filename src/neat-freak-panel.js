@@ -631,7 +631,7 @@ function panelMarkup() {
         padding-top: 6px;
       }
       .review-group-head {
-        align-items: baseline;
+        align-items: center;
         color: #63706b;
         display: flex;
         gap: 8px;
@@ -645,6 +645,28 @@ function panelMarkup() {
         color: #99a39f;
         font-weight: 500;
       }
+      /* "Keep all" — group-level control to spare a whole folder at once.
+         Always visible in the header (unlike the per-row hover pill). */
+      .review-group-keep {
+        margin-left: auto;
+        background: transparent;
+        border: 1px solid #d3ded9;
+        border-radius: 999px;
+        color: #4a5651;
+        cursor: pointer;
+        font-family: inherit;
+        font-size: 10px;
+        font-weight: 650;
+        letter-spacing: 0.01em;
+        text-transform: none;
+        padding: 2px 9px;
+        transition: background 120ms ease, color 120ms ease, border-color 120ms ease;
+      }
+      .review-group-keep:hover { background: #fff; border-color: #b6c3bd; color: #17201d; }
+      .review-group-keep.kept { background: #eef4f2; border-color: #c7dfd9; color: #0f766e; }
+      .review-group-keep .review-remove-text-active { display: none; }
+      .review-group-keep.kept .review-remove-text-default { display: none; }
+      .review-group-keep.kept .review-remove-text-active { display: inline; }
       .review-items {
         list-style: none;
         margin: 0;
@@ -1923,12 +1945,28 @@ function renderReviewGroup(group) {
       <div class="review-group-head">
         <span class="review-group-name">${escapeText(name)}</span>
         <span class="review-group-count">${tabs.length}</span>
+        <button class="review-group-keep" data-action="toggle-review-group" type="button" aria-label="Keep this whole group open">
+          <span class="review-remove-text-default">Keep all</span>
+          <span class="review-remove-text-active">Kept ✓</span>
+        </button>
       </div>
       <ul class="review-items">
         ${tabs.map(renderReviewItem).join("")}
       </ul>
     </div>
   `;
+}
+
+// Keeps a group's "Keep all" button in sync with its rows: it reads "Kept ✓"
+// only when every tab in the group is kept (struck-through), otherwise "Keep all".
+function syncGroupKeepButton(group) {
+  if (!group) return;
+  const btn = group.querySelector(".review-group-keep");
+  if (!btn) return;
+  const items = [...group.querySelectorAll(".review-item")];
+  const allKept = items.length > 0 && items.every((el) => el.classList.contains("removed"));
+  btn.classList.toggle("kept", allKept);
+  btn.setAttribute("aria-label", allKept ? "Close this whole group after all" : "Keep this whole group open");
 }
 
 // Live count update for the review sub-text. Fires on every toggle so the
@@ -2071,6 +2109,25 @@ function handlePanelClick(host, event) {
     const nowRemoved = li.classList.toggle("removed");
     const btn = li.querySelector(".review-remove");
     if (btn) btn.setAttribute("aria-label", nowRemoved ? "Close this tab after all" : "Keep this tab open");
+    // Reflect the group's "Keep all" state (e.g. keeping the last tab in a
+    // group flips its header button to "Kept ✓").
+    syncGroupKeepButton(li.closest(".review-group"));
+    updateReviewConfirmCount(host);
+    return;
+  }
+  if (action === "toggle-review-group") {
+    // Keep (or un-keep) every tab in the folder at once. If the whole group
+    // is already kept, this releases it; otherwise it keeps all of them.
+    const group = actionEl.closest(".review-group");
+    if (!group) return;
+    const items = [...group.querySelectorAll(".review-item")];
+    const allKept = items.length > 0 && items.every((el) => el.classList.contains("removed"));
+    items.forEach((el) => {
+      el.classList.toggle("removed", !allKept);
+      const b = el.querySelector(".review-remove");
+      if (b) b.setAttribute("aria-label", !allKept ? "Close this tab after all" : "Keep this tab open");
+    });
+    syncGroupKeepButton(group);
     updateReviewConfirmCount(host);
     return;
   }
