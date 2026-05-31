@@ -836,19 +836,26 @@ function panelMarkup() {
       }
       .check-row input { margin: 0; }
 
-      /* Inconspicuous "make it automatic" toggle on the done card. Muted and
-         small — revealed only when .card.state-done.has-auto-tidy (LLM on). */
+      /* Inconspicuous "skip the review next time" toggle on the done card. It
+         continues the white .actions footer (same bg, full-bleed to the card
+         edges) so it reads as one panel, not a detached strip below it.
+         Revealed only when .card.state-done.has-auto-tidy (LLM on). */
       .done-auto {
         display: none;
         align-items: center;
-        gap: 7px;
-        margin: 12px 2px 0;
+        gap: 8px;
+        margin: 0 -14px -14px;
+        padding: 2px 14px 13px;
+        background: #fefefc;
         font-size: 11.5px;
         line-height: 1.3;
         color: #8a948f;
         cursor: pointer;
         user-select: none;
       }
+      /* With the toggle present, the actions row hands its bottom bleed to
+         .done-auto so the white footer reaches the card edge as one block. */
+      .card.state-done.has-auto-tidy .actions { margin-bottom: 0; padding-bottom: 10px; }
       .card.state-done.has-auto-tidy .done-auto { display: flex; }
       .done-auto input { margin: 0; accent-color: #0f766e; cursor: pointer; }
       .done-auto:hover { color: #63706b; }
@@ -1597,12 +1604,12 @@ function panelMarkup() {
       </div>
       <div class="actions" id="actions"></div>
 
-      <!-- Inconspicuous "make it automatic" toggle. CSS-gated to the done card
-           and revealed only when .has-auto-tidy is set (LLM on). "Automatic" =
-           skip Review-before-closing, so it flips defaultReviewBeforeClose. -->
+      <!-- Inconspicuous toggle on the done card: skip the review step next
+           time. CSS-gated to the done card, revealed only when .has-auto-tidy
+           is set (LLM on). It flips the existing defaultReviewBeforeClose. -->
       <label class="done-auto" id="done-auto">
         <input type="checkbox" id="opt-auto-tidy">
-        <span>Tidy automatically next time</span>
+        <span>Tidy without reviewing next time</span>
       </label>
 
       <!-- Review-before-closing shell. Only visible when state.mode === "review".
@@ -1856,7 +1863,7 @@ function applyState(host, state) {
     // Inconspicuous "make it automatic" toggle — only when the LLM is on and
     // something was actually tidied. Checked = automatic = review-before-close
     // currently off.
-    const showAuto = Boolean(state.llmOn) && tabCount > 0;
+    const showAuto = Boolean(state.llmOn) && tabCount > 0 && !expandedMode;
     card.classList.toggle("has-auto-tidy", showAuto);
     if (showAuto) {
       const autoBox = shadow.getElementById("opt-auto-tidy");
