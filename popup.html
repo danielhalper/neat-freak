@@ -32,6 +32,15 @@
         overflow: visible;
         background: #fdfcf8;
       }
+      /* Compact fallback shown on non-injectable tabs (see popup-limited.js):
+         a small card sized to its content, not the full 420×590 panel. */
+      body.popup-body.popup-body--limited {
+        width: 340px;
+        height: auto;
+        min-height: 0;
+        overflow: visible;
+        background: #fdfcf8;
+      }
     </style>
   </head>
   <body class="popup-body">
