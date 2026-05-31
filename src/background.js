@@ -926,6 +926,7 @@ async function showPanelDone(session, meta, smartResult) {
   const looseCount = categories.filter((c) => (c.tabIds || []).length === 1).length;
   const tabCount = (session.tabs || []).length;
   const keepCount = smartResult ? (smartResult.keepSet?.length || 0) : 0;
+  const settings = await getSettings();
 
   return setPanelState({
     mode: "done",
@@ -934,7 +935,12 @@ async function showPanelDone(session, meta, smartResult) {
     looseCount,
     keepCount,
     sessionId: session.id,
-    llm: Boolean(meta?.method?.includes("llm"))
+    llm: Boolean(meta?.method?.includes("llm")),
+    // Drives the inconspicuous "Tidy automatically next time" toggle on the
+    // done card: shown only when the LLM is on; its checked state reflects the
+    // current review-before-close setting (automatic = review off).
+    llmOn: Boolean(settings.llmEnabled && settings.apiKey),
+    reviewBeforeClose: Boolean(settings.defaultReviewBeforeClose)
   });
 }
 

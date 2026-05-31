@@ -267,6 +267,13 @@ function createPanelHost() {
 function handlePanelChange(host, event) {
   const target = event.target;
   if (!(target instanceof HTMLInputElement) || target.type !== "checkbox") return;
+  if (target.id === "opt-auto-tidy") {
+    // "Automatic" = skip the review step next time → review-before-close OFF.
+    // Stop the done card's auto-dismiss so it doesn't vanish mid-toggle.
+    cancelAutoDismiss();
+    safeSendMessage({ type: "SAVE_SETTINGS", settings: { defaultReviewBeforeClose: !target.checked } });
+    return;
+  }
   let key = null;
   if (target.id === "opt-include-pinned") key = "defaultIncludePinned";
   else if (target.id === "opt-keep-current") key = "defaultKeepCurrentTab";
@@ -828,6 +835,23 @@ function panelMarkup() {
         color: #1a2421;
       }
       .check-row input { margin: 0; }
+
+      /* Inconspicuous "make it automatic" toggle on the done card. Muted and
+         small — revealed only when .card.state-done.has-auto-tidy (LLM on). */
+      .done-auto {
+        display: none;
+        align-items: center;
+        gap: 7px;
+        margin: 12px 2px 0;
+        font-size: 11.5px;
+        line-height: 1.3;
+        color: #8a948f;
+        cursor: pointer;
+        user-select: none;
+      }
+      .card.state-done.has-auto-tidy .done-auto { display: flex; }
+      .done-auto input { margin: 0; accent-color: #0f766e; cursor: pointer; }
+      .done-auto:hover { color: #63706b; }
 
       .sessions-section { display: flex; flex-direction: column; gap: 8px; }
       .sessions-header {
@@ -1573,6 +1597,14 @@ function panelMarkup() {
       </div>
       <div class="actions" id="actions"></div>
 
+      <!-- Inconspicuous "make it automatic" toggle. CSS-gated to the done card
+           and revealed only when .has-auto-tidy is set (LLM on). "Automatic" =
+           skip Review-before-closing, so it flips defaultReviewBeforeClose. -->
+      <label class="done-auto" id="done-auto">
+        <input type="checkbox" id="opt-auto-tidy">
+        <span>Tidy automatically next time</span>
+      </label>
+
       <!-- Review-before-closing shell. Only visible when state.mode === "review".
            Holds the categorized list of tabs about to close (per-item × button
            to keep open) and its own Cancel / Confirm tidy footer. The standard
@@ -1820,6 +1852,15 @@ function applyState(host, state) {
         <button class="tertiary-link" data-action="expand-panel" type="button">See closed tabs →</button>
         <button class="primary" data-action="open-manager" data-session-id="${escapeAttr(sid)}" type="button">Open manager</button>
       `;
+    }
+    // Inconspicuous "make it automatic" toggle — only when the LLM is on and
+    // something was actually tidied. Checked = automatic = review-before-close
+    // currently off.
+    const showAuto = Boolean(state.llmOn) && tabCount > 0;
+    card.classList.toggle("has-auto-tidy", showAuto);
+    if (showAuto) {
+      const autoBox = shadow.getElementById("opt-auto-tidy");
+      if (autoBox) autoBox.checked = !state.reviewBeforeClose;
     }
     if (!expandedMode) scheduleAutoDismiss(host);
     // If we entered done while expanded (e.g. user expanded mid-save), refresh
