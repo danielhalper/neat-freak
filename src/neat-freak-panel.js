@@ -23,8 +23,15 @@
 
   const HOST_ID = "__neat-freak-panel__";
   const STATE_KEY = "neatFreakPanelState";
-  const AUTO_DISMISS_MS = 8000;
+  const AUTO_DISMISS_MS = 10000;
   let autoDismissTimer = null;
+  // Auto-dismiss is visibility-paused: the countdown only advances while the
+  // panel is actually on screen, so the full window is spent in front of the
+  // user — not elapsed while they're on another tab or app. See
+  // bindVisibilityPause / resumeAutoDismiss below.
+  let autoDismissHost = null;
+  let autoDismissRemainingMs = 0;
+  let autoDismissStartedAt = 0;
 
   // Popup-context detection: when this script is loaded from popup.html (chrome
   // extension page) instead of injected into a regular tab, we render the
@@ -115,6 +122,7 @@
 
     const state = await readState();
     bindStorageListener();
+    bindVisibilityPause();
     if (state && state.mode && state.mode !== "hidden") {
       const host = ensureHost();
       applyState(host, state);
@@ -3061,12 +3069,46 @@ async function triggerExpandedSave(host) {
   // state; addSession → showPanelDone transitions to done at the end.
 }
 
+// "On screen" = visible tab AND focused window — the only time the user could
+// actually be looking at the panel.
+function panelIsOnScreen() {
+  try {
+    return !document.hidden && document.hasFocus();
+  } catch {
+    return true; // if the visibility API is unavailable, don't stall forever
+  }
+}
+
 function scheduleAutoDismiss(host) {
   cancelAutoDismiss();
+  autoDismissHost = host;
+  autoDismissRemainingMs = AUTO_DISMISS_MS;
+  resumeAutoDismiss();
+}
+
+// Start (or restart) the countdown for the time that's left — but only while
+// the panel is on screen. Off-screen, the clock stays frozen.
+function resumeAutoDismiss() {
+  if (!autoDismissHost || autoDismissTimer) return;
+  if (!panelIsOnScreen()) return;
+  autoDismissStartedAt = Date.now();
   autoDismissTimer = setTimeout(() => {
-    safeSendMessage({ type: "PANEL_DISMISS" });
-    dismissPanel(host);
-  }, AUTO_DISMISS_MS);
+    autoDismissTimer = null;
+    const host = autoDismissHost;
+    autoDismissHost = null;
+    autoDismissRemainingMs = 0;
+    if (host) {
+      safeSendMessage({ type: "PANEL_DISMISS" });
+      dismissPanel(host);
+    }
+  }, autoDismissRemainingMs);
+}
+
+function pauseAutoDismiss() {
+  if (!autoDismissTimer) return;
+  clearTimeout(autoDismissTimer);
+  autoDismissTimer = null;
+  autoDismissRemainingMs = Math.max(0, autoDismissRemainingMs - (Date.now() - autoDismissStartedAt));
 }
 
 function cancelAutoDismiss() {
@@ -3074,6 +3116,23 @@ function cancelAutoDismiss() {
     clearTimeout(autoDismissTimer);
     autoDismissTimer = null;
   }
+  autoDismissHost = null;
+  autoDismissRemainingMs = 0;
+}
+
+// Pause the countdown when the tab is hidden or the window loses focus; resume
+// when it's back on screen. Bound once during init (the IIFE guard makes init
+// run once per injected world).
+function bindVisibilityPause() {
+  const onChange = () => {
+    if (panelIsOnScreen()) resumeAutoDismiss();
+    else pauseAutoDismiss();
+  };
+  try {
+    document.addEventListener("visibilitychange", onChange);
+    window.addEventListener("focus", onChange);
+    window.addEventListener("blur", onChange);
+  } catch { /* ignore */ }
 }
 
 function dismissPanel(host) {
