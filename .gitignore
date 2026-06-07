@@ -12,3 +12,6 @@ eval/build-corpus.mjs
 eval/report.html
 .env
 eval/.env
+
+# Cloudflare Wrangler local cache — holds authenticated account credentials
+.wrangler/
