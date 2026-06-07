@@ -14,6 +14,7 @@ export const DEFAULT_SETTINGS = {
   llmEnabled: true,
   llmModel: "gpt-oss-120b",
   llmProvider: "managed",
+  maxSavedSessions: 180,   // keep the newest N saved sessions; older ones are auto-pruned. 0 = keep everything.
   maxSnippetChars: 720,
   settingsVersion: 8,
   showClutterNudges: true,
@@ -22,6 +23,13 @@ export const DEFAULT_SETTINGS = {
 
 const MIN_CLUTTER_THRESHOLD = 5;
 const MAX_CLUTTER_THRESHOLD = 200;
+
+const MIN_SAVED_SESSIONS = 20;     // a fat-fingered tiny value shouldn't nuke most stashes
+const MAX_SAVED_SESSIONS = 1000;
+// Hard storage backstop: chrome.storage.local caps at ~10MB and we don't request
+// unlimitedStorage. enforceRetention trims oldest sessions past this regardless of
+// the count limit, so a save can never fail with a quota error.
+const RETENTION_BYTE_BUDGET = 8 * 1024 * 1024;
 
 function getLocal(keys) {
   return new Promise((resolve, reject) => {
@@ -55,6 +63,14 @@ function clampThreshold(value) {
   return Math.max(MIN_CLUTTER_THRESHOLD, Math.min(MAX_CLUTTER_THRESHOLD, Math.round(n)));
 }
 
+// 0 → keep everything. Invalid/negative → default. Otherwise clamp to [MIN, MAX].
+function clampSavedSessions(value) {
+  const n = Number(value);
+  if (n === 0) return 0;
+  if (!Number.isFinite(n) || n < 0) return DEFAULT_SETTINGS.maxSavedSessions;
+  return Math.max(MIN_SAVED_SESSIONS, Math.min(MAX_SAVED_SESSIONS, Math.round(n)));
+}
+
 export async function getSettings() {
   const result = await getLocal({ [SETTINGS_KEY]: DEFAULT_SETTINGS });
   const stored = result[SETTINGS_KEY] || {};
@@ -71,6 +87,8 @@ export async function getSettings() {
   }
   // v6 added clutterThreshold. Missing → default. Out-of-range → clamp.
   merged.clutterThreshold = clampThreshold(merged.clutterThreshold);
+  // Saved-session retention limit. Missing → default. Out-of-range → clamp (0 = unlimited).
+  merged.maxSavedSessions = clampSavedSessions(merged.maxSavedSessions);
   // v7: ensure a stable anonymous install id for backend per-user rate limiting.
   let persistNeeded = false;
   if (!merged.installId) {
@@ -91,6 +109,7 @@ export async function saveSettings(settings) {
     ...current,
     ...incoming,
     clutterThreshold: clampThreshold(incoming.clutterThreshold ?? current.clutterThreshold),
+    maxSavedSessions: clampSavedSessions(incoming.maxSavedSessions ?? current.maxSavedSessions),
     maxSnippetChars: Number(incoming.maxSnippetChars || current.maxSnippetChars),
     settingsVersion: 8
   };
@@ -132,4 +151,34 @@ export async function deleteSession(sessionId) {
   const next = sessions.filter((session) => session.id !== sessionId);
   await saveSessions(next);
   return next;
+}
+
+// Decide which saved sessions to keep under the retention policy. Pure — pass
+// sessions + settings, get back the array to keep (newest-first). Never removes
+// a session that's still in review or has un-closed pending tabs; trims the
+// oldest "closed" sessions past the count limit, then past a hard byte budget.
+// Pass opts.byteBudget to override the default (used by tests).
+export function enforceRetention(sessions, settings, opts = {}) {
+  const list = Array.isArray(sessions) ? sessions : [];
+  const max = clampSavedSessions(settings?.maxSavedSessions);
+  const byteBudget = Number.isFinite(opts.byteBudget) ? opts.byteBudget : RETENTION_BYTE_BUDGET;
+  const ts = (s) => Date.parse(s?.createdAt) || 0;
+  const isProtected = (s) =>
+    s?.closeStatus === "review" || (Array.isArray(s?.pendingTabIds) && s.pendingTabIds.length > 0);
+
+  const byNewest = [...list].sort((a, b) => ts(b) - ts(a));
+  const protectedSessions = byNewest.filter(isProtected);
+  const prunable = byNewest.filter((s) => !isProtected(s));
+
+  // Count limit (0 = keep everything).
+  let keptPrunable = max > 0 ? prunable.slice(0, max) : prunable;
+
+  // Byte backstop: drop the oldest prunable session until the whole set is under
+  // budget. Protected sessions are never dropped, even if they alone exceed it.
+  const bytesOf = (arr) => JSON.stringify(arr).length;
+  while (keptPrunable.length && bytesOf([...protectedSessions, ...keptPrunable]) > byteBudget) {
+    keptPrunable = keptPrunable.slice(0, -1);
+  }
+
+  return [...protectedSessions, ...keptPrunable].sort((a, b) => ts(b) - ts(a));
 }

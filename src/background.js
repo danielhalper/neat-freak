@@ -3,6 +3,7 @@ import { runSmartScope } from "./smart-scope.js";
 import {
   addSession,
   deleteSession,
+  enforceRetention,
   getSessions,
   getSettings,
   saveSessions,
@@ -364,6 +365,7 @@ async function saveTabs(options) {
   };
 
   await addSession(session);
+  await pruneSavedSessions();
   notifySessionReady(session, meta);
   // Unified panel: transition to done state (or review state if Review-before-
   // closing is on). Both short-circuit if the Chrome popup is open so we don't
@@ -398,6 +400,22 @@ async function saveTabs(options) {
   }
 
   return { session };
+}
+
+// Enforce the saved-session retention policy (count limit + byte backstop).
+// Runs after each save and on the periodic alarm. Best-effort — never let a
+// pruning hiccup break the save flow.
+async function pruneSavedSessions() {
+  try {
+    const settings = await getSettings();
+    const sessions = await getSessions();
+    const kept = enforceRetention(sessions, settings);
+    if (kept.length !== sessions.length) {
+      await saveSessions(kept);
+    }
+  } catch (err) {
+    console.warn("[Neat Freak] Session retention prune failed:", err?.message || err);
+  }
 }
 
 async function countSurvivingTabIds(tabIds) {
@@ -1372,7 +1390,9 @@ if (chrome.alarms?.create) {
 }
 if (chrome.alarms?.onAlarm) {
   chrome.alarms.onAlarm.addListener((alarm) => {
-    if (alarm.name === CLUTTER_ALARM_NAME) scheduleClutterCheck();
+    if (alarm.name !== CLUTTER_ALARM_NAME) return;
+    scheduleClutterCheck();
+    pruneSavedSessions().catch(() => undefined);
   });
 }
 

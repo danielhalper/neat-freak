@@ -10,6 +10,7 @@ const fields = {
   defaultReviewBeforeClose: document.querySelector("#default-review"),
   defaultScope: document.querySelector("#default-scope"),
   llmEnabled: document.querySelector("#llm-enabled"),
+  maxSavedSessions: document.querySelector("#max-saved-sessions"),
   maxSnippetChars: document.querySelector("#max-snippet-chars"),
   showClutterNudges: document.querySelector("#show-clutter-nudges")
 };
@@ -49,6 +50,7 @@ function populate(settings) {
   fields.defaultReviewBeforeClose.checked = Boolean(settings.defaultReviewBeforeClose);
   fields.defaultScope.value = settings.defaultScope || "allWindows";
   fields.llmEnabled.checked = Boolean(settings.llmEnabled);
+  fields.maxSavedSessions.value = settings.maxSavedSessions ?? 180;
   fields.maxSnippetChars.value = settings.maxSnippetChars || 720;
   fields.showClutterNudges.checked = settings.showClutterNudges !== false;
   syncClutterThresholdVisibility();
@@ -86,6 +88,7 @@ function readSettings() {
     defaultReviewBeforeClose: fields.defaultReviewBeforeClose.checked,
     defaultScope: fields.defaultScope.value,
     llmEnabled: fields.llmEnabled.checked,
+    maxSavedSessions: Number(fields.maxSavedSessions.value || 180),
     maxSnippetChars: Number(fields.maxSnippetChars.value || 720),
     showClutterNudges: fields.showClutterNudges.checked
   };

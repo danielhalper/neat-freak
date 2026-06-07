@@ -61,6 +61,11 @@
               <input id="clutter-threshold" type="number" min="5" max="200" step="1">
             </label>
           </div>
+          <label class="field-row">
+            <span>Keep this many saved sessions</span>
+            <input id="max-saved-sessions" type="number" min="0" max="1000" step="10">
+          </label>
+          <p class="helper-text">Older saved sessions are cleaned up automatically past this limit. 0 = keep everything. Sessions with tabs you haven't closed yet are never removed.</p>
         </section>
 
         <section class="settings-section">
