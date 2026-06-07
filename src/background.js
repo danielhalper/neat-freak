@@ -459,9 +459,9 @@ function getSkipReason(tab, options) {
 async function buildSavedTabs(tabs, settings) {
   return mapLimit(tabs, 8, async (tab) => {
     const domain = getDomain(tab.url);
-    const pageSummary = settings.collectPageSummaries && tab.url?.startsWith("http")
-      ? await getPageSummary(tab.id, settings.maxSnippetChars).catch(() => "")
-      : "";
+    const signals = settings.collectPageSummaries && tab.url?.startsWith("http")
+      ? await getPageSignals(tab.id, settings.maxSnippetChars).catch(() => ({ summary: "", hasUnsavedInput: false }))
+      : { summary: "", hasUnsavedInput: false };
 
     return {
       id: createId("tab"),
@@ -469,13 +469,17 @@ async function buildSavedTabs(tabs, settings) {
       audible: Boolean(tab.audible),
       domain,
       favIconUrl: tab.favIconUrl || "",
+      // True when the user has typed into a form/draft on the page that isn't
+      // submitted. Smart scope treats this as a hard keep — closing the tab would
+      // lose that work for good (restore only reopens the URL).
+      hasUnsavedInput: Boolean(signals.hasUnsavedInput),
       index: Number.isFinite(tab.index) ? tab.index : 0,
       // lastAccessed is the only signal Smart scope has for "is this tab actually in use?".
       // Without it, every tab looks brand-new (null), and the LLM can't tell stale from fresh —
       // which is exactly what caused recently-opened tabs to get closed.
       lastAccessed: Number.isFinite(tab.lastAccessed) ? tab.lastAccessed : undefined,
       originalTabId: tab.id,
-      pageSummary,
+      pageSummary: signals.summary,
       pinned: Boolean(tab.pinned),
       title: tab.title || domain || tab.url,
       url: tab.url,
@@ -484,23 +488,24 @@ async function buildSavedTabs(tabs, settings) {
   });
 }
 
-async function getPageSummary(tabId, maxChars) {
-  // Cap per-tab summary extraction at 4 seconds. If a tab is unresponsive
-  // (restricted page, suspended, slow-loading), we'd rather skip its summary
-  // than hang the entire save flow.
+async function getPageSignals(tabId, maxChars) {
+  // Cap per-tab extraction at 4 seconds. If a tab is unresponsive (restricted
+  // page, suspended, slow-loading), we'd rather skip its signals than hang the
+  // entire save flow.
   const scriptPromise = executeScript({
     target: { tabId },
-    func: collectPageSummary,
+    func: collectPageSignals,
     args: [Number(maxChars || 720)]
   });
   const result = await Promise.race([
     scriptPromise,
     new Promise((resolve) => setTimeout(() => resolve(null), 4000))
   ]);
-  return result?.[0]?.result || "";
+  const signals = result?.[0]?.result;
+  return { summary: signals?.summary || "", hasUnsavedInput: Boolean(signals?.hasUnsavedInput) };
 }
 
-function collectPageSummary(maxChars) {
+function collectPageSignals(maxChars) {
   const readMeta = (name) => document.querySelector(`meta[name="${name}"], meta[property="${name}"]`)?.getAttribute("content") || "";
   const title = document.title || "";
   const description = readMeta("description") || readMeta("og:description") || readMeta("twitter:description");
@@ -515,12 +520,40 @@ function collectPageSummary(maxChars) {
     .map((element) => element.innerText)
     .filter((text) => text && text.length > 32)
     .join(" ");
-  return [title, description, h1, headings, paragraphs]
+  const summary = [title, description, h1, headings, paragraphs]
     .filter(Boolean)
     .join(" -- ")
     .replace(/\s+/g, " ")
     .trim()
     .slice(0, maxChars);
+
+  // In-progress form input: a visible, editable input/textarea whose value the
+  // user changed from its server-rendered default. Closing such a tab would lose
+  // typed-but-unsubmitted work (restore only reopens the URL), so Smart scope
+  // treats it as a hard keep. Privacy: only the boolean leaves the page — never
+  // field contents, and password fields are skipped before their value is read.
+  let hasUnsavedInput = false;
+  try {
+    const SKIP_INPUT_TYPES = new Set([
+      "password", "hidden", "submit", "button", "reset",
+      "checkbox", "radio", "file", "image", "range", "color"
+    ]);
+    for (const el of document.querySelectorAll("input, textarea")) {
+      if (el.disabled || el.readOnly) continue;
+      const type = (el.getAttribute("type") || el.type || "text").toLowerCase();
+      if (el.tagName === "INPUT" && SKIP_INPUT_TYPES.has(type)) continue;
+      if (el.offsetParent === null && el.getClientRects().length === 0) continue; // not visible
+      const value = typeof el.value === "string" ? el.value : "";
+      if (value.trim().length >= 2 && value !== el.defaultValue) {
+        hasUnsavedInput = true;
+        break;
+      }
+    }
+  } catch {
+    // Defensive — a form-detection hiccup must never break the page scrape.
+  }
+
+  return { summary, hasUnsavedInput };
 }
 
 async function closeSavedTabs(sessionId) {

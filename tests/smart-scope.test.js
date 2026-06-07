@@ -382,3 +382,19 @@ test("runSmartScope LLM receives the save floor and keeps floor-added tabs out o
     assert.equal(categoryHits.get(tabItem.id), 1, `expected one category for ${tabItem.id}`);
   }
 });
+
+test("runSmartScope force-keeps a tab with unsaved form input, even under a maxed-out floor", async () => {
+  // A stale (10h-old) tab the user has typed into. minSaveCount=99 would force-save
+  // everything — but unsubmitted form input is unrecoverable on close, so the hard
+  // safety net must keep it open. Heuristic path (no key) → the common default case.
+  const tabs = [
+    { id: "form",  title: "Job application", url: "https://jobs.example.com/apply", lastAccessed: minutesAgo(600), hasUnsavedInput: true },
+    { id: "blog1", title: "Blog 1", url: "https://medium.com/blog/x", lastAccessed: minutesAgo(40) },
+    { id: "blog2", title: "Blog 2", url: "https://medium.com/blog/y", lastAccessed: minutesAgo(50) },
+  ];
+  const result = await runSmartScope(tabs, { llmEnabled: false }, { now: NOW, minSaveCount: 99 });
+  const savedIds = new Set(result.saveSet.map((t) => t.id));
+  assert.ok(!savedIds.has("form"), "tab with unsaved input must never be saved/closed");
+  const categorized = result.categories.flatMap((c) => c.tabIds);
+  assert.ok(!categorized.includes("form"), "tab with unsaved input must not appear in a folder");
+});

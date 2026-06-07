@@ -230,21 +230,24 @@ export async function runSmartScope(tabs, settings, opts = {}) {
     result = enforceMinSaveCount(result, tabs, graph, minSaveCount, now);
   }
 
-  // Hard safety net, applied last: never auto-close the tab the user is
-  // actively on (active) or a tab playing audio. The LLM gets no "active"
-  // signal and defaults unmarked tabs to save, and the floor ranks purely by
-  // savability — so without this, either could close the current tab. This is
-  // the final word and overrides every prior decision, even the floor.
-  result = forceKeepActiveTabs(result, tabs, graph);
+  // Hard safety net, applied last: never auto-close the tab the user is actively
+  // on (active), a tab playing audio, or a tab with unsubmitted form input. The
+  // LLM gets no "active" signal and defaults unmarked tabs to save, and the floor
+  // ranks purely by savability — so without this, any of them could be closed.
+  // This is the final word and overrides every prior decision, even the floor.
+  result = forceKeepProtectedTabs(result, tabs, graph);
 
   return result;
 }
 
-// Pull any active / audible tab back out of the save set. Returns result
-// unchanged if nothing needs protecting.
-function forceKeepActiveTabs(result, tabs, graph) {
+// Pull any active / audible / unsaved-input tab back out of the save set. This
+// is the final word — closing a tab with typed-but-unsubmitted form input would
+// lose that work for good (restore only reopens the URL), so it overrides the
+// LLM, the heuristic, and the tab-limit floor. Returns result unchanged if
+// nothing needs protecting.
+function forceKeepProtectedTabs(result, tabs, graph) {
   const protectedIds = new Set(
-    tabs.filter((t) => t && (t.active || t.audible)).map((t) => t.id)
+    tabs.filter((t) => t && (t.active || t.audible || t.hasUnsavedInput)).map((t) => t.id)
   );
   if (!protectedIds.size) return result;
   const savedIdSet = new Set(
@@ -448,6 +451,7 @@ export function buildSmartScopeRequest(tabs, graph, now, floorContext = {}) {
     domain: t.domain || getDomain(t.url),
     pageSummary: truncateText(t.pageSummary, snippetBudget),
     lastAccessedMinutesAgo: t.lastAccessed ? Math.round((now - t.lastAccessed) / 60_000) : null,
+    hasUnsavedInput: Boolean(t.hasUnsavedInput),
     clusterId: clusterByTabId.get(t.id) || ""
   }));
 
@@ -517,6 +521,7 @@ export function buildSmartScopeRequest(tabs, graph, now, floorContext = {}) {
           "- Work-in-progress: an open form being filled in, a partially-written draft, an unfinished checkout, a document the user is composing in (Google Docs, Notion, Linear, etc.).",
           "- A primary work surface touched in the last 60 minutes (not a reference link skimmed once).",
           "- The kind of tab someone would notice immediately if it disappeared mid-task.",
+          "- hasUnsavedInput: true means the user has typed into a form or draft on the page that isn't submitted. Closing it would lose that work for good. ALWAYS keep these — even if they look old or stale — and never put them in a group.",
           "",
           "SAVE everything else — yes, even tabs touched recently if they look like skim-once content: articles, blog posts, news, Stack Overflow answers, GitHub issues, search-results pages, old chat threads. The user can restore them from the saved folder.",
           "",
