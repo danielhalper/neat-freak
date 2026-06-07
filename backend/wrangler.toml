@@ -1,0 +1,19 @@
+name = "neat-freak-token-service"
+main = "worker.js"
+compatibility_date = "2026-05-01"
+
+# Per-install minted-key cache + mint counters.
+# Create with:  wrangler kv namespace create KEYS
+# then paste the returned id below.
+[[kv_namespaces]]
+binding = "KEYS"
+id = "REPLACE_WITH_KV_NAMESPACE_ID"
+
+[vars]
+DAILY_TOKEN_BUDGET = "50000"    # max_tokens per install/day (~5 Smart actions). Low on purpose: a leaked per-user key is near-useless. Raise once real limits land.
+GLOBAL_DAILY_MINTS = "1000"     # cost circuit breaker: total keys minted per day (bounds worst-case spend)
+PER_IP_DAILY_MINTS = "20"       # abuse guard: keys minted per IP per day
+ENCLAVE_MODEL = "gpt-oss-120b"
+
+# TINFOIL_ADMIN_KEY is a SECRET (admin_-prefixed) — never put it here.
+# Set it with:  wrangler secret put TINFOIL_ADMIN_KEY
