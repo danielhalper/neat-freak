@@ -1,8 +1,5 @@
 const stepEls = [...document.querySelectorAll("[data-step]")];
 const stepperEls = [...document.querySelectorAll("[data-step-indicator]")];
-const keyForm = document.querySelector("#welcome-key-form");
-const keyInput = document.querySelector("#welcome-api-key");
-const statusEl = document.querySelector("#welcome-status");
 const doneTitleEl = document.querySelector("#welcome-done-title");
 const doneSubtitleEl = document.querySelector("#welcome-done-subtitle");
 const pinCardEl = document.querySelector("#welcome-pin-card");
@@ -26,7 +23,6 @@ let selectedThreshold = 20;
 init();
 
 function init() {
-  prefillKeyFromSettings();
   prefillThresholdFromSettings();
   prefillTidyDefaultsFromSettings();
   bindEvents();
@@ -41,32 +37,8 @@ function bindEvents() {
     const action = target.dataset.action;
     if (action === "next") goNext();
     else if (action === "back") goBack();
-    else if (action === "skip") completeOnboarding({ savedKey: false });
+    else if (action === "finish" || action === "skip") completeOnboarding();
     else if (action === "open-popup-hint") closeTab();
-    else if (action === "open-openai") openOpenAiPlatform();
-  });
-
-  keyForm.addEventListener("submit", async (event) => {
-    event.preventDefault();
-    const key = keyInput.value.trim();
-    if (!key) {
-      setStatus("Enter a key or hit Skip.", "error");
-      return;
-    }
-    if (!key.startsWith("sk-")) {
-      setStatus("That doesn't look like an OpenAI key (sk-…).", "error");
-      return;
-    }
-
-    setStatus("Saving…", "normal");
-    const response = await send("SAVE_SETTINGS", {
-      settings: { apiKey: key, llmEnabled: true }
-    });
-    if (!response.ok) {
-      setStatus(response.error || "Couldn't save the key.", "error");
-      return;
-    }
-    await completeOnboarding({ savedKey: true });
   });
 }
 
@@ -165,17 +137,6 @@ function goBack() {
   showStep(ORDER[idx - 1]);
 }
 
-async function prefillKeyFromSettings() {
-  try {
-    const response = await send("GET_SETTINGS");
-    if (response?.ok && response.settings?.apiKey) {
-      keyInput.value = response.settings.apiKey;
-    }
-  } catch {
-    // Settings unavailable; user can still continue.
-  }
-}
-
 async function prefillThresholdFromSettings() {
   try {
     const response = await send("GET_SETTINGS");
@@ -261,21 +222,14 @@ async function persistTidyDefaults() {
   }
 }
 
-async function completeOnboarding({ savedKey }) {
-  doneSubtitleEl.textContent = savedKey
-    ? "AI grouping is on. So Neat Freak's always one click away — pin it to your toolbar."
-    : "So Neat Freak's always one click away — pin it to your toolbar.";
+async function completeOnboarding() {
+  doneSubtitleEl.textContent = "So Neat Freak's always one click away — pin it to your toolbar.";
   try {
     await send("MARK_ONBOARDED");
   } catch {
     // The mark is just bookkeeping; finishing the flow is what matters.
   }
   showStep("done");
-}
-
-function setStatus(message, tone) {
-  statusEl.textContent = message || "";
-  statusEl.dataset.tone = tone || "normal";
 }
 
 function send(type, payload = {}) {
@@ -288,21 +242,5 @@ async function closeTab() {
     if (tab?.id) chrome.tabs.remove(tab.id);
   } catch {
     window.close();
-  }
-}
-
-async function openOpenAiPlatform() {
-  const url = "https://platform.openai.com/login";
-  try {
-    const currentTab = await chrome.tabs.getCurrent();
-    await chrome.tabs.create({
-      url,
-      active: true,
-      openerTabId: currentTab?.id,
-      index: currentTab ? currentTab.index + 1 : undefined
-    });
-  } catch {
-    // Last-resort fallback: standard new tab.
-    window.open(url, "_blank", "noopener,noreferrer");
   }
 }

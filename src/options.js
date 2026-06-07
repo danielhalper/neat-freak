@@ -2,7 +2,7 @@ const form = document.querySelector("#settings-form");
 const statusEl = document.querySelector("#settings-status");
 
 const fields = {
-  apiKey: document.querySelector("#api-key"),
+  tokenServiceUrl: document.querySelector("#token-service-url"),
   clutterThreshold: document.querySelector("#clutter-threshold"),
   collectPageSummaries: document.querySelector("#collect-page-summaries"),
   defaultIncludePinned: document.querySelector("#default-include-pinned"),
@@ -36,28 +36,12 @@ function bindEvents() {
   form.addEventListener("submit", save);
   document.querySelector("#test-llm").addEventListener("click", testLlm);
   document.querySelector("#open-manager").addEventListener("click", () => send("OPEN_MANAGER"));
-  document.querySelector("#open-openai").addEventListener("click", openOpenAiPlatform);
   document.querySelector("#brand-home").addEventListener("click", () => send("OPEN_MANAGER"));
   fields.showClutterNudges.addEventListener("change", syncClutterThresholdVisibility);
 }
 
-async function openOpenAiPlatform() {
-  const url = "https://platform.openai.com/login";
-  try {
-    const currentTab = await chrome.tabs.getCurrent();
-    await chrome.tabs.create({
-      url,
-      active: true,
-      openerTabId: currentTab?.id,
-      index: currentTab ? currentTab.index + 1 : undefined
-    });
-  } catch {
-    window.open(url, "_blank", "noopener,noreferrer");
-  }
-}
-
 function populate(settings) {
-  fields.apiKey.value = settings.apiKey || "";
+  fields.tokenServiceUrl.value = settings.tokenServiceUrl || "";
   fields.clutterThreshold.value = Number(settings.clutterThreshold) || 20;
   fields.collectPageSummaries.checked = Boolean(settings.collectPageSummaries);
   fields.defaultIncludePinned.checked = Boolean(settings.defaultIncludePinned);
@@ -82,19 +66,19 @@ async function save(event) {
 }
 
 async function testLlm() {
-  setStatus("Testing LLM...");
+  setStatus("Testing backend...");
   const response = await send("TEST_LLM", { settings: readSettings() });
   if (!response.ok) {
     setStatus(response.error, "error");
     return;
   }
   const groupCount = response.result.categories?.length || 0;
-  setStatus(`LLM test succeeded with ${groupCount} groups.`);
+  setStatus(`Backend test succeeded with ${groupCount} groups.`);
 }
 
 function readSettings() {
   return {
-    apiKey: fields.apiKey.value.trim(),
+    tokenServiceUrl: fields.tokenServiceUrl.value.trim(),
     clutterThreshold: Number(fields.clutterThreshold.value || 20),
     collectPageSummaries: fields.collectPageSummaries.checked,
     defaultIncludePinned: fields.defaultIncludePinned.checked,

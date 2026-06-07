@@ -228,12 +228,57 @@ function progressLabelFor(payload) {
   }
 }
 
+// Short-lived enclave credential, cached in session storage (cleared on browser
+// restart). The token service mints a capped key per install per day; we cache
+// it so we don't re-mint on every action.
+const ENCLAVE_CRED_KEY = "neatFreakEnclaveCred";
+
+async function getEnclaveCredential(settings) {
+  if (!settings.tokenServiceUrl) return null;
+  try {
+    const cached = (await chrome.storage.session.get(ENCLAVE_CRED_KEY))?.[ENCLAVE_CRED_KEY];
+    if (cached?.key && cached?.baseUrl && cached.expiresAt > Date.now() + 60_000) return cached;
+  } catch { /* session storage unavailable; mint fresh */ }
+
+  const res = await fetch(settings.tokenServiceUrl, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", "X-Install-Id": settings.installId || "" },
+    body: "{}"
+  });
+  if (!res.ok) throw new Error(`Token service ${res.status}`);
+  const data = await res.json();
+  if (!data.key || !data.baseUrl) throw new Error("Token service returned no key.");
+  const cred = {
+    key: data.key,
+    baseUrl: data.baseUrl,
+    model: data.model || settings.llmModel,
+    expiresAt: Number(data.expiresAt) || (Date.now() + 3_600_000)
+  };
+  try { await chrome.storage.session.set({ [ENCLAVE_CRED_KEY]: cred }); } catch { /* tolerate */ }
+  return cred;
+}
+
+// Return a settings object carrying a live enclave credential (backendUrl +
+// enclaveKey) for the LLM call sites. On any failure it returns settings
+// unchanged, so callers transparently fall back to the local heuristic. Only the
+// install id is sent to the token service — never tab content.
+async function resolveLlmSettings(settings) {
+  if (!settings.llmEnabled || !settings.tokenServiceUrl) return settings;
+  try {
+    const cred = await getEnclaveCredential(settings);
+    if (!cred) return settings;
+    return { ...settings, backendUrl: cred.baseUrl, enclaveKey: cred.key, llmModel: cred.model || settings.llmModel };
+  } catch {
+    return settings;
+  }
+}
+
 async function saveTabs(options) {
   // New save → clear any leftover "loader dismissed" flag so this save's
   // progress panel shows fresh (the user can dismiss it again if they want).
   try { await chrome.storage.session?.remove?.(SAVE_LOADER_DISMISSED_KEY); } catch { /* tolerate */ }
 
-  const settings = await getSettings();
+  const settings = await resolveLlmSettings(await getSettings());
   const captureOptions = {
     includePinned: Boolean(options.includePinned ?? settings.defaultIncludePinned),
     keepCurrentTab: Boolean(options.keepCurrentTab ?? settings.defaultKeepCurrentTab),
@@ -250,7 +295,7 @@ async function saveTabs(options) {
   emitProgress({ step: "capturing", tabCount: candidates.length });
   const tabs = await buildSavedTabs(candidates, settings);
 
-  const willUseLlm = settings.llmEnabled && settings.apiKey;
+  const willUseLlm = settings.llmEnabled && settings.backendUrl;
   emitProgress({ step: "grouping", tabCount: tabs.length, llm: Boolean(willUseLlm) });
 
   let categories;
@@ -549,7 +594,7 @@ async function deleteSavedGroup(sessionId, categoryId) {
 }
 
 async function recategorizeSession(sessionId) {
-  const settings = await getSettings();
+  const settings = await resolveLlmSettings(await getSettings());
   const session = (await getSessions()).find((item) => item.id === sessionId);
   if (!session) throw new Error("Session not found.");
   const { categories, meta } = await categorizeTabs(session.tabs, settings);
@@ -577,8 +622,10 @@ async function importSessions(incoming) {
 }
 
 async function testLlmConnection(settingsOverride) {
-  const settings = { ...(await getSettings()), ...(settingsOverride || {}) };
-  if (!settings.apiKey) throw new Error("Add an API key before testing the LLM.");
+  const base = { ...(await getSettings()), ...(settingsOverride || {}) };
+  if (!base.tokenServiceUrl) throw new Error("No AI backend is configured.");
+  const settings = await resolveLlmSettings(base);
+  if (!settings.backendUrl) throw new Error("Couldn't reach the AI backend.");
   const result = await testLlm(settings);
   return { result };
 }
@@ -603,9 +650,13 @@ async function searchSavedTabs(query, mode) {
     return { results: localRanked.slice(0, 30), mode: "local" };
   }
 
-  const settings = await getSettings();
-  if (!settings.apiKey) {
-    return { results: localRanked.slice(0, 30), mode: "local", error: "Add an API key in settings to enable smart search." };
+  const base = await getSettings();
+  if (!base.tokenServiceUrl) {
+    return { results: localRanked.slice(0, 30), mode: "local", error: "Smart search is unavailable right now." };
+  }
+  const settings = await resolveLlmSettings(base);
+  if (!settings.backendUrl) {
+    return { results: localRanked.slice(0, 30), mode: "local", error: "Smart search is unavailable right now." };
   }
 
   const candidates = localRanked.slice(0, 80);
@@ -697,7 +748,6 @@ function rankLocalSearch(tabs, query) {
 }
 
 async function smartSearchTabs(query, candidates, settings) {
-  const url = "https://api.openai.com/v1/chat/completions";
   const payload = candidates.map((tab) => ({
     tabId: tab.tabId,
     title: truncateText(tab.title, 160),
@@ -708,8 +758,8 @@ async function smartSearchTabs(query, candidates, settings) {
   }));
 
   const body = {
-    model: "gpt-5.4-mini",
-    reasoning_effort: "none",
+    model: settings.llmModel || "gpt-oss-120b",
+    reasoning_effort: "low",
     prompt_cache_key: "neat-freak-search",
     response_format: {
       type: "json_schema",
@@ -755,11 +805,11 @@ async function smartSearchTabs(query, candidates, settings) {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), 30000);
   try {
-    const response = await fetch(url, {
+    const response = await fetch(settings.backendUrl, {
       method: "POST",
       headers: {
-        "Authorization": `Bearer ${settings.apiKey}`,
-        "Content-Type": "application/json"
+        "Content-Type": "application/json",
+        "Authorization": `Bearer ${settings.enclaveKey || ""}`
       },
       body: JSON.stringify(body),
       signal: controller.signal
@@ -939,7 +989,7 @@ async function showPanelDone(session, meta, smartResult) {
     // Drives the inconspicuous "Tidy automatically next time" toggle on the
     // done card: shown only when the LLM is on; its checked state reflects the
     // current review-before-close setting (automatic = review off).
-    llmOn: Boolean(settings.llmEnabled && settings.apiKey),
+    llmOn: Boolean(settings.llmEnabled && settings.tokenServiceUrl),
     reviewBeforeClose: Boolean(settings.defaultReviewBeforeClose)
   });
 }
@@ -1092,12 +1142,13 @@ if (chrome.notifications?.onClicked) {
 
 const CLUTTER_HYSTERESIS = 3; // count must dip to (threshold - this) before we'll alert again
 const CLUTTER_THRESHOLD_FALLBACK = 20; // used only if reading settings fails
-// Tier schedule expressed as tabs OVER threshold. With threshold=20 this
-// fires at 20 (tier 0), 27 (tier 1), 40 (tier 2), 70 (tier 3 at +50). Picked so
-// the first two come quickly (catch-and-correct) and the later two are
-// big jumps (real escalation for habitual heavy-tab users). Keep sorted
-// ascending — currentTier scan relies on it.
-const CLUTTER_TIER_OFFSETS = [0, 7, 20, 50];
+// Tier schedule expressed as tabs OVER threshold. With threshold=20 this fires
+// at 20 (t0), 27 (t1), 40 (t2), 70 (t3), 110 (t4), 160 (t5), 220 (t6). The
+// first two come quickly (catch-and-correct); the rest are progressively
+// bigger jumps — real escalation for habitual heavy-tab users, with the gap
+// widening (40 → 50 → 60) as they keep ignoring it. Keep sorted ascending —
+// the currentTier scan relies on it.
+const CLUTTER_TIER_OFFSETS = [0, 7, 20, 50, 90, 140, 200];
 // Catches the "lives at 35 tabs in one Chrome session for a month" user.
 // Once the highest tier alerted has fired and the schedule is silent, we
 // still re-fire once every REENGAGE_MS as long as the user is over threshold.
@@ -1240,9 +1291,9 @@ async function checkClutter() {
     }
 
     // Highest tier whose offset the user has met. At threshold=20 the
-    // schedule [0, 7, 20, 50] fires at 20, 27, 40, 70. Dropping below
-    // threshold - HYSTERESIS resets lastAlertedTier and the schedule
-    // starts fresh on the next climb.
+    // schedule [0, 7, 20, 50, 90, 140, 200] fires at 20, 27, 40, 70, 110,
+    // 160, 220. Dropping below threshold - HYSTERESIS resets lastAlertedTier
+    // and the schedule starts fresh on the next climb.
     const tabsOver = tabCount - threshold;
     const currentTier = CLUTTER_TIER_OFFSETS.findLastIndex((offset) => tabsOver >= offset);
     const tierEscalated = currentTier > lastAlertedTier;

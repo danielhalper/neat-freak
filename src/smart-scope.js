@@ -12,8 +12,7 @@ const STALE_GROUP_CUTOFF_MIN = 30;    // 30m — cold clusters: save the whole t
 const ACTIVE_GROUP_CUTOFF_MIN = 90;   // 1.5h — active clusters: save anything older than 90 min
 const ACTIVE_CLUSTER_WINDOW_MIN = 30; // a cluster is "active" if any tab was accessed in the last 30 min
 
-const OPENAI_CHAT_COMPLETIONS_URL = "https://api.openai.com/v1/chat/completions";
-const LLM_MODEL = "gpt-5.4-mini";
+const LLM_MODEL = "gpt-oss-120b"; // fallback only; the managed backend model comes from settings.llmModel
 
 /**
  * Decide which tabs to save and which to keep, using the 3h/8h heuristic.
@@ -192,7 +191,9 @@ export function applySmartHeuristic(tabs, clusters, now) {
  * a categories array (folder structure for saveSet).
  *
  * @param {Array<object>} tabs — candidate tabs (already filtered by pinned/current per scope)
- * @param {object} settings — extension settings (apiKey, llmEnabled)
+ * @param {object} settings — extension settings. backendUrl (enclave chat URL) and
+ *   enclaveKey (short-lived capped key) are injected at runtime by the background
+ *   service worker after the token service mints a key; llmEnabled + llmModel are stored.
  * @param {object} [opts]
  * @param {number} [opts.now] — epoch ms for tests
  * @param {number} [opts.minSaveCount] — hard floor for saved tabs
@@ -207,7 +208,7 @@ export async function runSmartScope(tabs, settings, opts = {}) {
   const minSaveCount = clampMinSaveCount(opts.minSaveCount, tabs.length);
 
   let result;
-  if (settings.llmEnabled && settings.apiKey) {
+  if (settings.llmEnabled && settings.backendUrl) {
     try {
       result = await runLlmPath(tabs, graph, settings, now, {
         minSaveCount,
@@ -423,7 +424,11 @@ function computeSmartCategories(tabs, graph, saveIdSet) {
   return result.categories || [];
 }
 
-async function runLlmPath(tabs, graph, settings, now, floorContext = {}) {
+// Build the exact OpenAI chat-completions request body for the Smart LLM
+// path — system prompt, JSON schema, and per-tab payload. Pure + exported so
+// the eval harness can construct identical requests for other models/payloads
+// without drift. The caller sets the auth header and may override body.model.
+export function buildSmartScopeRequest(tabs, graph, now, floorContext = {}) {
   const snippetBudget = tabs.length >= 60 ? 420 : 720;
   const minSaveCount = clampMinSaveCount(floorContext.minSaveCount, tabs.length);
   const provisionalClusters = graph.clusters.map((c) => ({
@@ -541,16 +546,23 @@ async function runLlmPath(tabs, graph, settings, now, floorContext = {}) {
     ]
   };
 
+  return body;
+}
+
+async function runLlmPath(tabs, graph, settings, now, floorContext = {}) {
+  const body = buildSmartScopeRequest(tabs, graph, now, floorContext);
+  body.model = settings.llmModel || LLM_MODEL;
+
   const timeoutMs = tabs.length >= 60 ? 180_000 : 120_000;
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), timeoutMs);
   let response;
   try {
-    response = await fetch(OPENAI_CHAT_COMPLETIONS_URL, {
+    response = await fetch(settings.backendUrl, {
       method: "POST",
       headers: {
-        "Authorization": `Bearer ${settings.apiKey}`,
-        "Content-Type": "application/json"
+        "Content-Type": "application/json",
+        "Authorization": `Bearer ${settings.enclaveKey || ""}`
       },
       body: JSON.stringify(body),
       signal: controller.signal
@@ -566,12 +578,17 @@ async function runLlmPath(tabs, graph, settings, now, floorContext = {}) {
   const content = data?.choices?.[0]?.message?.content || "{}";
   const parsed = JSON.parse(content);
 
+  return parseSmartScopeResponse(parsed, tabs, graph, now);
+}
+
+// Turn the LLM's JSON response into save/keep sets and finalized folder
+// categories. Applies the same exact-URL dedup the heuristic uses, so
+// duplicates get saved regardless of whether the model noticed. Pure +
+// exported so the eval harness can score raw model responses without a fetch.
+export function parseSmartScopeResponse(parsed, tabs, graph, now) {
   const actionsArray = Array.isArray(parsed.tabActions) ? parsed.tabActions : [];
   const actionByTabId = new Map(actionsArray.map((a) => [a.tabId, a]));
 
-  // Same exact-URL dedup the heuristic applies — duplicates are clutter and
-  // shouldn't depend on the LLM noticing. Override its decision for any tab
-  // that's a non-canonical copy of a URL.
   const dedupSaveIds = computeUrlDedupSaveIds(tabs, now);
 
   const saveIds = [];

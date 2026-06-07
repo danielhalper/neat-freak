@@ -142,8 +142,8 @@ async function refreshSnackbar() {
   }
   const response = await send("GET_SETTINGS");
   if (!response.ok) return;
-  const { llmEnabled, apiKey } = response.settings || {};
-  if (llmEnabled && !apiKey) {
+  const { llmEnabled, tokenServiceUrl } = response.settings || {};
+  if (llmEnabled && !tokenServiceUrl) {
     snackbarEl.removeAttribute("hidden");
   } else {
     snackbarEl.setAttribute("hidden", "");
@@ -551,8 +551,8 @@ function handleSaveProgress(message) {
 
 function renderSessionError(error) {
   if (!error) return "";
-  // The "needs API key" hint is shown once via the top-level snackbar — don't repeat it per session.
-  if (/api key in settings/i.test(error)) return "";
+  // The "AI backend unavailable" hint is shown once via the top-level snackbar — don't repeat it per session.
+  if (/unavailable/i.test(error)) return "";
   return `<p class="warning-line">${escapeHtml(error)}</p>`;
 }
 

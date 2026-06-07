@@ -12,8 +12,7 @@
   ],
   "host_permissions": [
     "http://*/*",
-    "https://*/*",
-    "https://api.openai.com/*"
+    "https://*/*"
   ],
   "background": {
     "service_worker": "src/background.js",

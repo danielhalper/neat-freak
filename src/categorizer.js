@@ -1,13 +1,12 @@
 import { getDomain, slugify, truncateText } from "./utils.js";
 
-const OPENAI_CHAT_COMPLETIONS_URL = "https://api.openai.com/v1/chat/completions";
 const ASSOCIATION_THRESHOLD = 0.74;
 // Cap on the combined no-content (positional + temporal) contribution to an
 // edge. Held below ASSOCIATION_THRESHOLD on purpose: proximity signals bias a
 // merge hard but must never clear the bar alone — a pair still needs some
 // content/entity/domain glue to actually union.
 const PROXIMITY_CAP = 0.6;
-const LLM_MODEL = "gpt-5.4-mini";
+const LLM_MODEL = "gpt-oss-120b"; // fallback only; managed model comes from settings.llmModel
 
 const STOP_WORDS = new Set([
   "about", "access", "account", "admin", "after", "all", "and", "are", "best", "blocked", "calendar",
@@ -129,7 +128,7 @@ const STRONG_INTENT_TERMS = new Set([
 export async function categorizeTabs(tabs, settings) {
   const associationGraph = buildAssociationGraph(tabs);
 
-  if (settings.llmEnabled && settings.apiKey) {
+  if (settings.llmEnabled && settings.backendUrl) {
     try {
       return await categorizeWithOpenAI(tabs, settings, associationGraph);
     } catch (error) {
@@ -150,7 +149,7 @@ export async function categorizeTabs(tabs, settings) {
     ...fallback,
     meta: {
       ...fallback.meta,
-      error: settings.llmEnabled ? "Add an OpenAI API key in settings to enable the AI features." : "",
+      error: settings.llmEnabled ? "AI grouping is temporarily unavailable; grouped these locally instead." : "",
       method: "association-graph"
     }
   };
@@ -221,15 +220,15 @@ async function categorizeWithOpenAI(tabs, settings, associationGraph) {
   ].join("\n");
 
   const requestTimeoutMs = chooseLlmTimeoutMs(tabs.length, settings);
-  const response = await fetchWithTimeout(OPENAI_CHAT_COMPLETIONS_URL, {
+  const response = await fetchWithTimeout(settings.backendUrl, {
     method: "POST",
     headers: {
-      "Authorization": `Bearer ${settings.apiKey}`,
-      "Content-Type": "application/json"
+      "Content-Type": "application/json",
+      "Authorization": `Bearer ${settings.enclaveKey || ""}`
     },
     body: JSON.stringify({
-      model: LLM_MODEL,
-      reasoning_effort: "none",
+      model: settings.llmModel || LLM_MODEL,
+      reasoning_effort: "low",
       prompt_cache_key: "neat-freak-categorizer",
       response_format: {
         type: "json_schema",
@@ -295,7 +294,7 @@ async function categorizeWithOpenAI(tabs, settings, associationGraph) {
       associationGraph: summarizeGraph(associationGraph),
       error: "",
       method: "llm-graph",
-      model: LLM_MODEL,
+      model: settings.llmModel || LLM_MODEL,
       usage: data.usage || null
     }
   };

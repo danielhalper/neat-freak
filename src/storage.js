@@ -4,17 +4,20 @@ export const SETTINGS_KEY = "tabAtlasSettings";
 export const SESSIONS_KEY = "tabAtlasSessions";
 
 export const DEFAULT_SETTINGS = {
-  apiKey: "",
   clutterThreshold: 20,
   collectPageSummaries: true,
   defaultIncludePinned: false,
   defaultKeepCurrentTab: true,
   defaultReviewBeforeClose: true,
   defaultScope: "smart",
+  installId: "",           // stable anonymous id; sent to the token service for per-install rate limiting.
   llmEnabled: true,
+  llmModel: "gpt-oss-120b",
+  llmProvider: "managed",
   maxSnippetChars: 720,
-  settingsVersion: 6,
-  showClutterNudges: true
+  settingsVersion: 8,
+  showClutterNudges: true,
+  tokenServiceUrl: ""      // your token/quota service that mints capped enclave keys. Empty → Smart uses the local heuristic.
 };
 
 const MIN_CLUTTER_THRESHOLD = 5;
@@ -55,7 +58,10 @@ function clampThreshold(value) {
 export async function getSettings() {
   const result = await getLocal({ [SETTINGS_KEY]: DEFAULT_SETTINGS });
   const stored = result[SETTINGS_KEY] || {};
-  const { model: _legacyModel, ...rest } = stored;
+  // Drop legacy fields: `model` (pre-v5), `apiKey` (BYO OpenAI key, v7), and
+  // `backendUrl` (the v7 data-proxy URL — replaced in v8 by tokenServiceUrl now
+  // that the extension talks to the enclave directly).
+  const { model: _legacyModel, apiKey: _legacyApiKey, backendUrl: _legacyBackendUrl, ...rest } = stored;
   const merged = { ...DEFAULT_SETTINGS, ...rest };
   // v5 migration: anyone on a pre-Smart settings version gets bumped to Smart as default.
   // The Smart scope didn't exist yet when their setting was saved, so we treat their
@@ -65,18 +71,28 @@ export async function getSettings() {
   }
   // v6 added clutterThreshold. Missing → default. Out-of-range → clamp.
   merged.clutterThreshold = clampThreshold(merged.clutterThreshold);
-  return { ...merged, settingsVersion: 6 };
+  // v7: ensure a stable anonymous install id for backend per-user rate limiting.
+  let persistNeeded = false;
+  if (!merged.installId) {
+    merged.installId = globalThis.crypto?.randomUUID?.() || `id-${nowIso()}-${Math.random().toString(36).slice(2)}`;
+    persistNeeded = true;
+  }
+  const finalSettings = { ...merged, settingsVersion: 8 };
+  if (persistNeeded) {
+    await setLocal({ [SETTINGS_KEY]: finalSettings });
+  }
+  return finalSettings;
 }
 
 export async function saveSettings(settings) {
   const current = await getSettings();
-  const { model: _legacyModel, ...incoming } = settings || {};
+  const { model: _legacyModel, apiKey: _legacyApiKey, backendUrl: _legacyBackendUrl, enclaveKey: _legacyEnclaveKey, ...incoming } = settings || {};
   const next = {
     ...current,
     ...incoming,
     clutterThreshold: clampThreshold(incoming.clutterThreshold ?? current.clutterThreshold),
     maxSnippetChars: Number(incoming.maxSnippetChars || current.maxSnippetChars),
-    settingsVersion: 6
+    settingsVersion: 8
   };
   await setLocal({ [SETTINGS_KEY]: next });
   return next;

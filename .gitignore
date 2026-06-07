@@ -5,3 +5,10 @@
 docs/store-submission/neat-freak-v*.zip
 docs/store-submission/neat-freak-v*/
 node_modules/
+
+# Eval harness — real browsing data + secrets, never commit
+eval/corpus.json
+eval/build-corpus.mjs
+eval/report.html
+.env
+eval/.env

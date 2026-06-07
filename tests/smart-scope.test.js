@@ -356,7 +356,7 @@ test("runSmartScope LLM receives the save floor and keeps floor-added tabs out o
     { id: "blog", title: "API blog post", url: "https://medium.com/blog/api-post", domain: "medium.com", lastAccessed: minutesAgo(12) },
     { id: "search", title: "API search", url: "https://www.google.com/search?q=api", domain: "www.google.com", lastAccessed: minutesAgo(8) },
   ];
-  const result = await runSmartScope(tabs, { llmEnabled: true, apiKey: "test-key" }, {
+  const result = await runSmartScope(tabs, { llmEnabled: true, backendUrl: "https://enclave.test/v1/chat/completions", enclaveKey: "tk_test", llmModel: "gpt-oss-120b" }, {
     now: NOW,
     minSaveCount: 2,
     totalOpenTabCount: 4,
