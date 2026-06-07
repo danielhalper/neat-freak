@@ -3,6 +3,9 @@ import { nowIso } from "./utils.js";
 export const SETTINGS_KEY = "tabAtlasSettings";
 export const SESSIONS_KEY = "tabAtlasSessions";
 
+// Baked-in managed backend (the token/quota Worker). Users never configure this.
+export const DEFAULT_TOKEN_SERVICE_URL = "https://neat-freak-token-service.danielhalper4.workers.dev";
+
 export const DEFAULT_SETTINGS = {
   clutterThreshold: 20,
   collectPageSummaries: true,
@@ -18,7 +21,7 @@ export const DEFAULT_SETTINGS = {
   maxSnippetChars: 720,
   settingsVersion: 8,
   showClutterNudges: true,
-  tokenServiceUrl: ""      // your token/quota service that mints capped enclave keys. Empty → Smart uses the local heuristic.
+  tokenServiceUrl: DEFAULT_TOKEN_SERVICE_URL
 };
 
 const MIN_CLUTTER_THRESHOLD = 5;
@@ -89,6 +92,8 @@ export async function getSettings() {
   merged.clutterThreshold = clampThreshold(merged.clutterThreshold);
   // Saved-session retention limit. Missing → default. Out-of-range → clamp (0 = unlimited).
   merged.maxSavedSessions = clampSavedSessions(merged.maxSavedSessions);
+  // The backend URL is baked in, not user-configurable — coerce any stored blank to the default.
+  if (!merged.tokenServiceUrl) merged.tokenServiceUrl = DEFAULT_TOKEN_SERVICE_URL;
   // v7: ensure a stable anonymous install id for backend per-user rate limiting.
   let persistNeeded = false;
   if (!merged.installId) {

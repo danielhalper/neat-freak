@@ -74,11 +74,7 @@
             <input type="checkbox" id="llm-enabled">
             <span>Use AI for smart tab selection, folder names, and search</span>
           </label>
-          <label class="field-row">
-            <span>Token service URL</span>
-            <input id="token-service-url" type="url" autocomplete="off" placeholder="https://neat-freak-token-service.example.workers.dev/">
-          </label>
-          <p class="helper-text">When enabled, AI picks which tabs to save in Smart scope, names folders by workstream, and powers natural-language search. Your tabs go straight to a confidential enclave-based model; the token service here only hands out short-lived usage keys and never sees your tabs. Leave blank to keep everything local (heuristic grouping only). Still in beta — expect rough edges.</p>
+          <p class="helper-text">When enabled, AI picks which tabs to save in Smart scope, names folders by workstream, and powers natural-language search. Your tabs are processed by a confidential, enclave-based model — never stored or seen by us. Turn this off to keep everything fully local (heuristic grouping only). Still in beta — expect rough edges.</p>
         </section>
 
         <div class="form-actions">

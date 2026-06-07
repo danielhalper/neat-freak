@@ -7,7 +7,7 @@ compatibility_date = "2026-05-01"
 # then paste the returned id below.
 [[kv_namespaces]]
 binding = "KEYS"
-id = "REPLACE_WITH_KV_NAMESPACE_ID"
+id = "f2eecab3107440c884eb829357bae54d"
 
 [vars]
 DAILY_TOKEN_BUDGET = "50000"    # max_tokens per install/day (~5 Smart actions). Low on purpose: a leaked per-user key is near-useless. Raise once real limits land.

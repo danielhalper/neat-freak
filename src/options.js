@@ -2,7 +2,6 @@ const form = document.querySelector("#settings-form");
 const statusEl = document.querySelector("#settings-status");
 
 const fields = {
-  tokenServiceUrl: document.querySelector("#token-service-url"),
   clutterThreshold: document.querySelector("#clutter-threshold"),
   collectPageSummaries: document.querySelector("#collect-page-summaries"),
   defaultIncludePinned: document.querySelector("#default-include-pinned"),
@@ -42,7 +41,6 @@ function bindEvents() {
 }
 
 function populate(settings) {
-  fields.tokenServiceUrl.value = settings.tokenServiceUrl || "";
   fields.clutterThreshold.value = Number(settings.clutterThreshold) || 20;
   fields.collectPageSummaries.checked = Boolean(settings.collectPageSummaries);
   fields.defaultIncludePinned.checked = Boolean(settings.defaultIncludePinned);
@@ -80,7 +78,6 @@ async function testLlm() {
 
 function readSettings() {
   return {
-    tokenServiceUrl: fields.tokenServiceUrl.value.trim(),
     clutterThreshold: Number(fields.clutterThreshold.value || 20),
     collectPageSummaries: fields.collectPageSummaries.checked,
     defaultIncludePinned: fields.defaultIncludePinned.checked,
