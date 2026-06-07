@@ -59,3 +59,22 @@ export function formatDateTime(iso) {
 export function faviconFallback(domain) {
   return domain ? domain.slice(0, 1).toUpperCase() : "?";
 }
+
+// Compact "time since last focused" label for a tab, e.g. "5m ago" / "2h ago".
+// `ts` is chrome.tabs.Tab.lastAccessed (focus time, not true usage — noisy and
+// often absent), so a missing/non-finite value renders "" and the caller shows
+// nothing rather than a misleading default. Floors to each unit so the higher
+// unit takes over exactly at the boundary (no "60m ago" / "24h ago"). A future
+// ts (clock skew) collapses to "just now".
+export function formatRelativeActive(ts, now) {
+  if (!Number.isFinite(ts) || !Number.isFinite(now)) return "";
+  const diff = now - ts;
+  if (diff < 60_000) return "just now";
+  const min = Math.floor(diff / 60_000);
+  if (min < 60) return `${min}m ago`;
+  const hr = Math.floor(diff / 3_600_000);
+  if (hr < 24) return `${hr}h ago`;
+  const day = Math.floor(diff / 86_400_000);
+  if (day < 7) return `${day}d ago`;
+  return `${Math.floor(diff / 604_800_000)}w ago`;
+}

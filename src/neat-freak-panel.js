@@ -691,7 +691,8 @@ function panelMarkup() {
       .review-item:hover { background: rgba(15, 118, 110, 0.04); }
       .review-item.removed { opacity: 0.55; }
       .review-item.removed .review-item-title,
-      .review-item.removed .review-item-domain {
+      .review-item.removed .review-item-domain,
+      .review-item.removed .review-item-age {
         text-decoration: line-through;
         text-decoration-color: #99a39f;
       }
@@ -710,12 +711,30 @@ function panelMarkup() {
         text-overflow: ellipsis;
         white-space: nowrap;
       }
+      /* Muted second line: domain truncates, "last active" age stays pinned. */
+      .review-item-sub {
+        align-items: baseline;
+        display: flex;
+        min-width: 0;
+      }
       .review-item-domain {
         color: #99a39f;
+        flex: 0 1 auto;
         font-size: 11px;
+        min-width: 0;
         overflow: hidden;
         text-overflow: ellipsis;
         white-space: nowrap;
+      }
+      .review-item-age {
+        color: #b3bbb7;
+        flex: none;
+        font-size: 11px;
+        white-space: nowrap;
+      }
+      .review-item-domain + .review-item-age::before {
+        content: "·";
+        margin: 0 4px;
       }
       /* Pill button revealed on row hover (or sticky once active). Hidden
          opacity:0 so the row stays clean by default but layout doesn't shift
@@ -1686,9 +1705,9 @@ function panelMarkup() {
           <p class="scope-label">SCOPE</p>
           <div class="scope-row">
             <div class="scope-picker" id="scope-picker">
-              <button class="scope-button" data-action="scope" data-scope-value="smart" type="button">Smart</button>
-              <button class="scope-button" data-action="scope" data-scope-value="allWindows" type="button">All windows</button>
-              <button class="scope-button" data-action="scope" data-scope-value="currentWindow" type="button">Current</button>
+              <button class="scope-button" data-action="scope" data-scope-value="smart" type="button" title="Let Neat Freak pick which tabs to stash">Smart</button>
+              <button class="scope-button" data-action="scope" data-scope-value="allWindows" type="button" title="Stash eligible tabs across every open window">All windows</button>
+              <button class="scope-button" data-action="scope" data-scope-value="currentWindow" type="button" title="Stash eligible tabs in this window only">Current</button>
             </div>
             <button class="more-options-toggle" data-action="toggle-more-options" type="button" aria-expanded="false" title="More options" aria-label="More options">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
@@ -2001,11 +2020,17 @@ function renderReviewItem(tab) {
   const sessionTabId = String(tab?.sessionTabId || "");
   const title = String(tab?.title || tab?.url || "Untitled");
   const domain = String(tab?.domain || "");
+  // Pre-formatted by the worker (see showPanelReview). Empty when the tab has
+  // no lastAccessed — we render no time rather than a misleading "just now".
+  const lastActive = String(tab?.lastActive || "");
   return `
     <li class="review-item" data-session-tab-id="${escapeAttr(sessionTabId)}" data-action="toggle-review-item">
       <div class="review-item-text">
         <span class="review-item-title">${escapeText(title)}</span>
-        <span class="review-item-domain">${escapeText(domain)}</span>
+        <span class="review-item-sub">
+          ${domain ? `<span class="review-item-domain">${escapeText(domain)}</span>` : ""}
+          ${lastActive ? `<span class="review-item-age" title="Last active in this tab">${escapeText(lastActive)}</span>` : ""}
+        </span>
       </div>
       <button class="review-remove" data-action="toggle-review-item" type="button" aria-label="Keep this tab open">
         <span class="review-remove-text-default">Keep</span>
@@ -2787,9 +2812,9 @@ function renderScopePicker(host) {
   const picker = shadow.getElementById("scope-picker");
   if (!picker) return;
   picker.innerHTML = `
-    <button class="scope-button${selectedScope === "smart" ? " active" : ""}" data-action="scope" data-scope-value="smart" type="button">Smart</button>
-    <button class="scope-button${selectedScope === "allWindows" ? " active" : ""}" data-action="scope" data-scope-value="allWindows" type="button">All windows</button>
-    <button class="scope-button${selectedScope === "currentWindow" ? " active" : ""}" data-action="scope" data-scope-value="currentWindow" type="button">Current</button>
+    <button class="scope-button${selectedScope === "smart" ? " active" : ""}" data-action="scope" data-scope-value="smart" type="button" title="Let Neat Freak pick which tabs to stash">Smart</button>
+    <button class="scope-button${selectedScope === "allWindows" ? " active" : ""}" data-action="scope" data-scope-value="allWindows" type="button" title="Stash eligible tabs across every open window">All windows</button>
+    <button class="scope-button${selectedScope === "currentWindow" ? " active" : ""}" data-action="scope" data-scope-value="currentWindow" type="button" title="Stash eligible tabs in this window only">Current</button>
   `;
 }
 
@@ -2809,17 +2834,20 @@ function renderPreview(host, preview) {
     sub.textContent = "No savable tabs in scope";
     return;
   }
-  const label = scopeBlurb(selectedScope);
-  sub.textContent = `${count} tab${count === 1 ? "" : "s"} eligible${label ? ` — ${label}` : ""}`;
+  sub.textContent = scopeSubtitle(selectedScope, count);
 }
 
-function scopeBlurb(scope) {
-  switch (scope) {
-    case "smart": return "Smart will pick";
-    case "allWindows": return "all windows";
-    case "currentWindow": return "current window";
-    default: return "";
+// Subtitle under the Tidy CTA. Deterministic scopes state the concrete outcome
+// ("Stash all N tabs ...") — "stash" matches how the mascot already explains
+// what Tidy does ("I'll stash open tabs and free up RAM"). Smart advertises
+// eligibility instead, since it closes only a chosen subset, not all.
+function scopeSubtitle(scope, count) {
+  if (scope === "smart") {
+    return `${count} tab${count === 1 ? "" : "s"} eligible — Smart will pick`;
   }
+  const noun = count === 1 ? "1 tab" : `all ${count} tabs`;
+  const where = scope === "currentWindow" ? "in current window" : "across windows";
+  return `Stash ${noun} ${where}`;
 }
 
 function renderMoreOptions(host, settings) {

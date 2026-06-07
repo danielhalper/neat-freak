@@ -9,7 +9,7 @@ import {
   saveSettings,
   updateSession
 } from "./storage.js";
-import { createId, getDomain, isSavableUrl, nowIso, truncateText } from "./utils.js";
+import { createId, formatRelativeActive, getDomain, isSavableUrl, nowIso, truncateText } from "./utils.js";
 
 chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   routeMessage(message)
@@ -950,6 +950,10 @@ async function showPanelDone(session, meta, smartResult) {
 async function showPanelReview(session) {
   if (isPopupOpen()) return false;
   const tabsById = new Map((session.tabs || []).map((t) => [t.id, t]));
+  // Single reference instant so every row's "last active" label is relative to
+  // the same moment. Review is shown immediately after save and is short-lived,
+  // so a label computed here (not live-ticking in the panel) stays accurate.
+  const now = Date.now();
   const groups = (session.categories || [])
     .map((cat) => ({
       name: cat.name || "Other",
@@ -960,7 +964,8 @@ async function showPanelReview(session) {
           sessionTabId: tab.id,
           title: tab.title || "",
           domain: tab.domain || getDomain(tab.url || ""),
-          url: tab.url || ""
+          url: tab.url || "",
+          lastActive: formatRelativeActive(tab.lastAccessed, now)
         }))
     }))
     .filter((g) => g.tabs.length > 0);
