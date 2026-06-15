@@ -21,7 +21,11 @@
   // render the compact view here. Expand the body first — before this it's 0×0
   // transparent so a successful inject + window.close() never flashes a cream
   // rectangle.
-  document.body.classList.add("popup-body--limited");
-  const { mountLimitedState } = await import("./popup-limited.js");
-  await mountLimitedState();
+  // The active tab can't host the in-page panel (chrome:// pages, the Web
+  // Store, other extensions' pages). Render the FULL panel inline in the popup
+  // window — neat-freak-panel.js detects popup context (location.href ===
+  // popup.html), mounts in-popup, and fills this body. (popup-limited.js is the
+  // old compact fallback, kept for reference.)
+  document.body.classList.add("popup-body--mounted");
+  await import("./neat-freak-panel.js");
 })();

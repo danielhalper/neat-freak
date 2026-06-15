@@ -123,7 +123,19 @@
     const state = await readState();
     bindStorageListener();
     bindVisibilityPause();
-    if (state && state.mode && state.mode !== "hidden") {
+    const hasLiveState = Boolean(state && state.mode && state.mode !== "hidden");
+    // In popup context the user clicked the toolbar icon specifically to get the
+    // tidy UI, so always mount — show any live state (saving/done/clutter) or
+    // fall back to idle. In injected/page context we only appear when there's
+    // something to show.
+    if (inPopupContext) {
+      const host = ensureHost();
+      // The popup is the "manage my tabs" surface: show the idle tidy UI by
+      // default (and for a live clutter nudge); only the transient
+      // saving / done / review states get their own card.
+      const transient = hasLiveState && ["saving", "done", "review"].includes(state.mode);
+      applyState(host, transient ? state : { mode: "idle" });
+    } else if (hasLiveState) {
       const host = ensureHost();
       applyState(host, state);
     }
@@ -179,7 +191,9 @@
       const newState = changes[STATE_KEY].newValue || { mode: "hidden" };
       let host = document.getElementById(HOST_ID);
       if (!host && newState.mode !== "hidden") host = ensureHost();
-      if (host) applyState(host, newState);
+      // In the popup, a clutter-nudge update should keep showing the tidy UI,
+      // not collapse to the in-page clutter pill.
+      if (host) applyState(host, (inPopupContext && newState.mode === "clutter") ? { mode: "idle" } : newState);
     });
   }
 
@@ -331,7 +345,7 @@ function panelMarkup() {
          .card::before and the teal-cream interior stay. */
       .card.in-popup {
         width: 100%;
-        min-height: 100vh;
+        min-height: 0;
         border: 0;
         border-radius: 0;
         box-shadow: none;
@@ -418,7 +432,9 @@ function panelMarkup() {
         background: rgba(0, 0, 0, 0.08);
         border-radius: 999px;
         overflow: hidden;
-        margin-top: 8px;
+        /* Flex item in .actions (align-items: center) — let the row center it
+           rather than nudging it down, so the footer reads tight + balanced. */
+        margin-top: 0;
       }
       .progress-bar::before {
         content: "";
@@ -439,7 +455,7 @@ function panelMarkup() {
          non-blocking; the save keeps running and the result still surfaces. */
       .saving-close {
         display: inline-block;
-        margin-top: 8px;
+        margin-top: 0;
         padding: 2px 0;
         background: none;
         border: 0;
@@ -452,6 +468,23 @@ function panelMarkup() {
       }
       .saving-close:hover { color: #17201d; }
       .saving-close:focus-visible { outline: 2px solid #f4bd45; outline-offset: 2px; border-radius: 3px; }
+
+      /* The saving and done cards run tighter than the clutter/review cards.
+         Pull the monster up to close the dead space under the top bar, shorten
+         the row so the divider still meets his feet, and slim the footer's
+         vertical padding. Scoped to these two states so clutter/review keep
+         their roomier proportions. (The done card's has-auto-tidy variant adds
+         its own padding-bottom override below, at higher specificity.) */
+      .card.state-saving .mascot,
+      .card.state-done .mascot { top: -19px; }
+      .card.state-saving .row,
+      .card.state-done .row { min-height: 82px; }
+      .card.state-saving .actions,
+      .card.state-done .actions {
+        margin-top: 10px;
+        padding-top: 10px;
+        padding-bottom: 10px;
+      }
 
       .close {
         position: absolute;
@@ -565,6 +598,10 @@ function panelMarkup() {
       .expand-wrapper {
         display: grid;
         grid-template-rows: 0fr;
+        /* Cap the implicit grid column at the wrapper width so long folder names
+           / CTAs can't stretch the column past the card and clip the right-edge
+           controls (gear, "Open all"). Children shrink/truncate instead. */
+        grid-template-columns: minmax(0, 1fr);
         transition: grid-template-rows 260ms cubic-bezier(0.2, 0.9, 0.3, 1.0);
         overflow: hidden;
       }
@@ -573,14 +610,15 @@ function panelMarkup() {
       }
       .expand-wrapper > .expanded-content {
         min-height: 0;       /* allows the 0fr collapse to actually clip to 0 */
+        min-width: 0;        /* allow content to shrink to the column, not overflow it */
         /* Intentionally no overflow rule here — let .expanded-content's own
            overflow-y: auto (or .card.in-popup override to visible) drive
            the Recent list's scroll behavior. */
       }
-      /* In popup context the wrapper is always expanded (idle auto-expands),
-         and there's no use case for collapsing — skip the transition so the
-         popup mounts at its final size with no settle animation. */
-      .card.in-popup .expand-wrapper {
+      /* In popup context the idle (tidy) view mounts already-expanded with no
+         settle animation. Saving/done/review keep the normal collapsed wrapper
+         so they show only their own card, not the tidy UI stacked beneath it. */
+      .card.in-popup.state-idle .expand-wrapper {
         grid-template-rows: 1fr;
         transition: none;
       }
@@ -1287,7 +1325,7 @@ function panelMarkup() {
          cover the eyes). Shown only while the card is in the saving state. */
       .save-bubble {
         position: absolute;
-        top: 72px;
+        top: 54px;
         right: 142px;
         max-width: 232px;
         white-space: nowrap;

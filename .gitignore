@@ -13,5 +13,8 @@ eval/report.html
 .env
 eval/.env
 
+# Dev-only popup preview harness
+popup-preview.html
+
 # Cloudflare Wrangler local cache — holds authenticated account credentials
 .wrangler/
