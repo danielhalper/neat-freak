@@ -20,24 +20,27 @@ and a CWS re-review). A heavy session (40 tabs × ~720-char summaries) is ~50KB.
 unbounded this is both UX clutter and an eventual `QUOTA_BYTES` failure that would break
 *saving itself*.
 
-### Decision: count-based
+### Decision: tab-count-based
 
-Keep the **newest N sessions**, default **250**, prune oldest beyond that. Chosen over
-age-based because it (a) directly bounds the real constraint (the 10MB quota) and
-(b) never deletes deliberately-saved work merely because time passed — it only trims once
-there's genuinely a large pile, and trims the least-recent first. Adjustable in Settings,
+Keep roughly the **newest N saved tabs** (across sessions), default **5000**, pruning whole
+oldest sessions beyond that. Tabs (not sessions) are the unit because storage scales with
+tabs — a session can hold 1 or 50 — so a tab budget tracks the real 10MB quota almost
+linearly and lines up with the byte backstop below. Chosen over age-based because it never
+deletes deliberately-saved work merely because time passed. Adjustable in Settings,
 including a "keep everything" option.
 
 ### Settings
 
-Bump `settingsVersion` 6 → 7. Add to `DEFAULT_SETTINGS`:
+Bump `settingsVersion` to 9 (dropping the short-lived `maxSavedSessions` key). Add to
+`DEFAULT_SETTINGS`:
 
-- `maxSavedSessions: 250` — `0` means "keep everything" (no count pruning).
+- `maxSavedTabs: 5000` — `0` means "keep everything" (no tab-count pruning).
 
-Migration in `getSettings()`: clamp via a new `clampSavedSessions(value)`:
-- missing/invalid → default 250
+Migration in `getSettings()`: drop the legacy `maxSavedSessions` key and clamp via a new
+`clampSavedTabs(value)`:
+- missing/invalid → default 5000
 - `0` → `0` (unlimited)
-- otherwise clamp to `[20, 1000]` (floor of 20 prevents an over-aggressive value from
+- otherwise clamp to `[100, 50000]` (floor of 100 prevents an over-aggressive value from
   silently nuking most of the user's stashes)
 
 `saveSettings()` runs the same clamp, mirrors `clutterThreshold`'s pattern.
@@ -52,9 +55,11 @@ array. Rules, in order:
    *not yet closed in the browser*; deleting it would strand live tabs and lose the
    record of what's pending. Protected sessions are always retained and don't count
    against the limit.
-2. **Count limit.** Of the remaining (closed) sessions, sort newest-first by `createdAt`
-   and keep the first `maxSavedSessions`. (Skip when `maxSavedSessions === 0`.)
-3. **Quota backstop.** After the count limit, if the serialized retained set still exceeds
+2. **Tab-count limit.** Of the remaining (closed) sessions, sorted newest-first by
+   `createdAt`, keep whole sessions while the running saved-tab total stays within
+   `maxSavedTabs` (the newest session is always kept, even if it alone exceeds the budget).
+   (Skip when `maxSavedTabs === 0`.)
+3. **Quota backstop.** After the tab-count limit, if the serialized retained set still exceeds
    a safe byte budget (`RETENTION_BYTE_BUDGET = 8 * 1024 * 1024`), keep dropping the
    oldest *unprotected* session until under budget. Byte size estimated via
    `JSON.stringify(...).length`. This guarantees a save can never fail with a quota error,
