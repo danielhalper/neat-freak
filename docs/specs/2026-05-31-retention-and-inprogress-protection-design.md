@@ -22,7 +22,7 @@ unbounded this is both UX clutter and an eventual `QUOTA_BYTES` failure that wou
 
 ### Decision: tab-count-based
 
-Keep roughly the **newest N saved tabs** (across sessions), default **5000**, pruning whole
+Keep roughly the **newest N saved tabs** (across sessions), default **3000**, pruning whole
 oldest sessions beyond that. Tabs (not sessions) are the unit because storage scales with
 tabs — a session can hold 1 or 50 — so a tab budget tracks the real 10MB quota almost
 linearly and lines up with the byte backstop below. Chosen over age-based because it never
@@ -34,11 +34,11 @@ including a "keep everything" option.
 Bump `settingsVersion` to 9 (dropping the short-lived `maxSavedSessions` key). Add to
 `DEFAULT_SETTINGS`:
 
-- `maxSavedTabs: 5000` — `0` means "keep everything" (no tab-count pruning).
+- `maxSavedTabs: 3000` — `0` means "keep everything" (no tab-count pruning).
 
 Migration in `getSettings()`: drop the legacy `maxSavedSessions` key and clamp via a new
 `clampSavedTabs(value)`:
-- missing/invalid → default 5000
+- missing/invalid → default 3000
 - `0` → `0` (unlimited)
 - otherwise clamp to `[100, 50000]` (floor of 100 prevents an over-aggressive value from
   silently nuking most of the user's stashes)

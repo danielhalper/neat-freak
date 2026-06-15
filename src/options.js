@@ -48,7 +48,7 @@ function populate(settings) {
   fields.defaultReviewBeforeClose.checked = Boolean(settings.defaultReviewBeforeClose);
   fields.defaultScope.value = settings.defaultScope || "allWindows";
   fields.llmEnabled.checked = Boolean(settings.llmEnabled);
-  fields.maxSavedTabs.value = settings.maxSavedTabs ?? 5000;
+  fields.maxSavedTabs.value = settings.maxSavedTabs ?? 3000;
   fields.maxSnippetChars.value = settings.maxSnippetChars || 720;
   fields.showClutterNudges.checked = settings.showClutterNudges !== false;
   syncClutterThresholdVisibility();
@@ -85,7 +85,7 @@ function readSettings() {
     defaultReviewBeforeClose: fields.defaultReviewBeforeClose.checked,
     defaultScope: fields.defaultScope.value,
     llmEnabled: fields.llmEnabled.checked,
-    maxSavedTabs: Number(fields.maxSavedTabs.value || 5000),
+    maxSavedTabs: Number(fields.maxSavedTabs.value || 3000),
     maxSnippetChars: Number(fields.maxSnippetChars.value || 720),
     showClutterNudges: fields.showClutterNudges.checked
   };

@@ -17,7 +17,7 @@ export const DEFAULT_SETTINGS = {
   llmEnabled: true,
   llmModel: "gpt-oss-120b",
   llmProvider: "managed",
-  maxSavedTabs: 5000,      // keep roughly the newest N saved tabs (across sessions); older sessions are auto-pruned. 0 = keep everything.
+  maxSavedTabs: 3000,      // keep roughly the newest N saved tabs (across sessions); older sessions are auto-pruned. 0 = keep everything.
   maxSnippetChars: 720,
   settingsVersion: 8,
   showClutterNudges: true,
