@@ -17,7 +17,7 @@ export const DEFAULT_SETTINGS = {
   llmEnabled: true,
   llmModel: "gpt-oss-120b",
   llmProvider: "managed",
-  maxSavedSessions: 180,   // keep the newest N saved sessions; older ones are auto-pruned. 0 = keep everything.
+  maxSavedSessions: 250,   // keep the newest N saved sessions; older ones are auto-pruned. 0 = keep everything.
   maxSnippetChars: 720,
   settingsVersion: 8,
   showClutterNudges: true,

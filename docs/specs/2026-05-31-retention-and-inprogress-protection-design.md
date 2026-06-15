@@ -22,7 +22,7 @@ unbounded this is both UX clutter and an eventual `QUOTA_BYTES` failure that wou
 
 ### Decision: count-based
 
-Keep the **newest N sessions**, default **180**, prune oldest beyond that. Chosen over
+Keep the **newest N sessions**, default **250**, prune oldest beyond that. Chosen over
 age-based because it (a) directly bounds the real constraint (the 10MB quota) and
 (b) never deletes deliberately-saved work merely because time passed — it only trims once
 there's genuinely a large pile, and trims the least-recent first. Adjustable in Settings,
@@ -32,10 +32,10 @@ including a "keep everything" option.
 
 Bump `settingsVersion` 6 → 7. Add to `DEFAULT_SETTINGS`:
 
-- `maxSavedSessions: 180` — `0` means "keep everything" (no count pruning).
+- `maxSavedSessions: 250` — `0` means "keep everything" (no count pruning).
 
 Migration in `getSettings()`: clamp via a new `clampSavedSessions(value)`:
-- missing/invalid → default 180
+- missing/invalid → default 250
 - `0` → `0` (unlimited)
 - otherwise clamp to `[20, 1000]` (floor of 20 prevents an over-aggressive value from
   silently nuking most of the user's stashes)
