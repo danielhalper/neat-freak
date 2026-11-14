@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Privacy Policy — Neat Freak</title>
-  <meta name="description" content="How Neat Freak handles your data: everything stays in your browser. No account, no analytics, nothing leaves your device unless you opt into AI grouping with your own key.">
+  <meta name="description" content="How Neat Freak handles your data: saved tabs and diagnostics stay in your browser. No account or remote analytics. With AI on, tab data is processed in a confidential secure enclave. Turn AI off to stay fully on-device.">
   <meta name="theme-color" content="#093f3b">
   <link rel="icon" type="image/svg+xml" href="favicon.svg">
   <link rel="apple-touch-icon" href="favicon.svg">
@@ -74,55 +74,60 @@
   <main>
     <div class="wrap">
       <h1>Privacy Policy</h1>
-      <p class="updated">Last updated: May 27, 2026</p>
+      <p class="updated">Last updated: November 4, 2026</p>
 
       <div class="tldr">
-        <strong>TL;DR —</strong> Neat Freak stores everything in your browser. We have no server, no
-        account system, and no analytics. Nothing leaves your device unless you explicitly turn on
-        AI-smart grouping, in which case tab titles, URLs, and short page summaries are sent to OpenAI
-        using <strong>your own API key</strong>.
+        <strong>TL;DR —</strong> Saved tabs stay in your browser — no account, no remote analytics, no cross-site tracking.
+        To group and search intelligently, Neat Freak's AI features (on by default) send tab titles, URLs,
+        and short page summaries to a <strong>confidential AI backend</strong> that processes them inside a
+        hardware secure enclave: the content isn't stored, isn't used to train models, and
+        <strong>can't be read by us or the AI provider</strong>. No API key needed. Turn AI off in Settings
+        to keep everything fully on-device.
       </div>
 
       <h2>What Neat Freak stores on your device</h2>
-      <p>Saved locally via <code>chrome.storage.local</code>, never transmitted to any server we control (we don't have one):</p>
+      <p>Saved sessions and settings live in <code>chrome.storage.local</code>. AI processing is described below:</p>
       <ul>
         <li><strong>Saved tab sessions</strong> — for each session: the URLs, titles, favicon URLs, and a short text summary of each page at the time you saved it.</li>
         <li><strong>Tab grouping metadata</strong> — folder names, signals, and confidence scores.</li>
-        <li><strong>Your settings</strong> — capture defaults, whether AI grouping is enabled, and your OpenAI API key (if you provide one).</li>
+        <li><strong>Your settings</strong> — capture defaults, whether AI is enabled, and a random, anonymous install identifier.</li>
       </ul>
       <p>All of this lives in your browser's extension storage. Uninstalling Neat Freak removes it.</p>
+      <p>Prepared suggestions and Keep choices are cached in browser-session storage until the browser session ends. A local daily counter limits automatic AI attempts; it contains no tab content and is not analytics.</p>
+      <p><strong>Local diagnostics:</strong> enabled by default for troubleshooting. Records event times, suggestion counts, review/Keep actions, close/restore results, durations, error categories and extension source locations. Random per-tidy references connect related events. No titles, URLs, page content, form values, credentials or install identifiers are recorded. Limited to 500 events and seven days, cleaned on extension activity. Disable, clear or export it in Settings. Nothing is uploaded automatically; you choose whether to share an export.</p>
 
-      <h2>What gets sent to OpenAI (only if you opt in)</h2>
-      <p>If — and only if — you (a) provide your own OpenAI API key in settings and (b) leave AI grouping enabled, then:</p>
+      <h2>What gets sent off your device (AI features — on by default)</h2>
+      <p>When AI is enabled (the default), tidying, requesting suggestions, or running a smart search transmits, for the relevant tabs: their <strong>titles, URLs, domains, and optional short page summaries</strong> (and, for search, your query). This goes to a <strong>confidential AI backend</strong> operated for Neat Freak, with two key properties:</p>
       <ul>
-        <li>When you tidy, Neat Freak sends tab titles, URLs, domains, and short page summaries to OpenAI's API to decide what to keep open and to generate workstream-aware folder names.</li>
-        <li>When you run a smart search, Neat Freak sends your query plus the same per-tab metadata to OpenAI to rank matches.</li>
+        <li>A <strong>relay service</strong> that hands out short-lived usage keys (to rate-limit abuse) receives only an <strong>anonymous, random install identifier</strong> — never your tab content, and not tied to your identity.</li>
+        <li>The <strong>AI model runs inside a hardware secure enclave</strong> (confidential computing, provided by <a href="https://tinfoil.sh" target="_blank" rel="noopener noreferrer">Tinfoil</a>). Your tab content is processed there and <strong>cannot be read by Neat Freak's operators or by the AI provider</strong>, is <strong>not retained</strong>, and is <strong>not used to train models</strong>.</li>
       </ul>
-      <p>The request goes directly from your browser to <code>api.openai.com</code> using your API key. We are not a middleman — we do not log, proxy, or otherwise observe this traffic. It's governed by <a href="https://openai.com/policies/privacy-policy" target="_blank" rel="noopener noreferrer">OpenAI's privacy policy</a> and your API agreement with them; per OpenAI's API terms, data sent through the API is not used to train their models by default.</p>
-      <p>If you do not provide an API key, <strong>no data leaves your device</strong> — grouping runs entirely in your browser.</p>
+      <p>No OpenAI key — or any key — is required from you.</p>
+      <p><strong>Turn it off any time:</strong> disable "Use AI…" in Settings and grouping runs entirely in your browser — <strong>no tab data leaves your device</strong>.</p>
+      <p><strong>Background suggestions:</strong> background preparation starts off. Enabling "Prepare tab suggestions in the background," along with nudges, lets Neat Freak inspect inactive candidate tabs and, with AI on, send titles, URLs and optional summaries before you click Save. Suggestions cover regular windows; incognito tabs are excluded. Tabs close only after a Save &amp; close action.</p>
+      <p><strong>About page summaries:</strong> candidate pages may contain sensitive text, such as emails or documents. Summaries may be extracted while preparing suggestions or tidying, including from tabs you ultimately keep. Turning off summaries still allows titles and URLs to be sent when AI is on; turning off AI keeps processing local. Form checks run locally before closing and return no field values. Detected editable regions are excluded from summaries. Detection is best-effort, especially for custom editors.</p>
 
       <h2>What we do NOT collect</h2>
       <ul>
-        <li>No analytics or telemetry (no Google Analytics, no Mixpanel, no Sentry, nothing).</li>
+        <li>No remotely collected analytics or telemetry. Local diagnostics stay on your device unless you export and share them.</li>
         <li>No user accounts. There is no Neat Freak account system.</li>
         <li>No advertising identifiers. We do not show ads.</li>
         <li>No tracking across sessions or devices. Each install is independent.</li>
-        <li>No selling, renting, or sharing of any data. (We don't have any to share.)</li>
+        <li>No selling or renting of your data. We transfer data only to the confidential AI backend described above, solely to provide the AI features you've enabled.</li>
       </ul>
 
       <h2>Permissions and why we need them</h2>
       <ul>
         <li><code>storage</code> — to save your sessions and settings on your device.</li>
-        <li><code>tabs</code> — to read the list of open tabs (title, URL, favicon, pinned status) when you tidy, and to reopen URLs when you click Restore.</li>
-        <li><code>scripting</code> — to extract a short text summary of each page at save time, which improves grouping. This runs only at the moment of save, only on tabs you are saving.</li>
+        <li><code>tabs</code> — to read open-tab metadata for counts, suggestions and tidying, close tabs after a user action, and reopen URLs on Restore.</li>
+        <li><code>scripting</code> — to extract optional summaries from candidate pages when preparing suggestions or tidying, check locally for unsaved input, and display the floating panel.</li>
         <li><code>notifications</code> — to let you know when a save finishes, so you can move on.</li>
-        <li><code>alarms</code> — to periodically check whether you're over your clutter threshold.</li>
-        <li><strong>Host access (<code>http/https</code>)</strong> — required so the <code>scripting</code> permission can run on the pages you save. Neat Freak does not read your pages at any other time.</li>
-        <li><strong>Host access (<code>api.openai.com</code>)</strong> — only used when you enable AI grouping with your own key.</li>
+        <li><code>alarms</code> — to check your clutter threshold and prepare suggestions when you have enabled background preparation.</li>
+        <li><strong>Host access (<code>http/https</code>)</strong> — to inspect candidate pages for the features described above, display the panel, and reach the AI backend when AI is enabled.</li>
       </ul>
 
       <h2>Data retention</h2>
-      <p>Sessions stay in your browser until you delete them (or uninstall Neat Freak). There is no remote backup, no sync, no automatic deletion.</p>
+      <p>Sessions stay in your browser until you delete them, uninstall, or the configured retention limit removes older completed sessions. A storage-size backstop can also remove older completed sessions. Pending sessions are protected. There is no remote backup or sync.</p>
 
       <h2>Children's privacy</h2>
       <p>Neat Freak does not knowingly collect data from anyone under 13. Since we don't collect data from anyone, this is somewhat redundant — but we state it explicitly.</p>

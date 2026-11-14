@@ -71,16 +71,16 @@ OneTab and the rest hand you a flat wall of URLs. Great for memory, useless for 
 
 — YOUR DATA STAYS WITH YOU —
 
-Everything lives in your browser's local storage. No account, no sync, no servers (we don't run any). The one exception: if you switch on AI grouping, tab titles and short page summaries go to OpenAI using YOUR own API key — off by default, stored only on your device.
+Your saved tabs live in your browser's local storage — no account, no sync, no tracking. To group and search intelligently, the AI features (on by default) send tab titles, URLs, and short page summaries to a confidential AI backend that runs them inside a hardware secure enclave — your data can't be read by us or the AI provider, isn't stored, and isn't used to train models. No API key needed. Prefer fully local? Turn AI off in Settings.
 
-— OPTIONAL AI UPGRADE —
+— PRIVATE AI, BUILT IN —
 
-Add your own OpenAI key and Neat Freak uses gpt-5.4-mini to get sharper still:
+No setup, no API key. AI runs on a confidential model inside a secure enclave (so your tabs stay private) and gives you:
 - Smarter keep-vs-file calls (your work-in-progress stays, reference tabs get filed)
 - Workstream-aware folder names ("Job Hunt: UX Roles," not "linkedin.com group")
 - Natural-language search across everything you've saved
 
-No key? The built-in engine still works great. The AI is polish, not a requirement.
+Want it fully local? Switch AI off in Settings — the built-in engine still works great.
 
 — BUILT FOR PEOPLE WHO —
 
@@ -89,7 +89,7 @@ No key? The built-in engine still works great. The AI is polish, not a requireme
 - Want their browser to remember the shape of yesterday's work, not just the links
 - Are done with OneTab's flat list
 
-No account. No ads. No telemetry. Just tidy, find, restore. Pin Neat Freak to your toolbar and click it whenever your tabs get out of hand.
+No account. No ads. No automatic telemetry uploads. Local troubleshooting logs can be disabled, cleared or exported in Settings. Pin Neat Freak to your toolbar and click it whenever your tabs get out of hand.
 ```
 
 ---
@@ -153,12 +153,12 @@ When the dashboard asks "Does your extension collect or use any of the following
 | Personally identifiable information | **No** | |
 | Health information | **No** | |
 | Financial and payment information | **No** | |
-| Authentication information | **Yes (locally only)** | OpenAI API key, only if user provides one. Stored in chrome.storage.local on the user's device. Never transmitted anywhere except api.openai.com when the user explicitly triggers AI grouping. |
-| Personal communications | **No** | |
+| Authentication information | **No** | The extension no longer uses any API key. |
+| Personal communications | **No** | Page summaries are pulled from whatever page the user saves and could incidentally include such content — flagged for review (see permissions-justifications.md). |
 | Location | **No** | |
-| Web history | **Yes** | Tab titles and URLs are saved locally to enable the core feature. When AI grouping is enabled, titles + URLs + short page summaries are sent to OpenAI via the user's own API key. Never persisted server-side by Neat Freak. |
-| User activity | **No** | No analytics, no telemetry, no event tracking. |
-| Website content | **Yes (transient)** | A short text summary of each page (title + first paragraphs) is extracted at save time to improve grouping. Used immediately, not persisted beyond the saved session, never transmitted unless AI grouping is enabled. |
+| Web history | **Yes** | Tab titles and URLs are saved locally for the core feature. When AI is on (default), titles + URLs + short page summaries are sent to Neat Freak's confidential AI backend (processed in a secure enclave, not retained). |
+| User activity | **Yes (local only)** | Bounded troubleshooting events include suggestion counts, review/Keep actions, close/restore counts, timings and error categories. No page content or URLs in this log. Stored locally for up to seven days/500 events; never uploaded automatically. Users can disable, clear or manually export it. |
+| Website content | **Yes** | Optional summaries are extracted from candidate pages while tidying or preparing suggestions. Background preparation starts off and requires enabling. With AI on, candidate titles, URLs and optional summaries can be sent before a Save click, including for tabs ultimately kept open. Saved summaries also remain locally in saved sessions. |
 
 Required certifications:
 - [x] I do not sell or transfer user data to third parties, outside of the approved use cases

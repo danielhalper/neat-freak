@@ -6,16 +6,13 @@
 // they're unit-testable in the Node harness. The service worker wires them to
 // chrome.tabs / chrome.storage. See docs/specs/2026-06-01-proactive-clutter-nudge-design.md.
 
-// Strip volatile URL bits (query, hash, trailing slash, case) so a scroll
-// anchor or a tracking param doesn't read as a real navigation.
+// Keep document-significant path case, query strings and fragments. A query
+// or hash can identify a different document in an SPA; extra invalidations are
+// preferable to closing a tab whose content changed.
 export function normalizeUrl(url) {
   if (typeof url !== "string" || !url) return "";
-  try {
-    const u = new URL(url);
-    return `${u.protocol}//${u.host}${u.pathname}`.replace(/\/+$/, "").toLowerCase();
-  } catch {
-    return String(url).split(/[?#]/)[0].replace(/\/+$/, "").toLowerCase();
-  }
+  try { return new URL(url).href; }
+  catch { return url; }
 }
 
 // Order-independent fingerprint of the candidate set: which tabs, by id +
@@ -64,7 +61,7 @@ export function shouldArm({ currentTier, lastAlertedTier, lastAlertAt, now, cool
 // tabs simply default to staying open (absent from the plan = not saved).
 export function reconcilePlan(plan, delta, { churnCap = 0.2 } = {}) {
   if (!plan) return { plan: null, needsRecompute: true };
-  const removedSet = new Set(delta?.removed || []);
+  const removedSet = new Set([...(delta?.removed || []), ...(delta?.navigated || [])]);
   const tabActions = (plan.tabActions || []).filter((a) => !removedSet.has(a.tabId));
   const groups = (plan.groups || [])
     .map((g) => ({ ...g, tabIds: (g.tabIds || []).filter((id) => !removedSet.has(id)) }))

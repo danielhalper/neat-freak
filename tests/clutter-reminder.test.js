@@ -8,10 +8,10 @@ import {
   reconcilePlan
 } from "../src/clutter-reminder.js";
 
-test("normalizeUrl strips query, hash, trailing slash, and lowercases", () => {
-  assert.equal(normalizeUrl("https://Example.com/Path/?q=1#frag"), "https://example.com/path");
-  assert.equal(normalizeUrl("https://example.com/path/"), "https://example.com/path");
-  assert.equal(normalizeUrl("https://example.com"), "https://example.com");
+test("normalizeUrl preserves document identity in paths, queries and fragments", () => {
+  assert.equal(normalizeUrl("https://Example.com/Path/?q=1#frag"), "https://example.com/Path/?q=1#frag");
+  assert.equal(normalizeUrl("https://example.com/path/"), "https://example.com/path/");
+  assert.equal(normalizeUrl("https://example.com"), "https://example.com/");
   assert.equal(normalizeUrl(""), "");
   assert.equal(normalizeUrl(undefined), "");
 });
@@ -24,9 +24,9 @@ test("hashTabSet is order-independent but URL-sensitive", () => {
   const navigated = [{ id: 1, url: "https://a.com/x" }, { id: 2, url: "https://b.com" }];
   assert.notEqual(hashTabSet(a), hashTabSet(navigated), "a URL change must change the hash");
 
-  // A scroll anchor / query param must NOT change the hash.
+  // Queries and fragments may identify a different document.
   const anchored = [{ id: 1, url: "https://a.com#section" }, { id: 2, url: "https://b.com?utm=x" }];
-  assert.equal(hashTabSet(a), hashTabSet(anchored));
+  assert.notEqual(hashTabSet(a), hashTabSet(anchored));
 });
 
 test("classifyDelta splits removed / added / navigated; removals excluded from churn", () => {

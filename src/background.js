@@ -1,5 +1,12 @@
 import { categorizeTabs, testLlm } from "./categorizer.js";
-import { runSmartScope } from "./smart-scope.js";
+import { heuristicSignals, runSmartScope } from "./smart-scope.js";
+import { createRecommendationService } from "./recommendations.js";
+import { createRecommendationBudget } from "./recommendation-budget.js";
+import { trimPlan } from "./tidy-plan.js";
+import { shouldArm } from "./clutter-reminder.js";
+import { closeValidatedTabs } from "./safe-close.js";
+import { createDiagnostics, diagnosticError, diagnosticDetails, DIAGNOSTICS_KEY } from "./diagnostics.js";
+import { createBehaviorLog } from "./behavior-log.js";
 import {
   addSession,
   deleteSession,
@@ -12,8 +19,30 @@ import {
 } from "./storage.js";
 import { createId, formatRelativeActive, getDomain, isSavableUrl, nowIso, truncateText } from "./utils.js";
 
+const diagnostics = createDiagnostics({
+  read: async () => (await chrome.storage.local.get(DIAGNOSTICS_KEY))[DIAGNOSTICS_KEY],
+  write: entries => chrome.storage.local.set({ [DIAGNOSTICS_KEY]: entries }),
+  enabled: async () => (await getSettings()).diagnosticsEnabled !== false
+});
+// Opt-in local tab-habit log (domains and timings only; separate from diagnostics).
+const behaviorLog = createBehaviorLog({ storage: chrome.storage.local, queryTabs,
+  enabled: async () => (await getSettings()).behaviorLogEnabled === true });
+behaviorLog.attach(chrome);
+
+async function routeWithDiagnostics(message) {
+  const startedAt = Date.now();
+  try {
+    const result = await routeMessage(message);
+    await diagnostics.record("action", { action: message?.type, ok: true, durationMs: Date.now() - startedAt });
+    return result;
+  } catch (error) {
+    await diagnostics.record("action", { action: message?.type, ok: false, ...diagnosticDetails(error), durationMs: Date.now() - startedAt });
+    throw error;
+  }
+}
+
 chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
-  routeMessage(message)
+  routeWithDiagnostics(message)
     .then((response) => sendResponse({ ok: true, ...response }))
     .catch((error) => sendResponse({ ok: false, error: error.message }));
   return true;
@@ -29,6 +58,10 @@ if (chrome.storage?.session?.setAccessLevel) {
     .setAccessLevel({ accessLevel: "TRUSTED_AND_UNTRUSTED_CONTEXTS" })
     .catch((err) => console.warn("[Neat Freak] session storage access:", err?.message || err));
 }
+
+// Settings that only shape a manual "Tidy my tabs" run. Saving them leaves a
+// prepared offer in place (see SAVE_SETTINGS).
+const MANUAL_TIDY_SETTINGS = new Set(["defaultScope", "defaultIncludePinned", "defaultKeepCurrentTab", "defaultReviewBeforeClose"]);
 
 // Track whether the Chrome action popup is open. The popup opens a long-lived
 // "popup-alive" port on load; Chrome auto-disconnects it when the popup closes
@@ -49,6 +82,9 @@ if (chrome.runtime?.onConnect) {
 }
 
 async function routeMessage(message) {
+  if (saveInFlight && ["DELETE_SESSION", "DELETE_TAB", "DELETE_GROUP", "IMPORT_SESSIONS", "RECATEGORIZE_SESSION", "PANEL_DISCARD_REVIEW"].includes(message?.type)) {
+    throw new Error("A tidy is in progress. Wait for it to finish before editing saved sessions.");
+  }
   switch (message?.type) {
     case "GET_POPUP_STATE":
       return getPopupState();
@@ -58,12 +94,41 @@ async function routeMessage(message) {
       return { sessions: await getSessions() };
     case "GET_SETTINGS":
       return { settings: await getSettings() };
-    case "SAVE_SETTINGS":
-      return { settings: await saveSettings(message.settings || {}) };
+    case "EXPORT_DIAGNOSTICS": {
+      const settings = await getSettings();
+      return { diagnostics: {
+        ...await diagnostics.exportLog(),
+        extensionVersion: chrome.runtime.getManifest?.().version || "unknown",
+        settings: { prepareSuggestions: settings.prepareSuggestions === true, llmEnabled: settings.llmEnabled === true,
+          collectPageSummaries: settings.collectPageSummaries === true, showClutterNudges: settings.showClutterNudges !== false }
+      } };
+    }
+    case "CLEAR_DIAGNOSTICS":
+      await diagnostics.clear();
+      return {};
+    case "EXPORT_BEHAVIOR_LOG":
+      return { behaviorLog: await behaviorLog.exportLog() };
+    case "CLEAR_BEHAVIOR_LOG":
+      await behaviorLog.clear();
+      return {};
+    case "BEGIN_TAB_LABELS":
+      return { frozenAt: await behaviorLog.beginLabels({ offer: () => recommendations.get() }) };
+    case "SAVE_TAB_LABELS":
+      return { saved: await behaviorLog.saveLabels(message.labels, { frozenAt: message.frozenAt, signals: heuristicSignals,
+        capture: async tabs => buildSavedTabs(tabs, await getSettings()), offer: await recommendations.get().catch(() => null) }) };
+    case "SAVE_SETTINGS": {
+      const changes = message.settings || {};
+      const settings = await saveSettings(changes);
+      // The panel's scope switch and manual-tidy options don't feed the
+      // prepared offer, so flipping them leaves it standing.
+      if (!Object.keys(changes).every(key => MANUAL_TIDY_SETTINGS.has(key))) await recommendations.invalidate();
+      scheduleClutterCheck();
+      return { settings };
+    }
     case "SAVE_TABS":
-      return saveTabs(message.options || {});
+      return runExclusiveSave(() => saveTabs(message.options || {}));
     case "CLOSE_SAVED_TABS":
-      return closeSavedTabs(message.sessionId);
+      return runExclusiveSave(() => closeSavedTabs(message.sessionId));
     case "RESTORE_TAB":
       return restoreTabsByIds(message.sessionId, [message.tabId]);
     case "RESTORE_GROUP":
@@ -96,13 +161,31 @@ async function routeMessage(message) {
       return markOnboarded();
     case "CLUTTER_TOAST_TIDY":      // legacy alias from any in-flight content scripts; same handler
     case "PANEL_TIDY_NOW":
-      return handlePanelTidyNow();
+      return runExclusiveSave(handlePanelTidyNow);
+    case "SET_RECOMMENDATION_KEEP":
+      return persistRecommendationReview(message);
+    case "GET_RECOMMENDATION":
+      return { recommendation: await getRecommendationForUi() };
+    case "REFRESH_RECOMMENDATION":
+      return refreshRecommendationForUi(message);
+    case "REVIEW_RECOMMENDATION":
+      return reviewRecommendation(message.planId);
+    case "EXECUTE_RECOMMENDATION":
+      return runExclusiveSave(() => executeRecommendation(message));
     case "DONE_TOAST_OPEN":          // legacy alias
     case "PANEL_OPEN_MANAGER":
       await openManager(message.sessionId || "");
       await setPanelState({ mode: "hidden" });
       return {};
     case "PANEL_DISMISS":
+      recommendationUiRevision += 1;
+      await reviewUpdateQueue;
+      {
+        const state = await readPanelState();
+        if (state.recommendation && state.keepOpenSessionTabIds?.length) {
+          await recommendations.exclude(state.planId, state.keepOpenSessionTabIds).catch(() => undefined);
+        }
+      }
       await setPanelState({ mode: "hidden" });
       return {};
     case "PANEL_DISMISS_SAVING":
@@ -113,7 +196,7 @@ async function routeMessage(message) {
       await setPanelState({ mode: "hidden" });
       return {};
     case "PANEL_CONFIRM_REVIEW":
-      return confirmPanelReview(message.sessionId, message.keepOpenSessionTabIds || []);
+      return runExclusiveSave(() => confirmPanelReview(message.sessionId, message.keepOpenSessionTabIds || []));
     case "PANEL_DISCARD_REVIEW":
       return discardPanelReview(message.sessionId);
     case "OPEN_PANEL_FROM_ICON":
@@ -142,6 +225,9 @@ async function openPanelFromIcon() {
     } catch { resolve({}); }
   });
   const currentMode = stored?.neatFreakPanelState?.mode || "hidden";
+  if (currentMode === "review" || currentMode === "saving") {
+    return { injected: await ensurePanelMounted() };
+  }
   if (currentMode !== "hidden" && currentMode !== "saving") {
     await setPanelState({ mode: "hidden" });
     return { injected: true, closed: true };
@@ -167,7 +253,7 @@ async function getPopupState() {
     const allTabs = await queryTabs({});
     totalTabCount = allTabs.length;
   } catch { /* best-effort */ }
-  return { preview, sessions: sessions.slice(0, 3), settings, totalTabCount };
+  return { preview, sessions: sessions.slice(0, 3), settings, totalTabCount, recommendation: await getRecommendationForUi() };
 }
 
 async function previewTabs(options) {
@@ -207,8 +293,10 @@ function emitProgress(payload) {
   // the loader for this save (so it doesn't pop back on the next step).
   if (!isPopupOpen() && payload?.step && payload.step !== "done") {
     const label = progressLabelFor(payload);
-    isSaveLoaderDismissed().then((dismissed) => {
-      if (dismissed) return;
+    isSaveLoaderDismissed().then(async (dismissed) => {
+      if (dismissed || !saveInFlight) return;
+      const state = await readPanelState();
+      if (["review", "done"].includes(state.mode)) return;
       setPanelState({ mode: "saving", label }).catch(() => undefined);
     });
   }
@@ -244,7 +332,8 @@ async function getEnclaveCredential(settings) {
   const res = await fetch(settings.tokenServiceUrl, {
     method: "POST",
     headers: { "Content-Type": "application/json", "X-Install-Id": settings.installId || "" },
-    body: "{}"
+    body: "{}",
+    signal: AbortSignal.timeout(10_000)
   });
   if (!res.ok) throw new Error(`Token service ${res.status}`);
   const data = await res.json();
@@ -269,12 +358,14 @@ async function resolveLlmSettings(settings) {
     const cred = await getEnclaveCredential(settings);
     if (!cred) return settings;
     return { ...settings, backendUrl: cred.baseUrl, enclaveKey: cred.key, llmModel: cred.model || settings.llmModel };
-  } catch {
+  } catch (error) {
+    await diagnostics.record("background_error", diagnosticDetails(error));
     return settings;
   }
 }
 
 async function saveTabs(options) {
+  await recommendations.invalidate();
   // New save → clear any leftover "loader dismissed" flag so this save's
   // progress panel shows fresh (the user can dismiss it again if they want).
   try { await chrome.storage.session?.remove?.(SAVE_LOADER_DISMISSED_KEY); } catch { /* tolerate */ }
@@ -351,12 +442,15 @@ async function saveTabs(options) {
   emitProgress({ step: "saving" });
   const session = {
     id: createId("session"),
+    browserSessionId: await getBrowserSessionId(),
     categories,
-    closeStatus: captureOptions.reviewBeforeClose ? "review" : "closed",
-    closedAt: captureOptions.reviewBeforeClose ? "" : nowIso(),
+    closeStatus: captureOptions.reviewBeforeClose ? "review" : "closing",
+    closedAt: "",
     createdAt: nowIso(),
-    pendingTabIds: captureOptions.reviewBeforeClose ? tabIdsToClose : [],
+    pendingTabIds: tabIdsToClose,
     scope: captureOptions.scope,
+    includePinned: captureOptions.includePinned,
+    keepCurrentTab: captureOptions.keepCurrentTab,
     skipped,
     tabs: smartResult ? tabsToClose : tabs,
     title: createSessionTitle(smartResult ? tabsToClose : candidates),
@@ -366,19 +460,15 @@ async function saveTabs(options) {
 
   await addSession(session);
   await pruneSavedSessions();
-  notifySessionReady(session, meta);
-  // Unified panel: transition to done state (or review state if Review-before-
-  // closing is on). Both short-circuit if the Chrome popup is open so we don't
-  // compete for the user's attention.
+  if (captureOptions.reviewBeforeClose) notifySessionReady(session, meta);
+  // Both surfaces read the same state; review never closes browser tabs.
   if (captureOptions.reviewBeforeClose) {
-    showPanelReview(session).catch(() => undefined);
-  } else {
-    showPanelDone(session, meta, smartResult).catch(() => undefined);
+    await showPanelReview(session);
   }
   const folderSummaries = (categories || [])
     .filter((c) => (c.tabIds || []).length >= 2)
     .map((c) => ({ id: c.id, name: c.name, count: c.tabIds.length }));
-  emitProgress({
+  if (captureOptions.reviewBeforeClose) emitProgress({
     step: "done",
     sessionId: session.id,
     tabCount: smartResult ? smartResult.saveSet.length : tabs.length,
@@ -396,7 +486,7 @@ async function saveTabs(options) {
 
   if (!captureOptions.reviewBeforeClose) {
     // For Smart, only close the chosen save set. For other scopes, close all candidates.
-    await closeTabIds(tabIdsToClose);
+    return finishSessionClose(session, session.tabs);
   }
 
   return { session };
@@ -450,6 +540,7 @@ async function getCandidateTabs(options) {
 function getSkipReason(tab, options) {
   const { includePinned, keepCurrentTab } = options || {};
   if (!tab?.id || !tab.url) return "missing-url";
+  if (tab.incognito) return "incognito";
   if (keepCurrentTab && tab.active) return "current-tab";
   if (tab.pinned && !includePinned) return "pinned";
   if (!isSavableUrl(tab.url)) return "unsupported-url";
@@ -459,8 +550,8 @@ function getSkipReason(tab, options) {
 async function buildSavedTabs(tabs, settings) {
   return mapLimit(tabs, 8, async (tab) => {
     const domain = getDomain(tab.url);
-    const signals = settings.collectPageSummaries && tab.url?.startsWith("http")
-      ? await getPageSignals(tab.id, settings.maxSnippetChars).catch(() => ({ summary: "", hasUnsavedInput: false }))
+    const signals = !tab.discarded && tab.url?.startsWith("http")
+      ? await getPageSignals(tab.id, settings.collectPageSummaries ? settings.maxSnippetChars : 0).catch(() => ({ summary: "", signalsUnavailable: !tab.discarded }))
       : { summary: "", hasUnsavedInput: false };
 
     return {
@@ -473,6 +564,7 @@ async function buildSavedTabs(tabs, settings) {
       // submitted. Smart scope treats this as a hard keep — closing the tab would
       // lose that work for good (restore only reopens the URL).
       hasUnsavedInput: Boolean(signals.hasUnsavedInput),
+      signalsUnavailable: Boolean(signals.signalsUnavailable),
       index: Number.isFinite(tab.index) ? tab.index : 0,
       // lastAccessed is the only signal Smart scope has for "is this tab actually in use?".
       // Without it, every tab looks brand-new (null), and the LLM can't tell stale from fresh —
@@ -493,39 +585,51 @@ async function getPageSignals(tabId, maxChars) {
   // page, suspended, slow-loading), we'd rather skip its signals than hang the
   // entire save flow.
   const scriptPromise = executeScript({
-    target: { tabId },
+    target: { tabId, allFrames: true },
     func: collectPageSignals,
-    args: [Number(maxChars || 720)]
+    args: [Number(maxChars ?? 720)]
   });
-  const result = await Promise.race([
-    scriptPromise,
-    new Promise((resolve) => setTimeout(() => resolve(null), 4000))
-  ]);
-  const signals = result?.[0]?.result;
-  return { summary: signals?.summary || "", hasUnsavedInput: Boolean(signals?.hasUnsavedInput) };
+  let timer;
+  let result;
+  try {
+    result = await Promise.race([
+      scriptPromise,
+      new Promise(resolve => { timer = setTimeout(() => resolve(null), 4000); })
+    ]);
+  } finally { clearTimeout(timer); }
+  const signals = result?.find?.(item => item.frameId === 0)?.result;
+  return {
+    summary: signals?.summary || "", url: signals?.url || "",
+    hasUnsavedInput: Boolean(result?.some?.(item => item.result?.hasUnsavedInput)),
+    signalsUnavailable: !signals || Boolean(result?.some?.(item => !item.result || item.result.signalsUnavailable))
+  };
 }
 
 function collectPageSignals(maxChars) {
+  const outsideEditor = element => !element.closest('[contenteditable], [role="textbox"]');
   const readMeta = (name) => document.querySelector(`meta[name="${name}"], meta[property="${name}"]`)?.getAttribute("content") || "";
   const title = document.title || "";
-  const description = readMeta("description") || readMeta("og:description") || readMeta("twitter:description");
-  const h1 = document.querySelector("h1")?.innerText || "";
-  const headings = [...document.querySelectorAll("h2, h3")]
+  const description = maxChars > 0 ? readMeta("description") || readMeta("og:description") || readMeta("twitter:description") : "";
+  const heading = maxChars > 0 ? document.querySelector("h1") : null;
+  const h1 = heading && outsideEditor(heading) ? heading.innerText || "" : "";
+  const headings = [...(maxChars > 0 ? document.querySelectorAll("h2, h3") : [])]
+    .filter(outsideEditor)
     .slice(0, 6)
     .map((element) => element.innerText)
     .filter(Boolean)
     .join(" | ");
-  const paragraphs = [...document.querySelectorAll("article p, main p, p")]
+  const paragraphs = [...(maxChars > 0 ? document.querySelectorAll("article p, main p, p") : [])]
+    .filter(outsideEditor)
     .slice(0, 8)
     .map((element) => element.innerText)
     .filter((text) => text && text.length > 32)
     .join(" ");
-  const summary = [title, description, h1, headings, paragraphs]
+  const summary = maxChars > 0 ? [title, description, h1, headings, paragraphs]
     .filter(Boolean)
     .join(" -- ")
     .replace(/\s+/g, " ")
     .trim()
-    .slice(0, maxChars);
+    .slice(0, maxChars) : "";
 
   // In-progress form input: a visible, editable input/textarea whose value the
   // user changed from its server-rendered default. Closing such a tab would lose
@@ -533,40 +637,73 @@ function collectPageSignals(maxChars) {
   // treats it as a hard keep. Privacy: only the boolean leaves the page — never
   // field contents, and password fields are skipped before their value is read.
   let hasUnsavedInput = false;
+  let signalsUnavailable = false;
   try {
     const SKIP_INPUT_TYPES = new Set([
       "password", "hidden", "submit", "button", "reset",
-      "checkbox", "radio", "file", "image", "range", "color"
+      "image", "range", "color"
     ]);
-    for (const el of document.querySelectorAll("input, textarea")) {
+    const roots = [document];
+    for (let i = 0; i < roots.length; i++) {
+      for (const el of roots[i].querySelectorAll("*")) {
+        if (el.shadowRoot) roots.push(el.shadowRoot);
+      }
+    }
+    for (const el of roots.flatMap(root => [...root.querySelectorAll("input, textarea, select")])) {
       if (el.disabled || el.readOnly) continue;
       const type = (el.getAttribute("type") || el.type || "text").toLowerCase();
       if (el.tagName === "INPUT" && SKIP_INPUT_TYPES.has(type)) continue;
       if (el.offsetParent === null && el.getClientRects().length === 0) continue; // not visible
-      const value = typeof el.value === "string" ? el.value : "";
-      if (value.trim().length >= 2 && value !== el.defaultValue) {
-        hasUnsavedInput = true;
-        break;
+      if (type === "checkbox" || type === "radio") {
+        hasUnsavedInput = el.checked !== el.defaultChecked;
+      } else if (type === "file") {
+        hasUnsavedInput = Boolean(el.files?.length);
+      } else if (el.tagName === "SELECT") {
+        const options = [...el.options];
+        const defaults = options.map(option => option.defaultSelected);
+        if (!el.multiple) {
+          const explicit = defaults.lastIndexOf(true);
+          const index = explicit >= 0 ? explicit : el.size > 1 ? -1 : options.findIndex(option => !option.disabled && !option.closest("optgroup")?.disabled);
+          defaults.fill(false);
+          if (index >= 0) defaults[index] = true;
+        }
+        hasUnsavedInput = options.some((option, index) => option.selected !== defaults[index]);
+      } else {
+        // Clearing populated text is also an unsaved edit.
+        const value = typeof el.value === "string" ? el.value : "";
+        hasUnsavedInput = value !== el.defaultValue;
       }
+      if (hasUnsavedInput) break;
+    }
+    // Rich editors have no original value. Conservatively protect visible
+    // non-empty editors, including plaintext-only and open shadow DOM editors.
+    if (!hasUnsavedInput) {
+      hasUnsavedInput = roots.some(root => [...root.querySelectorAll('[contenteditable]:not([contenteditable="false"]), [role="textbox"]')]
+        .some(el => el.getClientRects().length && (el.textContent || "").trim().length > 0));
     }
   } catch {
-    // Defensive — a form-detection hiccup must never break the page scrape.
+    signalsUnavailable = true;
   }
-
-  return { summary, hasUnsavedInput };
+  return { summary, hasUnsavedInput, signalsUnavailable, url: location.href };
 }
 
 async function closeSavedTabs(sessionId) {
   const session = (await getSessions()).find((item) => item.id === sessionId);
   if (!session) throw new Error("Session not found.");
-  await closeTabIds(session.pendingTabIds || []);
-  const updated = await updateSession(sessionId, (current) => ({
-    ...current,
-    closeStatus: "closed",
-    closedAt: nowIso(),
-    pendingTabIds: []
-  }));
-  return { session: updated, sessions: await getSessions() };
+  const pending = new Set(session.pendingTabIds || []);
+  return finishSessionClose(session, session.tabs.filter(tab => pending.has(tab.originalTabId)));
+
+}
+
+async function restorableUrls(session, tabs) {
+  if (session.browserSessionId !== await getBrowserSessionId() || !session.pendingTabIds?.length) {
+    behaviorLog.restored(tabs);
+    return tabs.map(tab => tab.url);
+  }
+  const live = new Map((await queryTabs({})).map(tab => [tab.id, tab]));
+  const restorable = tabs.filter(tab => live.get(tab.originalTabId)?.url !== tab.url);
+  behaviorLog.restored(restorable);
+  return restorable.map(tab => tab.url);
 }
 
 async function restoreTabsByIds(sessionId, tabIds) {
@@ -574,7 +711,7 @@ async function restoreTabsByIds(sessionId, tabIds) {
   if (!session) throw new Error("Session not found.");
   const wanted = new Set(tabIds);
   const tabs = session.tabs.filter((tab) => wanted.has(tab.id));
-  await restoreUrls(tabs.map((tab) => tab.url));
+  await restoreUrls(await restorableUrls(session, tabs));
   return {};
 }
 
@@ -584,20 +721,20 @@ async function restoreGroup(sessionId, categoryId) {
   const category = session.categories.find((item) => item.id === categoryId);
   if (!category) throw new Error("Group not found.");
   const wanted = new Set(category.tabIds);
-  await restoreUrls(session.tabs.filter((tab) => wanted.has(tab.id)).map((tab) => tab.url));
+  await restoreUrls(await restorableUrls(session, session.tabs.filter((tab) => wanted.has(tab.id))));
   return {};
 }
 
 async function restoreSession(sessionId) {
   const session = (await getSessions()).find((item) => item.id === sessionId);
   if (!session) throw new Error("Session not found.");
-  await restoreUrls(session.tabs.map((tab) => tab.url));
+  await restoreUrls(await restorableUrls(session, session.tabs));
   return {};
 }
 
 async function restoreAllSessions() {
   const sessions = await getSessions();
-  const urls = sessions.flatMap((session) => (session.tabs || []).map((tab) => tab.url));
+  const urls = (await Promise.all(sessions.map(session => restorableUrls(session, session.tabs || [])))).flat();
   if (!urls.length) throw new Error("No saved tabs to restore.");
   await restoreUrls(urls);
   return {};
@@ -880,8 +1017,14 @@ async function smartSearchTabs(query, candidates, settings) {
 
 async function restoreUrls(urls) {
   const uniqueUrls = [...new Set(urls.filter(Boolean))];
-  for (const [index, url] of uniqueUrls.entries()) {
-    await createTab({ url, active: index === 0 });
+  let restoredCount = 0;
+  try {
+    for (const [index, url] of uniqueUrls.entries()) {
+      await createTab({ url, active: index === 0 });
+      restoredCount += 1;
+    }
+  } finally {
+    await diagnostics.record("restore_finished", { restoredCount, failedCount: uniqueUrls.length - restoredCount });
   }
 }
 
@@ -948,8 +1091,8 @@ function notifySessionReady(session, meta) {
     chrome.notifications.create(`${NOTIFICATION_PREFIX}${session.id}`, {
       type: "basic",
       iconUrl: chrome.runtime.getURL("assets/icon-128.png"),
-      title: `Neat Freak — ${summary}`,
-      message,
+      title: session.closeStatus === "review" ? `Neat Freak — ${tabCount} tabs ready to review` : `Neat Freak — ${summary}`,
+      message: session.closeStatus === "review" ? "Review your saved tabs before closing them." : message,
       priority: 1,
       requireInteraction: false
     }, () => {
@@ -989,11 +1132,12 @@ function isSaveLoaderDismissed() {
   });
 }
 
-async function setPanelState(state) {
+async function setPanelState(state, { requireWrite = false } = {}) {
   try {
     await chrome.storage.session?.set?.({ [PANEL_STATE_KEY]: state });
   } catch (err) {
     console.warn("[Neat Freak] Panel state write failed:", err?.message || err);
+    if (requireWrite) throw new Error("Couldn't open the tab preview. Try again.");
     return false;
   }
   if (!state || state.mode === "hidden") return true;
@@ -1021,7 +1165,6 @@ async function ensurePanelMounted() {
 // the persistent panel picks up and renders in place. If the popup is open
 // (handling its own done state), we skip the panel write entirely.
 async function showPanelDone(session, meta, smartResult) {
-  if (isPopupOpen()) return false;
   const categories = session.categories || [];
   const groupCount = categories.filter((c) => (c.tabIds || []).length >= 2).length;
   const looseCount = categories.filter((c) => (c.tabIds || []).length === 1).length;
@@ -1049,7 +1192,6 @@ async function showPanelDone(session, meta, smartResult) {
 // the categorized list with per-item remove buttons + Cancel/Confirm. Confirm
 // hits confirmPanelReview below to actually close. Cancel deletes the session.
 async function showPanelReview(session) {
-  if (isPopupOpen()) return false;
   const tabsById = new Map((session.tabs || []).map((t) => [t.id, t]));
   // Single reference instant so every row's "last active" label is relative to
   // the same moment. Review is shown immediately after save and is short-lived,
@@ -1090,48 +1232,10 @@ async function confirmPanelReview(sessionId, keepOpenSessionTabIds) {
   }
 
   const keepSet = new Set(keepOpenSessionTabIds || []);
-  const tabsById = new Map((session.tabs || []).map((t) => [t.id, t]));
-  const keepChromeIds = new Set();
-  for (const id of keepSet) {
-    const tab = tabsById.get(id);
-    if (tab) {
-      const chromeId = tab.originalTabId || tab.id;
-      if (Number.isFinite(chromeId)) keepChromeIds.add(chromeId);
-    }
-  }
+  const selected = session.tabs.filter(tab => !keepSet.has(tab.id));
+  behaviorLog.kept(session.tabs.filter(tab => keepSet.has(tab.id)));
+  return finishSessionClose(session, selected);
 
-  const toClose = (session.pendingTabIds || []).filter((id) => !keepChromeIds.has(id));
-
-  // If the user removed everything in review, treat it as a cancel — there's
-  // nothing left to celebrate and the empty session would just be clutter.
-  if (toClose.length === 0) {
-    await deleteSession(sessionId);
-    await setPanelState({ mode: "hidden" });
-    return { ok: true };
-  }
-
-  await closeTabIds(toClose);
-
-  const updated = await updateSession(sessionId, (current) => {
-    const tabs = (current.tabs || []).filter((t) => !keepSet.has(t.id));
-    const categories = (current.categories || [])
-      .map((cat) => ({
-        ...cat,
-        tabIds: (cat.tabIds || []).filter((id) => !keepSet.has(id))
-      }))
-      .filter((cat) => cat.tabIds.length > 0);
-    return {
-      ...current,
-      tabs,
-      categories,
-      closeStatus: "closed",
-      closedAt: nowIso(),
-      pendingTabIds: []
-    };
-  });
-
-  await showPanelDone(updated, updated.categorization || {}, null);
-  return { ok: true, session: updated };
 }
 
 // User cancelled the review. The session was created moments ago and the
@@ -1182,14 +1286,256 @@ if (chrome.notifications?.onClicked) {
   });
 }
 
+// ===== Prepared recommendations =====
+const RECOMMENDATION_KEY = "neatFreakRecommendation";
+let saveInFlight = null;
+let recommendationUiRevision = 0;
+let reviewUpdateQueue = Promise.resolve();
+const recommendationBudget = createRecommendationBudget({
+  read: async () => (await chrome.storage.local.get("neatFreakAutomaticAiBudget")).neatFreakAutomaticAiBudget,
+  write: value => chrome.storage.local.set({ neatFreakAutomaticAiBudget: value })
+});
+const recommendations = createRecommendationService({
+  read: async () => (await chrome.storage.session.get(RECOMMENDATION_KEY))[RECOMMENDATION_KEY],
+  write: value => chrome.storage.session.set({ [RECOMMENDATION_KEY]: value }),
+  settings: getSettings,
+  queryTabs: async () => (await queryTabs({})).filter(tab => !tab.incognito),
+  capture: buildSavedTabs,
+  select: selectRecommendation,
+  record: diagnostics.record,
+  prepared: ({ tabs, plan, automatic, live }) => behaviorLog.offerSnapshot(tabs, plan, { automatic, live, signals: heuristicSignals }),
+  createId: () => createId("plan")
+});
+
+async function selectRecommendation(tabs, settings, { automatic } = {}) {
+  let localReason = settings.llmEnabled ? "ai-unavailable" : "ai-off";
+  let resolved = settings;
+  if (tabs.length && settings.llmEnabled) {
+    if (automatic && !await recommendationBudget.reserve().catch(() => false)) {
+      resolved = { ...settings, llmEnabled: false };
+      localReason = "background-limit";
+    } else resolved = await resolveLlmSettings(settings);
+  }
+  const result = await runSmartScope(tabs, resolved, { proactive: true });
+  return { ...result, localReason, errorCode: result.error ? diagnosticError(result.error) : undefined };
+}
+
+async function runExclusiveSave(operation) {
+  if (saveInFlight) throw new Error("A tidy is already in progress.");
+  recommendationUiRevision += 1;
+  saveInFlight = operation();
+  try { return await saveInFlight; }
+  catch (error) {
+    const state = await readPanelState();
+    if (state.mode === "saving") await setPanelState({ mode: "idle", error: error.message });
+    throw error;
+  }
+  finally { saveInFlight = null; }
+}
+
+function persistRecommendationReview(message) {
+  const update = reviewUpdateQueue.then(async () => {
+    const state = await readPanelState();
+    if (!saveInFlight && state.recommendation && state.planId === message.planId) {
+      await chrome.storage.session.set({ [PANEL_STATE_KEY]: { ...state, keepOpenSessionTabIds: message.keepOpenSessionTabIds || [] } });
+      await diagnostics.record("keep_changed", {
+        run: state.planId.replace(/^plan-/, "run_"),
+        suggestedCount: state.saveCount, keptCount: new Set(message.keepOpenSessionTabIds || []).size
+      });
+    }
+    return {};
+  });
+  reviewUpdateQueue = update.catch(() => undefined);
+  return update;
+}
+
+async function readPanelState() {
+  return (await chrome.storage.session.get(PANEL_STATE_KEY))[PANEL_STATE_KEY] || { mode: "hidden" };
+}
+
+function recommendationGroups(plan) {
+  const byId = new Map(plan.tabs.map(tab => [tab.id, tab]));
+  return plan.categories.map(group => ({
+    name: group.name,
+    tabs: group.tabIds.map(id => byId.get(id)).filter(Boolean).map(tab => ({
+      sessionTabId: tab.id, title: tab.title, domain: tab.domain, url: tab.url,
+      lastActive: formatRelativeActive(tab.lastAccessed, Date.now())
+    }))
+  })).filter(group => group.tabs.length);
+}
+
+function recommendationSummary(plan) {
+  if (!plan) return null;
+  return {
+    planId: plan.id, saveCount: plan.tabs.length, folderCount: plan.categories.length,
+    createdAt: plan.createdAt, stale: plan.stale, expired: plan.expired,
+    local: plan.mode !== "llm", localReason: plan.localReason,
+    reviewRequired: plan.reviewRequired, needsPreparation: false
+  };
+}
+
+async function getRecommendationForUi() {
+  return recommendationSummary(await recommendations.get());
+}
+
+async function refreshRecommendationForUi(message) {
+  if (saveInFlight) throw new Error("A tidy is already in progress.");
+  const revision = ++recommendationUiRevision;
+  if (message.planId && message.keepOpenSessionTabIds?.length) {
+    await recommendations.exclude(message.planId, message.keepOpenSessionTabIds);
+  }
+  const previousPlan = await recommendations.get();
+  const plan = await recommendations.refresh({ force: true });
+  if (revision !== recommendationUiRevision || saveInFlight) return { superseded: true };
+  if (message.review && plan?.tabs.length && !plan.expired) await showRecommendationReview(plan);
+  else if (message.review) await setPanelState({ mode: "idle" }, { requireWrite: true });
+  else {
+    const state = await readPanelState();
+    if (state.mode === "clutter" && plan) await setPanelState({ ...state, ...recommendationSummary(plan) });
+  }
+  return { recommendation: recommendationSummary(plan), refreshDeferred: Boolean(previousPlan && plan?.id === previousPlan.id) };
+}
+
+async function showRecommendationReview(plan) {
+  await recommendations.beginReview(plan.id);
+  await diagnostics.record("review_opened", { run: plan.id.replace(/^plan-/, "run_"), suggestedCount: plan.tabs.length, mode: plan.mode, ageMs: Date.now() - plan.createdAt });
+  return setPanelState({
+    mode: "review", recommendation: true, ...recommendationSummary(plan),
+    groups: recommendationGroups(plan)
+  }, { requireWrite: true });
+}
+
+async function reviewRecommendation(planId) {
+  if (saveInFlight) throw new Error("A tidy is already in progress.");
+  const revision = ++recommendationUiRevision;
+  recommendations.cancelRefresh();
+  const plan = await recommendations.get();
+  return presentCurrentRecommendation(plan, revision);
+}
+
+// A delayed Review checks the current selection. A delayed close may take this
+// path too, but can only OPEN review, never close a freshly substituted set.
+async function presentCurrentRecommendation(plan, revision) {
+  if (!plan || plan.expired || !plan.tabs.length) plan = await recommendations.refresh({ force: true });
+  if (revision !== recommendationUiRevision) return {};
+  if (plan && !plan.expired && plan.tabs.length) await showRecommendationReview(plan);
+  else await setPanelState({ mode: "idle" });
+  return { recommendation: recommendationSummary(plan), reviewOpened: Boolean(plan && !plan.expired && plan.tabs.length) };
+}
+
+async function executeRecommendation(message) {
+  let plan = await recommendations.get();
+  if (!plan) {
+    throw new Error("No suggestion is ready to close. Choose Find suggestions to review your tabs.");
+  }
+  behaviorLog.kept(plan.tabs.filter(tab => message.keepOpenSessionTabIds?.includes(tab.id)));
+  if (plan.id !== message.planId || plan.expired) {
+    if (plan.id === message.planId && message.keepOpenSessionTabIds?.length) {
+      plan = await recommendations.exclude(plan.id, message.keepOpenSessionTabIds);
+    }
+    return presentCurrentRecommendation(plan, recommendationUiRevision);
+  }
+  if (plan.reviewRequired && !plan.reviewed) throw new Error("Review these local suggestions before closing tabs.");
+  if (message.keepOpenSessionTabIds?.length) {
+    plan = await recommendations.exclude(plan.id, message.keepOpenSessionTabIds);
+  }
+  const offered = new Set(message.offeredTabIds || plan.tabs.map(tab => tab.id));
+  const tabs = plan.tabs.filter(tab => offered.has(tab.id));
+  plan = trimPlan(plan, tabs);
+  const requestedCount = Number(message.offeredCount) || message.offeredTabIds?.length || tabs.length;
+  const changedCount = Math.max(0, requestedCount - (message.keepOpenSessionTabIds?.length || 0) - tabs.length);
+  if (!tabs.length) {
+    await recommendations.invalidate();
+    await setPanelState({ mode: "done", tabCount: 0, protectedCount: changedCount });
+    return {};
+  }
+  const session = {
+    browserSessionId: await getBrowserSessionId(),
+    id: createId("session"), title: createSessionTitle(tabs), scope: "smart",
+    createdAt: nowIso(), updatedAt: nowIso(), closeStatus: "closing", closedAt: "",
+    tabs, categories: plan.categories, pendingTabIds: tabs.map(tab => tab.originalTabId),
+    skipped: [], categorization: { method: `smart-${plan.mode}`, saveCount: tabs.length },
+    recommendationId: plan.id, changedCount
+  };
+  // Persist the complete offered URLs before any destructive browser API call.
+  await recommendations.claim(plan.id);
+  await addSession(session);
+  await setPanelState({ mode: "saving", label: "Saving your tabs" });
+  return finishSessionClose(session, tabs);
+}
+
+async function getBrowserSessionId() {
+  const key = "neatFreakBrowserSessionId";
+  const data = await chrome.storage.session.get(key);
+  if (data[key]) return data[key];
+  const id = createId("browser");
+  await chrome.storage.session.set({ [key]: id });
+  return id;
+}
+
+async function finishSessionClose(session, selectedTabs) {
+  if (session.browserSessionId !== await getBrowserSessionId()) {
+    throw new Error("These saved tabs belong to an earlier browser session. Restore them from the manager; start a new tidy for your current tabs.");
+  }
+  const pending = new Set(session.pendingTabIds || []);
+  selectedTabs = selectedTabs.filter(tab => pending.has(tab.originalTabId));
+  const previouslyClosed = session.tabs.filter(tab => !pending.has(tab.originalTabId));
+  const selected = trimPlan(session, [...previouslyClosed, ...selectedTabs]);
+  if (!selectedTabs.length) {
+    if (previouslyClosed.length) {
+      await updateSession(session.id, current => ({ ...trimPlan(current, previouslyClosed), closeStatus: "closed", pendingTabIds: [] }));
+    } else await deleteSession(session.id);
+    await setPanelState({ mode: "done", tabCount: 0 });
+    return {};
+  }
+  // A pending journal survives worker interruption. Never auto-resume closing
+  // after a restart; the manager can still restore the already saved URLs.
+  const journal = await updateSession(session.id, current => ({
+    ...current, ...selected, closeStatus: "closing", closedAt: "",
+    pendingTabIds: selectedTabs.map(tab => tab.originalTabId)
+  }));
+  if (!journal) throw new Error("The saved session is unavailable. No tabs were closed.");
+  const outcome = await closeValidatedTabs(selectedTabs, {
+    getTab: id => new Promise(resolve => chrome.tabs.get(id, tab => {
+      resolve(chrome.runtime.lastError ? null : tab);
+    })),
+    probe: id => getPageSignals(id, 0),
+    remove: id => removeTabs([id])
+  }, { protectPinned: !session.includePinned, protectActive: session.scope === "smart" || session.keepCurrentTab !== false });
+  await diagnostics.record("close_finished", {
+    run: (session.recommendationId || session.id).replace(/^(plan|session)-/, "run_"),
+    closedCount: outcome.closed.length, protectedCount: outcome.skipped.length + (session.changedCount || 0),
+    failedCount: outcome.failed.length, goneCount: outcome.gone.length
+  });
+  const retained = [...previouslyClosed, ...outcome.closed, ...outcome.gone, ...outcome.failed];
+  if (!retained.length) {
+    await deleteSession(session.id);
+    await setPanelState({ mode: "done", tabCount: 0, protectedCount: outcome.skipped.length + (session.changedCount || 0) });
+    return { session: null };
+  }
+  const updated = await updateSession(session.id, current => ({
+    ...trimPlan(current, retained),
+    closeStatus: outcome.failed.length ? "review" : "closed",
+    closedAt: outcome.closed.length || outcome.gone.length || previouslyClosed.length ? nowIso() : "",
+    pendingTabIds: outcome.failed.map(tab => tab.originalTabId)
+  }));
+  const doneSession = trimPlan(updated, outcome.closed);
+  await showPanelDone(doneSession, updated.categorization, null);
+  const state = await readPanelState();
+  await setPanelState({ ...state, protectedCount: outcome.skipped.length + (session.changedCount || 0), failedCount: outcome.failed.length });
+  emitProgress({ step: "done", sessionId: updated.id, tabCount: outcome.closed.length,
+    pendingCount: outcome.failed.length, reviewMode: false });
+  await pruneSavedSessions();
+  return { session: updated, closedCount: outcome.closed.length, protectedCount: outcome.skipped.length + (session.changedCount || 0), failedCount: outcome.failed.length };
+}
+
 // ===== Clutter watcher =====
 // Two surfaces, both inside Chrome (never OS-level):
 //   1. Icon badge — persistent count when the user is at or above the threshold.
 //      Always reactive to tab events, can't be denied by the OS.
-//   2. Toast — content script injected into the active tab on the FIRST crossing
-//      of the threshold. Stays quiet until the count drops back below the
-//      hysteresis floor and crosses up again — otherwise it would follow the user
-//      from tab to tab on every navigation.
+//   2. Prepared suggestion — shown on a focused, injectable tab at tier
+//      crossings, with a 45-minute cooldown. Hidden suggestions refresh on a
+//      bounded schedule; visible offers and reviews never silently grow.
 
 const CLUTTER_HYSTERESIS = 3; // count must dip to (threshold - this) before we'll alert again
 const CLUTTER_THRESHOLD_FALLBACK = 20; // used only if reading settings fails
@@ -1217,7 +1563,7 @@ const CLUTTER_LAST_ALERT_AT_KEY = "neatFreakClutterLastAlertAt";
 const CLUTTER_BADGE_COLOR = "#dc2626";
 const CLUTTER_CHECK_DEBOUNCE_MS = 3000;
 const CLUTTER_ALARM_NAME = "neat-freak-clutter-check";
-const CLUTTER_ALARM_PERIOD_MIN = 30;
+const CLUTTER_ALARM_PERIOD_MIN = 5;
 let clutterCheckTimer = null;
 
 function scheduleClutterCheck() {
@@ -1295,13 +1641,6 @@ async function updateBadgeFromTabs() {
   }
 }
 
-async function showPanelClutter(tabCount) {
-  // Write clutter state; the panel script picks it up and renders. If the
-  // panel is already mounted (e.g. previous state still visible), the storage
-  // change re-renders it in place.
-  return setPanelState({ mode: "clutter", tabCount });
-}
-
 function isInjectablePageUrl(url) {
   if (!url) return false;
   // chrome.scripting.executeScript only works on regular web pages. Skip
@@ -1309,86 +1648,87 @@ function isInjectablePageUrl(url) {
   return /^https?:/.test(url);
 }
 
-async function checkClutter() {
-  try {
-    const disabled = await isClutterDisabled();
-    const threshold = await getClutterThreshold();
-    const tabs = await queryTabs({});
-    const tabCount = tabs.length;
+let clutterInFlight = null;
+const CLUTTER_COOLDOWN_MS = 45 * 60_000;
 
-    setBadge(disabled ? 0 : tabCount, threshold);
-
-    if (disabled) return;
-
-    const sessionState = (await chrome.storage.session?.get?.([
-      CLUTTER_ALERTED_TIER_KEY,
-      CLUTTER_LAST_ALERT_AT_KEY
-    ])) || {};
-    const rawTier = sessionState[CLUTTER_ALERTED_TIER_KEY];
-    const lastAlertedTier = Number.isFinite(rawTier) ? rawTier : -1;
-    const lastAlertAt = Number(sessionState[CLUTTER_LAST_ALERT_AT_KEY]) || 0;
-
-    if (tabCount < threshold) {
-      // Once we've dropped enough below threshold, reset BOTH tier and
-      // timestamp so the next time the user climbs back above the schedule
-      // (and the re-engage timer) starts fresh.
-      if (lastAlertedTier >= 0 && tabCount < threshold - CLUTTER_HYSTERESIS) {
-        await chrome.storage.session?.set?.({
-          [CLUTTER_ALERTED_TIER_KEY]: -1,
-          [CLUTTER_LAST_ALERT_AT_KEY]: 0
-        });
-      }
-      return;
-    }
-
-    // Highest tier whose offset the user has met. At threshold=20 the
-    // schedule [0, 7, 20, 50, 90, 140, 200] fires at 20, 27, 40, 70, 110,
-    // 160, 220. Dropping below threshold - HYSTERESIS resets lastAlertedTier
-    // and the schedule starts fresh on the next climb.
-    const tabsOver = tabCount - threshold;
-    const currentTier = CLUTTER_TIER_OFFSETS.findLastIndex((offset) => tabsOver >= offset);
-    const tierEscalated = currentTier > lastAlertedTier;
-    // Once the schedule has gone silent (no new tier to escalate to), still
-    // re-fire every REENGAGE_MS as long as the user remains over threshold.
-    // Catches the "never quit Chrome / oscillates between 35 and 60" user.
-    const sufficientlyStale = lastAlertedTier > -1
-      && lastAlertAt > 0
-      && Date.now() - lastAlertAt >= CLUTTER_REENGAGE_MS;
-    if (!tierEscalated && !sufficientlyStale) return;
-
-    const shown = await showPanelClutter(tabCount);
-    if (shown) {
-      // Keep the highest tier we've ever hit (the stale-rearm case shouldn't
-      // demote tier memory if user happens to be in a lower tier now). Always
-      // update timestamp so the next 48h window starts from this alert.
-      await chrome.storage.session?.set?.({
-        [CLUTTER_ALERTED_TIER_KEY]: Math.max(currentTier, lastAlertedTier),
-        [CLUTTER_LAST_ALERT_AT_KEY]: Date.now()
-      });
-    }
-    // If we couldn't show the toast (privileged page), DON'T update tier or
-    // timestamp — we'll try again on the next event when the user switches
-    // to a regular tab.
-  } catch (err) {
-    // Best-effort — the clutter watcher should never break the rest of the extension.
-    console.warn("[Neat Freak] Clutter watcher threw:", err?.message || err);
-  }
+function checkClutter() {
+  if (!clutterInFlight) clutterInFlight = checkClutterOnce().catch(async err => {
+    console.warn("[Neat Freak] Recommendation check:", err?.message || err);
+    await diagnostics.record("background_error", diagnosticDetails(err));
+  }).finally(() => { clutterInFlight = null; });
+  return clutterInFlight;
 }
 
-// "Tidy now" from the toast — kick off a Smart save directly instead of opening
-// the popup. The whole point of the toast is to act with one click; opening the
-// popup would feel like the toast just relocated, not actually did something.
-async function handleClutterToastTidy() {
-  try {
-    await saveTabs({ scope: "smart" });
-    return {};
-  } catch (err) {
-    // If the save fails for any reason (no candidates, etc.), fall back to
-    // opening the manager so the user has SOME path forward.
-    console.warn("[Neat Freak] Tidy-from-toast save failed:", err?.message || err);
-    await openManager();
-    return {};
+async function checkClutterOnce() {
+  const settings = await getSettings();
+  const tabs = (await queryTabs({})).filter(tab => !tab.incognito);
+  const disabled = await isClutterDisabled();
+  const threshold = Number(settings.clutterThreshold) || CLUTTER_THRESHOLD_FALLBACK;
+  setBadge(disabled ? 0 : tabs.length, threshold);
+  // Pruning is cheap and still applies while a review is open or nudges are off.
+  let plan = await recommendations.get();
+  const state = await readPanelState();
+  if (saveInFlight || ["saving", "review", "done"].includes(state.mode)) return;
+  if (state.mode === "clutter" && !state.needsPreparation && (!plan || plan.expired || !plan.tabs.length)) {
+    // Normal browsing silently retires an unusable offer, not a new warning.
+    await setPanelState({ mode: "hidden", retiredSuggestion: true });
+    await diagnostics.record("nudge_retired", { reason: !plan ? "unavailable" : plan.expired ? "expired" : "empty" });
+    return;
   }
+  if (state.mode === "clutter" && plan && !state.needsPreparation) {
+    await chrome.storage.session.set({ [PANEL_STATE_KEY]: { ...state, ...recommendationSummary(plan) } });
+  }
+  if (disabled) return;
+  if (tabs.length < threshold) {
+    if (tabs.length < threshold - CLUTTER_HYSTERESIS) {
+      await chrome.storage.session.set({ [CLUTTER_ALERTED_TIER_KEY]: -1 });
+    }
+    return;
+  }
+  const focused = await chrome.windows.getLastFocused();
+  if (!focused?.focused) return;
+  const target = tabs.find(tab => tab.windowId === focused.id && tab.active);
+  if (!target || !isInjectablePageUrl(target.url)) return;
+  const stamps = await chrome.storage.session.get([CLUTTER_ALERTED_TIER_KEY, CLUTTER_LAST_ALERT_AT_KEY]);
+  const previousTier = Number.isFinite(stamps[CLUTTER_ALERTED_TIER_KEY]) ? stamps[CLUTTER_ALERTED_TIER_KEY] : -1;
+  const lastAt = stamps[CLUTTER_LAST_ALERT_AT_KEY] || 0;
+  const tier = CLUTTER_TIER_OFFSETS.findLastIndex(offset => tabs.length - threshold >= offset);
+  const mayNudge = shouldArm({ currentTier: tier, lastAlertedTier: previousTier,
+    lastAlertAt: lastAt, now: Date.now(), cooldownMs: CLUTTER_COOLDOWN_MS })
+    || (lastAt > 0 && Date.now() - lastAt >= CLUTTER_REENGAGE_MS);
+  // Preserve the existing count-only reminder without inspecting any pages
+  // until the user requests suggestions or enables background preparation.
+  if (!settings.prepareSuggestions) {
+    if (!mayNudge || ["idle", "clutter"].includes(state.mode)) return;
+    const shown = await setPanelState({ mode: "clutter", tabCount: tabs.length, needsPreparation: true });
+    if (shown) await chrome.storage.session.set({
+      [CLUTTER_ALERTED_TIER_KEY]: Math.max(tier, previousTier), [CLUTTER_LAST_ALERT_AT_KEY]: Date.now()
+    });
+    return;
+  }
+  // Once a plan exists it remains fresh on a bounded schedule, even if its
+  // nudge was ignored. No model calls on each tab switch.
+  if (!mayNudge && !plan) return;
+  if (state.mode === "clutter") return;
+  const revision = recommendationUiRevision;
+  plan = await recommendations.refresh();
+  if (!plan || saveInFlight || revision !== recommendationUiRevision) return;
+  const latest = await readPanelState();
+  if (["saving", "review", "idle"].includes(latest.mode)) return;
+  const currentWindow = await chrome.windows.getLastFocused();
+  const currentTabs = await queryTabs({});
+  const currentTarget = currentTabs.find(tab => tab.active && tab.windowId === currentWindow?.id);
+  if (!(await getSettings()).showClutterNudges || !currentWindow?.focused
+      || !isInjectablePageUrl(currentTarget?.url) || currentTabs.length < threshold) return;
+  if (latest.mode === "clutter") {
+    await chrome.storage.session.set({ [PANEL_STATE_KEY]: { ...latest, ...recommendationSummary(plan) } });
+  }
+  if (!mayNudge || !plan.tabs.length || plan.expired) return;
+  const shown = await setPanelState({ mode: "clutter", ...recommendationSummary(plan) });
+  if (shown) await diagnostics.record("nudge_shown", { run: plan.id.replace(/^plan-/, "run_"), suggestedCount: plan.tabs.length, mode: plan.mode });
+  if (shown) await chrome.storage.session.set({
+    [CLUTTER_ALERTED_TIER_KEY]: Math.max(tier, previousTier), [CLUTTER_LAST_ALERT_AT_KEY]: Date.now()
+  });
 }
 
 // The badge updates synchronously off tab events (no 3s wait) so it feels
@@ -1404,28 +1744,36 @@ if (chrome.tabs?.onCreated) {
 if (chrome.tabs?.onRemoved) {
   chrome.tabs.onRemoved.addListener(onTabCountChanged);
 }
+if (chrome.tabs?.onActivated) chrome.tabs.onActivated.addListener(scheduleClutterCheck);
+if (chrome.tabs?.onReplaced) chrome.tabs.onReplaced.addListener(scheduleClutterCheck);
+if (chrome.tabs?.onUpdated) chrome.tabs.onUpdated.addListener((_id, change) => {
+  if (change.url || change.status || "audible" in change || "pinned" in change) scheduleClutterCheck();
+});
+if (chrome.windows?.onFocusChanged) chrome.windows.onFocusChanged.addListener(scheduleClutterCheck);
 if (chrome.runtime?.onStartup) {
   chrome.runtime.onStartup.addListener(() => onTabCountChanged());
 }
 // Initial paint on SW boot (covers extension reload + first install).
 onTabCountChanged();
+diagnostics.prune();
 
 // chrome.alarms wakes the MV3 service worker on a schedule, even if it's gone
 // idle and the setTimeout-based debounce got killed. This is the reliable
 // safety net — tab events kick a fast check (3s debounce), alarms catch the
 // case where the SW died mid-debounce or tabs were already at the threshold
 // when the SW spun down.
-if (chrome.alarms?.create) {
-  chrome.alarms.create(CLUTTER_ALARM_NAME, {
-    delayInMinutes: 1,
-    periodInMinutes: CLUTTER_ALARM_PERIOD_MIN
-  });
+if (chrome.alarms?.get) {
+  chrome.alarms.get(CLUTTER_ALARM_NAME).then(alarm => {
+    if (alarm?.periodInMinutes === CLUTTER_ALARM_PERIOD_MIN) return;
+    return chrome.alarms.create(CLUTTER_ALARM_NAME, { delayInMinutes: 1, periodInMinutes: CLUTTER_ALARM_PERIOD_MIN });
+  }).catch(() => undefined);
 }
 if (chrome.alarms?.onAlarm) {
   chrome.alarms.onAlarm.addListener((alarm) => {
     if (alarm.name !== CLUTTER_ALARM_NAME) return;
     scheduleClutterCheck();
-    pruneSavedSessions().catch(() => undefined);
+    diagnostics.prune();
+    if (!saveInFlight) pruneSavedSessions().catch(() => undefined);
   });
 }
 
@@ -1463,12 +1811,6 @@ if (chrome.runtime.onInstalled) {
   });
 }
 
-async function closeTabIds(tabIds) {
-  const ids = [...new Set(tabIds.filter(Number.isFinite))];
-  if (!ids.length) return;
-  await Promise.all(ids.map((id) => removeTabs([id]).catch(() => undefined)));
-}
-
 function queryTabs(query) {
   return new Promise((resolve, reject) => {
     chrome.tabs.query(query, (tabs) => {
@@ -1490,6 +1832,7 @@ function createTab(createProperties) {
 }
 
 function removeTabs(tabIds) {
+  behaviorLog.markSaved(tabIds); // queued before the onRemoved it labels as a save
   return new Promise((resolve, reject) => {
     chrome.tabs.remove(tabIds, () => {
       const error = chrome.runtime.lastError;

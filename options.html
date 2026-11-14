@@ -55,6 +55,11 @@
             <input type="checkbox" id="show-clutter-nudges">
             <span>Nudge me when I have too many tabs</span>
           </label>
+          <label class="check-row">
+            <input type="checkbox" id="prepare-suggestions">
+            <span>Prepare tab suggestions in the background</span>
+          </label>
+          <p class="helper-text">When nudges are enabled and you're above your tab threshold, checks inactive tabs across windows before you ask. With AI on, titles, URLs and optional page summaries are sent for processing. Automatic AI checks have a daily limit; you can still Refresh manually. Tabs close only when you choose Save &amp; close.</p>
           <div id="clutter-threshold-row">
             <label class="field-row">
               <span>Nudge me when I have this many tabs open</span>
@@ -74,7 +79,36 @@
             <input type="checkbox" id="llm-enabled">
             <span>Use AI for smart tab selection, folder names, and search</span>
           </label>
-          <p class="helper-text">When enabled, AI picks which tabs to save in Smart scope, names folders by workstream, and powers natural-language search. Your tabs are processed by a confidential, enclave-based model — never stored or seen by us. Turn this off to keep everything fully local (heuristic grouping only). Still in beta — expect rough edges.</p>
+          <p class="helper-text">When enabled, AI picks which tabs to save in Smart scope, prepares suggestions when requested or when background preparation is enabled, names folders by workstream, and powers natural-language search. Titles, URLs and optional page summaries are processed by a confidential, enclave-based model. Turn AI off to keep processing fully local. Disabling summaries alone still allows titles and URLs to be sent. Still in beta — expect rough edges.</p>
+        </section>
+
+        <section class="settings-section">
+          <h2>Local diagnostics</h2>
+          <label class="check-row">
+            <input type="checkbox" id="diagnostics-enabled">
+            <span>Keep a local troubleshooting log</span>
+          </label>
+          <p class="helper-text">Records suggestion counts, review and Keep actions, timing, close/restore results and error categories. No page titles, URLs, page content, form values or credentials. Stored only in this browser for up to 7 days or 500 events, whichever comes first. Nothing is uploaded automatically. Save settings to change recording.</p>
+          <div class="form-actions">
+            <button class="secondary-button" id="export-diagnostics" type="button">Export diagnostics</button>
+            <button class="secondary-button" id="clear-diagnostics" type="button">Clear diagnostics</button>
+          </div>
+          <p id="diagnostics-status" class="status-line" role="status"></p>
+        </section>
+
+        <section class="settings-section">
+          <h2>Tab habits log</h2>
+          <label class="check-row">
+            <input type="checkbox" id="behavior-log-enabled">
+            <span>Record how I treat my tabs, to tune suggestions</span>
+          </label>
+          <p class="helper-text">Off by default. For each tab: its site (e.g. github.com), when it opened, whether a link opened it, when it was in front and for roughly how long, whether Memory Saver unloaded it, whether each suggestion offered it, and whether you closed it, saved it, restored it or chose Keep. Label open tabs records your own call on each one. No full URLs, page titles or page content. Kept only in this browser for up to 30 days or 2,000 closed tabs, never uploaded. Export it to analyse it yourself. Save settings to change recording.</p>
+          <div class="form-actions">
+            <a class="secondary-button" href="label.html" target="_blank" style="text-decoration: none">Label open tabs</a>
+            <button class="secondary-button" id="export-behavior-log" type="button">Export tab habits</button>
+            <button class="secondary-button" id="clear-behavior-log" type="button">Clear tab habits</button>
+          </div>
+          <p id="behavior-log-status" class="status-line" role="status"></p>
         </section>
 
         <div class="form-actions">

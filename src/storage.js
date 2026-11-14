@@ -7,19 +7,22 @@ export const SESSIONS_KEY = "tabAtlasSessions";
 export const DEFAULT_TOKEN_SERVICE_URL = "https://neat-freak-token-service.danielhalper4.workers.dev";
 
 export const DEFAULT_SETTINGS = {
+  behaviorLogEnabled: false, // Opt-in local tab-habit log (behavior-log.js); never uploaded.
   clutterThreshold: 20,
   collectPageSummaries: true,
   defaultIncludePinned: false,
   defaultKeepCurrentTab: true,
   defaultReviewBeforeClose: true,
   defaultScope: "smart",
+  diagnosticsEnabled: true, // Bounded local counts/errors only; never uploaded.
   installId: "",           // stable anonymous id; sent to the token service for per-install rate limiting.
   llmEnabled: true,
   llmModel: "gpt-oss-120b",
   llmProvider: "managed",
   maxSavedTabs: 3000,      // keep roughly the newest N saved tabs (across sessions); older sessions are auto-pruned. 0 = keep everything.
   maxSnippetChars: 720,
-  settingsVersion: 8,
+  prepareSuggestions: false, // Opt in before inspecting pages in the background.
+  settingsVersion: 11,
   showClutterNudges: true,
   tokenServiceUrl: DEFAULT_TOKEN_SERVICE_URL
 };
@@ -100,7 +103,7 @@ export async function getSettings() {
     merged.installId = globalThis.crypto?.randomUUID?.() || `id-${nowIso()}-${Math.random().toString(36).slice(2)}`;
     persistNeeded = true;
   }
-  const finalSettings = { ...merged, settingsVersion: 9 };
+  const finalSettings = { ...merged, settingsVersion: 11 };
   if (persistNeeded) {
     await setLocal({ [SETTINGS_KEY]: finalSettings });
   }
@@ -116,7 +119,7 @@ export async function saveSettings(settings) {
     clutterThreshold: clampThreshold(incoming.clutterThreshold ?? current.clutterThreshold),
     maxSavedTabs: clampSavedTabs(incoming.maxSavedTabs ?? current.maxSavedTabs),
     maxSnippetChars: Number(incoming.maxSnippetChars || current.maxSnippetChars),
-    settingsVersion: 9
+    settingsVersion: 11
   };
   await setLocal({ [SETTINGS_KEY]: next });
   return next;

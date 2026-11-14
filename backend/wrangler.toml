@@ -10,7 +10,7 @@ binding = "KEYS"
 id = "f2eecab3107440c884eb829357bae54d"
 
 [vars]
-DAILY_TOKEN_BUDGET = "50000"    # max_tokens per install/day (~5 Smart actions). Low on purpose: a leaked per-user key is near-useless. Raise once real limits land.
+DAILY_TOKEN_BUDGET = "200000"   # max_tokens per install/day (~15 big tidies). Generous so real users never hit it; a leaked key is still only pennies, and GLOBAL_DAILY_MINTS is the real spend ceiling.
 GLOBAL_DAILY_MINTS = "1000"     # cost circuit breaker: total keys minted per day (bounds worst-case spend)
 PER_IP_DAILY_MINTS = "20"       # abuse guard: keys minted per IP per day
 ENCLAVE_MODEL = "gpt-oss-120b"

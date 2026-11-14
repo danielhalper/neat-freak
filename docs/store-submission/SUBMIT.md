@@ -96,13 +96,13 @@ Review typically takes **1–3 business days** for new extensions. Sometimes hou
 Likely questions / pushback from reviewers, with prepared answers:
 
 **"Why do you need access to all URLs?"**
-> Paste the host-permissions paragraph from `permissions-justifications.md`. Emphasize that scripting runs only at save time, only on tabs the user explicitly chose to save.
+> Paste the host-permissions paragraph from `permissions-justifications.md`. Explain requested and explicitly enabled background preparation, local form checks, and the floating panel. Do not claim that scripting runs only at save time: it can inspect candidate pages before a Save click.
 
-**"Your extension makes API calls to api.openai.com"**
-> Yes — only when the user enables AI grouping in settings AND provides their own OpenAI API key. The key is stored locally, never proxied through any server we operate. Reference the privacy policy section on this.
+**"Where does the extension send user data?"**
+> When AI is enabled (the default), tab titles/URLs/domains and short page summaries go to Neat Freak's confidential AI backend: a token/relay service (which sees only an anonymous install id, never tab content) plus a model running in a hardware secure enclave (Tinfoil) that can't read the data, doesn't retain it, and doesn't train on it. No OpenAI, no user API key. Reference the privacy policy.
 
 **"Your description mentions an AI feature but the extension works without one"**
-> Confirm: local graph-based grouping is the default. The AI feature is opt-in, requires the user's own key, and the extension is fully functional without it.
+> Confirm: AI is on by default but optional — turning it off in Settings falls back to local graph-based grouping, and the extension is fully functional either way.
 
 ## After approval
 

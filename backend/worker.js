@@ -76,7 +76,7 @@ export default {
     if (!env.TINFOIL_ADMIN_KEY) return json(500, { error: "Backend misconfigured: no admin key." });
 
     // Mint a capped, end-of-day-expiring key via Tinfoil's Admin API.
-    const budget = Number(env.DAILY_TOKEN_BUDGET || 50_000);
+    const budget = Number(env.DAILY_TOKEN_BUDGET || 200_000);
     const expiresAtMs = (day + 1) * 86_400_000; // next UTC midnight
     const mint = await fetch(TINFOIL_ADMIN_KEYS_URL, {
       method: "POST",

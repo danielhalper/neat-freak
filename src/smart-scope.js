@@ -104,7 +104,7 @@ export function computeUrlDedupSaveIds(tabs, now) {
   return result;
 }
 
-export function applySmartHeuristic(tabs, clusters, now) {
+export function applySmartHeuristic(tabs, clusters, now, opts = {}) {
   const tabById = new Map(tabs.map((t) => [t.id, t]));
 
   // Dedup pre-pass: when multiple tabs share an exact-same URL, only the most
@@ -165,7 +165,7 @@ export function applySmartHeuristic(tabs, clusters, now) {
   // lower). Save the top ~40% by score.
   const HEURISTIC_FLOOR_MIN_TABS = 8;
   const HEURISTIC_FLOOR_SAVE_FRACTION = 0.4;
-  if (tabs.length >= HEURISTIC_FLOOR_MIN_TABS && saveIds.length === 0) {
+  if (!opts.proactive && tabs.length >= HEURISTIC_FLOOR_MIN_TABS && saveIds.length === 0) {
     const ranked = tabs
       .map((t) => ({
         id: t.id,
@@ -205,21 +205,22 @@ export async function runSmartScope(tabs, settings, opts = {}) {
     return { saveSet: [], keepSet: [], categories: [], mode: "heuristic" };
   }
   const graph = attachTabsToGraph(buildAssociationGraph(tabs), tabs);
-  const minSaveCount = clampMinSaveCount(opts.minSaveCount, tabs.length);
+  const minSaveCount = opts.proactive ? 0 : clampMinSaveCount(opts.minSaveCount, tabs.length);
 
   let result;
   if (settings.llmEnabled && settings.backendUrl) {
     try {
       result = await runLlmPath(tabs, graph, settings, now, {
         minSaveCount,
+        proactive: Boolean(opts.proactive),
         totalOpenTabCount: opts.totalOpenTabCount,
         clutterThreshold: opts.clutterThreshold
       });
     } catch (error) {
-      result = { ...runHeuristicPath(tabs, graph, now), error: error?.message || String(error) };
+      result = { ...runHeuristicPath(tabs, graph, now, opts), error: error?.message || String(error) };
     }
   } else {
-    result = runHeuristicPath(tabs, graph, now);
+    result = runHeuristicPath(tabs, graph, now, opts);
   }
 
   // Tab-limit floor: when neither path closed enough to get the user under
@@ -247,7 +248,7 @@ export async function runSmartScope(tabs, settings, opts = {}) {
 // nothing needs protecting.
 function forceKeepProtectedTabs(result, tabs, graph) {
   const protectedIds = new Set(
-    tabs.filter((t) => t && (t.active || t.audible || t.hasUnsavedInput)).map((t) => t.id)
+    tabs.filter((t) => t && (t.active || t.audible || t.hasUnsavedInput || t.signalsUnavailable)).map((t) => t.id)
   );
   if (!protectedIds.size) return result;
   const savedIdSet = new Set(
@@ -406,9 +407,9 @@ function attachTabsToGraph(graph, tabs) {
   return { ...graph, tabById: new Map(tabs.map((tab) => [tab.id, tab])) };
 }
 
-function runHeuristicPath(tabs, graph, now) {
+function runHeuristicPath(tabs, graph, now, opts = {}) {
   const clusters = graph.clusters.map((c) => ({ id: c.id, tabIds: c.tabIds }));
-  const { saveIds, keepIds } = applySmartHeuristic(tabs, clusters, now);
+  const { saveIds, keepIds } = applySmartHeuristic(tabs, clusters, now, opts);
   const saveIdSet = new Set(saveIds);
   const saveSet = tabs.filter((t) => saveIdSet.has(t.id));
   const keepSet = tabs.filter((t) => !saveIdSet.has(t.id));
@@ -433,7 +434,7 @@ function computeSmartCategories(tabs, graph, saveIdSet) {
 // without drift. The caller sets the auth header and may override body.model.
 export function buildSmartScopeRequest(tabs, graph, now, floorContext = {}) {
   const snippetBudget = tabs.length >= 60 ? 420 : 720;
-  const minSaveCount = clampMinSaveCount(floorContext.minSaveCount, tabs.length);
+  const minSaveCount = floorContext.proactive ? 0 : clampMinSaveCount(floorContext.minSaveCount, tabs.length);
   const provisionalClusters = graph.clusters.map((c) => ({
     id: c.id,
     provisionalName: c.provisionalName,
@@ -509,7 +510,11 @@ export function buildSmartScopeRequest(tabs, graph, now, floorContext = {}) {
           "",
           "For each tab, set action: 'save' (close+tuck into a folder, restorable in one click) or 'keep' (leave the tab alone).",
           "",
+          ...(floorContext.proactive ? [
+            "You are preparing an optional proactive recommendation. The user has NOT asked to close anything yet. Recommend tabs that look ready to put away, using their content and workstream context. There is no target count or fraction to save. Returning no saves is valid. Recency is supporting evidence, not proof of importance or completion.",
+          ] : [
           "The user clicked Smart because they want clutter cleared. DEFAULT TO 'save'. Aim to save the majority of tabs — most people only need 3-5 focus tabs open at a time. Closing too few is a worse failure than closing too many; saved tabs restore in one click.",
+          ]),
           "",
           ...(minSaveCount > 0 ? [
             "HARD TAB-LIMIT FLOOR:",
@@ -517,20 +522,24 @@ export function buildSmartScopeRequest(tabs, graph, now, floorContext = {}) {
             "When meeting this floor, save stale/reference/read-once clusters before active work surfaces. If you must choose among recent tabs, keep docs/forms/mail/calendar/dev surfaces and save ambient content first.",
             ""
           ] : []),
-          "KEEP only when there is clear signal of active focus:",
+          floorContext.proactive ? "KEEP when work appears unfinished or evidence for putting it away is uncertain:" : "KEEP only when there is clear signal of active focus:",
           "- Work-in-progress: an open form being filled in, a partially-written draft, an unfinished checkout, a document the user is composing in (Google Docs, Notion, Linear, etc.).",
           "- A primary work surface touched in the last 60 minutes (not a reference link skimmed once).",
           "- The kind of tab someone would notice immediately if it disappeared mid-task.",
           "- hasUnsavedInput: true means the user has typed into a form or draft on the page that isn't submitted. Closing it would lose that work for good. ALWAYS keep these — even if they look old or stale — and never put them in a group.",
           "",
-          "SAVE everything else — yes, even tabs touched recently if they look like skim-once content: articles, blog posts, news, Stack Overflow answers, GitHub issues, search-results pages, old chat threads. The user can restore them from the saved folder.",
+          floorContext.proactive
+            ? "Recommend SAVE when the content and workstream context suggest the tab is ready to put away. Age alone does not establish completion; an old reference may still support current work. Do not fill a quota or treat every tab outside active focus as finished."
+            : "SAVE everything else — yes, even tabs touched recently if they look like skim-once content: articles, blog posts, news, Stack Overflow answers, GitHub issues, search-results pages, old chat threads. The user can restore them from the saved folder.",
           "",
+          ...(!floorContext.proactive ? [
           "IMPORTANT — when everything looks recent: lastAccessedMinutesAgo is noisy. Chrome updates it on a one-second tab focus, not on actual use. If all tabs are < 60 min and you're tempted to return all-keep, DON'T. The user clicking Smart is a strong signal they want clutter cleared. In that case, still save the half that look most like ambient/reference content (articles, search results, blog posts, news, GitHub issues you read once) and keep the half that look most like active work surfaces (docs being composed in, sheets, email, calendar, IDE/dev consoles, forms with input).",
+          ] : []),
           "",
           "lastAccessedMinutesAgo: null means the tab was opened in the background or restored from a session and has never been activated — treat as just-opened and KEEP it. Do not interpret null as 'ancient'.",
           "",
-          "GROUPING — use temporal proximity as a strong signal:",
-          "People typically open many tabs in bursts for a single task — a research session, a code review, a multi-tab purchase. Tabs with similar lastAccessedMinutesAgo are likely part of the same workstream even if their content/domain signals don't obviously match. Treat tabs within ~60 minutes of each other as strong candidates for the same group; within ~3 hours as plausible; beyond that, prefer content/domain similarity. Use temporal proximity especially as a tie-breaker when content alone is ambiguous, or to merge what would otherwise look like several thin near-singleton groups into one coherent workstream folder.",
+          "GROUPING — content and workstream first; temporal proximity is supporting evidence:",
+          "People typically open many tabs in bursts for a single task — a research session, a code review, a multi-tab purchase. Similar lastAccessedMinutesAgo alone does not establish a shared workstream; require content, entity or domain overlap. These are focus times, not creation times. Treat tabs within ~60 minutes of each other as strong candidates for the same group; within ~3 hours as plausible; beyond that, prefer content/domain similarity. Use temporal proximity especially as a tie-breaker when content alone is ambiguous, or to merge what would otherwise look like several thin near-singleton groups into one coherent workstream folder.",
           "",
           "Also return `groups`: workstream-aware folder names for the SAVED tabs only. Each saved tab must appear in exactly one group's tabIds. If you save nothing, return an empty groups array.",
           "Keep group names under 52 characters."
@@ -558,12 +567,13 @@ async function runLlmPath(tabs, graph, settings, now, floorContext = {}) {
   const body = buildSmartScopeRequest(tabs, graph, now, floorContext);
   body.model = settings.llmModel || LLM_MODEL;
 
-  const timeoutMs = tabs.length >= 60 ? 180_000 : 120_000;
+  // Proactive fetches must finish before MV3's 30-second fetch limit. A
+  // slow/unavailable model falls back locally instead of losing the worker.
+  const timeoutMs = floorContext.proactive ? 25_000 : tabs.length >= 60 ? 180_000 : 120_000;
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), timeoutMs);
-  let response;
   try {
-    response = await fetch(settings.backendUrl, {
+    const response = await fetch(settings.backendUrl, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -572,25 +582,25 @@ async function runLlmPath(tabs, graph, settings, now, floorContext = {}) {
       body: JSON.stringify(body),
       signal: controller.signal
     });
+    if (!response.ok) {
+      const text = await response.text();
+      throw new Error(`Smart LLM call failed (${response.status}): ${truncateText(text, 180)}`);
+    }
+    const data = await response.json();
+    const content = data?.choices?.[0]?.message?.content || "{}";
+    const parsed = JSON.parse(content);
+    return parseSmartScopeResponse(parsed, tabs, graph, now, floorContext);
   } finally {
     clearTimeout(timeout);
   }
-  if (!response.ok) {
-    const text = await response.text();
-    throw new Error(`Smart LLM call failed (${response.status}): ${truncateText(text, 180)}`);
-  }
-  const data = await response.json();
-  const content = data?.choices?.[0]?.message?.content || "{}";
-  const parsed = JSON.parse(content);
 
-  return parseSmartScopeResponse(parsed, tabs, graph, now);
 }
 
 // Turn the LLM's JSON response into save/keep sets and finalized folder
 // categories. Applies the same exact-URL dedup the heuristic uses, so
 // duplicates get saved regardless of whether the model noticed. Pure +
 // exported so the eval harness can score raw model responses without a fetch.
-export function parseSmartScopeResponse(parsed, tabs, graph, now) {
+export function parseSmartScopeResponse(parsed, tabs, graph, now, opts = {}) {
   const actionsArray = Array.isArray(parsed.tabActions) ? parsed.tabActions : [];
   const actionByTabId = new Map(actionsArray.map((a) => [a.tabId, a]));
 
@@ -604,7 +614,7 @@ export function parseSmartScopeResponse(parsed, tabs, graph, now) {
       continue;
     }
     const action = actionByTabId.get(t.id);
-    if (action?.action === "keep") keepIds.push(t.id);
+    if (action?.action === "keep" || (opts.proactive && action?.action !== "save")) keepIds.push(t.id);
     else saveIds.push(t.id);
   }
   const saveIdSet = new Set(saveIds);
@@ -621,4 +631,29 @@ export function parseSmartScopeResponse(parsed, tabs, graph, now) {
   })).filter((c) => c.tabIds.length > 0);
 
   return { saveSet, keepSet, categories: finalizeLlmCategories(categories, saveSet, tabs, graph), mode: "llm" };
+}
+
+// The local heuristic's inputs and decision as plain numbers, for the opt-in
+// tab habits log (behavior-log.js): it stores these, never titles or URLs, and
+// eval/behavior-rules.js replays the heuristic from them offline. Mirrors the
+// proactive heuristic path: cluster cutoffs, URL dedup, then the protected-tab
+// safety net. Keyed by saved-tab id.
+export function heuristicSignals(tabs, now = Date.now()) {
+  const graph = attachTabsToGraph(buildAssociationGraph(tabs), tabs);
+  const clusters = graph.clusters.map((c) => ({ id: c.id, tabIds: c.tabIds }));
+  const saveIds = new Set(applySmartHeuristic(tabs, clusters, now, { proactive: true }).saveIds);
+  const duplicates = computeUrlDedupSaveIds(tabs, now);
+  const tabById = new Map(tabs.map((t) => [t.id, t]));
+  const clusterIdle = new Map();
+  for (const cluster of clusters) {
+    const newest = Math.max(0, ...cluster.tabIds.map((id) => effectiveAccess(tabById.get(id), now)));
+    for (const id of cluster.tabIds) clusterIdle.set(id, newest ? (now - newest) / 60_000 : Infinity);
+  }
+  return new Map(tabs.map((t) => [t.id, {
+    clustered: clusterIdle.has(t.id),
+    clusterIdleMin: clusterIdle.get(t.id) ?? null,
+    duplicate: duplicates.has(t.id),
+    contentScore: contentSavabilityScore(t),
+    offer: saveIds.has(t.id) && !(t.active || t.audible || t.hasUnsavedInput || t.signalsUnavailable),
+  }]));
 }
