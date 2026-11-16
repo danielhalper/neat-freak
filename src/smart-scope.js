@@ -428,6 +428,8 @@ function computeSmartCategories(tabs, graph, saveIdSet) {
   return result.categories || [];
 }
 
+// The extension no longer sends this request (see buildCompactRequest below);
+// it stays for the eval harness and as a quality reference.
 // Build the exact OpenAI chat-completions request body for the Smart LLM
 // path — system prompt, JSON schema, and per-tab payload. Pure + exported so
 // the eval harness can construct identical requests for other models/payloads
@@ -563,15 +565,18 @@ export function buildSmartScopeRequest(tabs, graph, now, floorContext = {}) {
   return body;
 }
 
-// Background suggestions must answer inside MV3's 30-second fetch window, and
-// latency is set by output tokens, not input size. On Tinfoil gpt-oss-120b
-// (2026-11-16) the full request above took ~40 s at 30-120 tabs (5.5-6.4k
-// output tokens); this one took 2-3.4 s (240-450). So: short tab ids, low
-// reasoning, and the model lists only the tabs to put away, in folders.
-// Everything it leaves out stays open.
-const PROACTIVE_MIN_IDLE_MIN = 30;
+// The request the extension sends, for background suggestions and the manual
+// Smart tidy alike. Both run in the MV3 service worker, so the answer must come
+// back inside its 30-second fetch window, and latency is set by output tokens,
+// not input size. On Tinfoil gpt-oss-120b (2026-11-16) the full request above
+// took ~40 s at 30-120 tabs (5.5-6.4k output tokens); this one took 2-3.4 s
+// (240-450). So: short tab ids, low reasoning, and the model lists only the
+// tabs to put away, in folders. Everything it leaves out stays open.
+const MIN_IDLE_MIN = 30;
 
-export function buildProactiveRequest(tabs, graph, now) {
+export function buildCompactRequest(tabs, graph, now, floorContext = {}) {
+  const proactive = Boolean(floorContext.proactive);
+  const minSaveCount = proactive ? 0 : clampMinSaveCount(floorContext.minSaveCount, tabs.length);
   const summaryBudget = tabs.length >= 60 ? 300 : 500;
   const shortIdByTabId = new Map(tabs.map((t, index) => [t.id, String(index + 1)]));
   const clusterIdByTabId = new Map();
@@ -596,11 +601,11 @@ export function buildProactiveRequest(tabs, graph, now) {
   const body = {
     model: LLM_MODEL,
     reasoning_effort: "low",
-    prompt_cache_key: "neat-freak-proactive",
+    prompt_cache_key: proactive ? "neat-freak-proactive" : "neat-freak-smart",
     response_format: {
       type: "json_schema",
       json_schema: {
-        name: "proactive_tidy",
+        name: "tidy_folders",
         strict: true,
         schema: {
           type: "object",
@@ -627,12 +632,21 @@ export function buildProactiveRequest(tabs, graph, now) {
       {
         role: "system",
         content: [
-          "You prepare an optional suggestion: which open Chrome tabs the user could put away now. Put-away tabs are saved into folders and reopen in one click. The user has not asked to close anything.",
-          "Include a tab only when its content and context suggest the user is finished with it. When unsure, leave it out. Including nothing is valid; there is no quota.",
+          ...(proactive ? [
+            "You prepare an optional suggestion: which open Chrome tabs the user could put away now. Put-away tabs are saved into folders and reopen in one click. The user has not asked to close anything.",
+            "Include a tab only when its content and context suggest the user is finished with it. When unsure, leave it out. Including nothing is valid; there is no quota.",
+            "Age alone does not prove a tab is finished. Work surfaces (documents being edited, mail, calendars, dashboards, forms) need stronger evidence than articles, searches, videos, social feeds or completed confirmations and receipts."
+          ] : [
+            "The user clicked Smart because they want their tab clutter cleared. Choose which open Chrome tabs to put away now. Put-away tabs are saved into folders and reopen in one click.",
+            "Put away read-once and finished content: articles, searches, videos, social feeds, finished confirmations and receipts, and anything not used for hours.",
+            "Keep the user's active work: documents being written, mail, calendars, dashboards, forms, dev tools and project pages used in the last 60 minutes, and anything they would notice disappearing mid-task. Most people keep 3-5 such tabs.",
+            ...(minSaveCount > 0 ? [
+              `You must put away at least ${minSaveCount} of the ${tabs.length} tabs to get the user under their tab limit. Put away stale reference and read-once content before active work surfaces.`
+            ] : [])
+          ]),
           "Never include a tab with unsaved:true, or with minutesAgo null (opened in the background, never looked at).",
-          `Tabs with minutesAgo under ${PROACTIVE_MIN_IDLE_MIN} stay open regardless; do not include them. Use them as context: an older tab in the same workstream as a recently used one may still be needed.`,
-          "Age alone does not prove a tab is finished. Work surfaces (documents being edited, mail, calendars, dashboards, forms) need stronger evidence than articles, searches, videos, social feeds or completed confirmations and receipts.",
-          "Group the included tabs into folders by workstream: shared topic, entity or site first; closeness in minutesAgo is only a tie-breaker. Folder names under 52 characters. Each included tab appears in exactly one folder. Use the short tab ids given."
+          `Tabs with minutesAgo under ${MIN_IDLE_MIN} stay open regardless; do not include them. Use them as context: an older tab in the same workstream as a recently used one may still be needed.`,
+          "Group the listed tabs into folders by workstream: shared topic, entity or site first; closeness in minutesAgo is only a tie-breaker. Folder names under 52 characters. Each listed tab appears in exactly one folder. Use the short tab ids given."
         ].join("\n")
       },
       { role: "user", content: JSON.stringify({ tabs: tabsPayload, clusters }) }
@@ -643,34 +657,38 @@ export function buildProactiveRequest(tabs, graph, now) {
 }
 
 // Translate the compact answer into the shape parseSmartScopeResponse reads:
-// listed tabs are saves, everything else is a keep (proactive default).
-// Low reasoning sometimes ignores the recency instruction (2026-11-16: 1 of 4
-// runs offered an inbox used 14 min ago), so recency is enforced here, matching
-// the local heuristic, which never offers a tab used in the last 30 minutes.
-function expandProactiveResponse(parsed, tabIdByShortId, tabs, now) {
-  const offerable = new Set(tabs
-    .filter((t) => Number.isFinite(t.lastAccessed) && now - t.lastAccessed >= PROACTIVE_MIN_IDLE_MIN * 60_000)
+// listed tabs are saves and every other tab is an explicit keep. The manual
+// tab-limit floor is still met afterwards by enforceMinSaveCount.
+// Low reasoning sometimes ignores the recency instruction (2026-11-16: a
+// background run offered an inbox used 14 min ago; manual runs closed every
+// tab, including a doc used 12 min ago), so recency is enforced here for both,
+// matching the local heuristic, which never closes a tab used in the last
+// 30 minutes. Only the manual tab-limit floor may override it.
+function expandCompactResponse(parsed, tabIdByShortId, tabs, now) {
+  const allowed = new Set(tabs
+    .filter((t) => Number.isFinite(t.lastAccessed) && now - t.lastAccessed >= MIN_IDLE_MIN * 60_000)
     .map((t) => t.id));
   const groups = (Array.isArray(parsed?.groups) ? parsed.groups : []).map((group) => ({
     name: group?.name,
     tabIds: (Array.isArray(group?.tabIds) ? group.tabIds : [])
       .map((shortId) => tabIdByShortId.get(String(shortId)))
-      .filter((tabId) => tabId && offerable.has(tabId))
+      .filter((tabId) => tabId && allowed.has(tabId))
   }));
+  const listed = new Set(groups.flatMap((group) => group.tabIds));
   return {
     groups,
-    tabActions: groups.flatMap((group) => group.tabIds.map((tabId) => ({ tabId, action: "save" })))
+    tabActions: tabs.map((t) => ({ tabId: t.id, action: listed.has(t.id) ? "save" : "keep" }))
   };
 }
 
 async function runLlmPath(tabs, graph, settings, now, floorContext = {}) {
-  const proactive = floorContext.proactive ? buildProactiveRequest(tabs, graph, now) : null;
-  const body = proactive ? proactive.body : buildSmartScopeRequest(tabs, graph, now, floorContext);
+  const request = buildCompactRequest(tabs, graph, now, floorContext);
+  const body = request.body;
   body.model = settings.llmModel || LLM_MODEL;
 
-  // Proactive fetches must finish before MV3's 30-second fetch limit. A
-  // slow/unavailable model falls back locally instead of losing the worker.
-  const timeoutMs = floorContext.proactive ? 25_000 : tabs.length >= 60 ? 180_000 : 120_000;
+  // Chrome stops an MV3 service worker whose fetch takes more than 30 s, so a
+  // slow or unavailable model falls back to the local tidy instead.
+  const timeoutMs = 25_000;
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), timeoutMs);
   try {
@@ -690,7 +708,7 @@ async function runLlmPath(tabs, graph, settings, now, floorContext = {}) {
     const data = await response.json();
     const content = data?.choices?.[0]?.message?.content || "{}";
     const parsed = JSON.parse(content);
-    const standard = proactive ? expandProactiveResponse(parsed, proactive.tabIdByShortId, tabs, now) : parsed;
+    const standard = expandCompactResponse(parsed, request.tabIdByShortId, tabs, now);
     return parseSmartScopeResponse(standard, tabs, graph, now, floorContext);
   } finally {
     clearTimeout(timeout);

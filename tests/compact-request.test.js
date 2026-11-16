@@ -1,9 +1,10 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { buildProactiveRequest, runSmartScope } from '../src/smart-scope.js'
+import { buildCompactRequest, runSmartScope } from '../src/smart-scope.js'
 import { buildAssociationGraph } from '../src/categorizer.js'
 
-// Background suggestions must come back inside the 25-second MV3 fetch window.
+// Smart requests (background suggestions and the manual Smart tidy) must come
+// back inside the 25-second MV3 fetch window.
 // Measured on Tinfoil gpt-oss-120b (2026-11-16): the full Smart request took
 // ~40 s at 30, 35 and 120 tabs (5.5-6.4k output tokens); this compact request
 // took 2-3.4 s (240-450 output tokens). Latency is driven by output tokens, so
@@ -17,8 +18,11 @@ function tab(n, extra = {}) {
 		pageSummary: 'x'.repeat(720), lastAccessed: NOW - 120 * 60_000, ...extra,
 	}
 }
-function build(tabs) {
-	return buildProactiveRequest(tabs, buildAssociationGraph(tabs), NOW)
+function build(tabs, floorContext = { proactive: true }) {
+	return buildCompactRequest(tabs, buildAssociationGraph(tabs), NOW, floorContext)
+}
+function answer(content) {
+	return async () => ({ ok: true, json: async () => ({ choices: [{ message: { content: JSON.stringify(content) } }] }) })
 }
 
 test('proactive request asks only for folders of tabs to put away, with low reasoning', () => {
@@ -83,4 +87,54 @@ test('proactive model answer maps short ids back, keeps everything it left out, 
 	assert.deepEqual(result.saveSet.map(t => t.id), [tabs[0].id])
 	assert.deepEqual(result.keepSet.map(t => t.id), [tabs[1].id, tabs[2].id])
 	assert.deepEqual(result.categories.map(c => [c.name, c.tabIds]), [['Old research', [tabs[0].id]]])
+})
+
+test('manual Smart request is compact too, asks to clear clutter, and states the tab-limit floor', () => {
+	const { body } = build([tab(1), tab(2), tab(3)], { minSaveCount: 2 })
+	assert.equal(body.reasoning_effort, 'low')
+	assert.deepEqual(Object.keys(body.response_format.json_schema.schema.properties), ['groups'])
+	assert.match(body.messages[0].content, /clicked Smart/)
+	assert.match(body.messages[0].content, /at least 2 of the 3/)
+	assert.doesNotMatch(body.messages[0].content, /optional suggestion/)
+})
+
+test('manual Smart keeps the tabs the model leaves out', async t => {
+	const original = globalThis.fetch
+	t.after(() => { globalThis.fetch = original })
+	const tabs = [tab(1), tab(2), tab(3)]
+	globalThis.fetch = answer({ groups: [{ name: 'Old research', tabIds: ['1'] }] })
+	const result = await runSmartScope(tabs, { llmEnabled: true, backendUrl: 'https://synthetic.invalid' }, { now: NOW, minSaveCount: 0 })
+	assert.equal(result.mode, 'llm')
+	assert.deepEqual(result.saveSet.map(t => t.originalTabId), [1])
+})
+
+test('manual Smart never closes a tab used in the last 30 minutes on the model\'s say-so', async t => {
+	const original = globalThis.fetch
+	t.after(() => { globalThis.fetch = original })
+	const tabs = [tab(1, { lastAccessed: NOW - 5 * 60_000 }), tab(2)]
+	globalThis.fetch = answer({ groups: [{ name: 'Everything', tabIds: ['1', '2'] }] })
+	const result = await runSmartScope(tabs, { llmEnabled: true, backendUrl: 'https://synthetic.invalid' }, { now: NOW, minSaveCount: 0 })
+	assert.deepEqual(result.saveSet.map(t => t.originalTabId), [2])
+})
+
+test('manual Smart tab-limit floor still closes enough, oldest first, when the model under-delivers', async t => {
+	const original = globalThis.fetch
+	t.after(() => { globalThis.fetch = original })
+	const tabs = [tab(1, { lastAccessed: NOW - 5 * 60_000 }), tab(2, { lastAccessed: NOW - 300 * 60_000 }), tab(3, { lastAccessed: NOW - 10 * 60_000 })]
+	globalThis.fetch = answer({ groups: [] })
+	const result = await runSmartScope(tabs, { llmEnabled: true, backendUrl: 'https://synthetic.invalid' }, { now: NOW, minSaveCount: 1 })
+	assert.deepEqual(result.saveSet.map(t => t.originalTabId), [2])
+})
+
+test('manual Smart gives up on the model after 25 seconds and tidies locally', async t => {
+	const originalFetch = globalThis.fetch
+	const originalTimeout = globalThis.setTimeout
+	t.after(() => { globalThis.fetch = originalFetch; globalThis.setTimeout = originalTimeout })
+	const delays = []
+	globalThis.setTimeout = (fn, ms, ...args) => { delays.push(ms); return originalTimeout(fn, 0, ...args) }
+	globalThis.fetch = (_url, { signal }) => new Promise((_, reject) => signal.addEventListener('abort', () => reject(new Error('aborted'))))
+	const result = await runSmartScope(Array.from({ length: 70 }, (_, i) => tab(i + 1)), { llmEnabled: true, backendUrl: 'https://synthetic.invalid' }, { now: NOW, minSaveCount: 0 })
+	assert.equal(result.mode, 'heuristic')
+	assert.ok(delays.length > 0)
+	assert.ok(Math.max(...delays) <= 25_000, `model wait was ${Math.max(...delays)} ms`)
 })
