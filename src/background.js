@@ -2,7 +2,7 @@ import { categorizeTabs, testLlm } from "./categorizer.js";
 import { heuristicSignals, runSmartScope } from "./smart-scope.js";
 import { createRecommendationService } from "./recommendations.js";
 import { createRecommendationBudget } from "./recommendation-budget.js";
-import { trimPlan } from "./tidy-plan.js";
+import { aiPickFields, trimPlan } from "./tidy-plan.js";
 import { shouldArm } from "./clutter-reminder.js";
 import { closeValidatedTabs } from "./safe-close.js";
 import { createDiagnostics, diagnosticError, diagnosticDetails, DIAGNOSTICS_KEY } from "./diagnostics.js";
@@ -409,6 +409,9 @@ async function saveTabs(options) {
       totalOpenTabCount: allOpenTabs.length,
       clutterThreshold: threshold
     });
+    // Opt-in tab habits log: what this tidy put away and what the AI picked.
+    behaviorLog.offerSnapshot(tabs, { mode: smartResult.mode, tabs: smartResult.saveSet, ...aiPickFields(smartResult, tabs) },
+      { manual: true, live: allOpenTabs, signals: heuristicSignals }).catch(() => {});
     categories = smartResult.categories;
     meta = {
       method: smartResult.mode === "llm" ? "smart-llm" : "smart-heuristic",

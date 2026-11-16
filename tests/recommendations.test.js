@@ -162,6 +162,18 @@ test('AI recommendations keep the direct-close path', async () => {
 	await h.service.claim(result.id)
 })
 
+test('an AI plan keeps the model\'s own picks as Chrome tab ids, for the tab habits log; a local plan has none', async () => {
+	const h = harness()
+	h.tabs = [live(1), live(2), live(3)]
+	h.deps.select = async tabs => ({ saveSet: tabs.slice(0, 1), categories: [], mode: 'llm', modelPicks: ['saved-2', 'saved-1'] })
+	const ai = await h.service.refresh({ force: true })
+	assert.deepEqual([ai.aiPicks, ai.aiCandidates], [[1, 2], [1, 2, 3]])
+	h.advance(60_000)
+	h.deps.select = async tabs => ({ saveSet: tabs.slice(0, 1), categories: [], mode: 'heuristic' })
+	const local = await h.service.refresh({ force: true })
+	assert.deepEqual([local.aiPicks, local.aiCandidates], [null, null])
+})
+
 test('old recommendations expire and incognito/pinned/active tabs never reach the model', async () => {
 	const h = harness()
 	h.tabs = [live(1), live(2, { incognito: true }), live(3, { pinned: true }), live(4, { active: true })]

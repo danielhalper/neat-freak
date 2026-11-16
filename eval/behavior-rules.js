@@ -14,6 +14,8 @@
 // Both replay the shipped heuristic and rule tweaks on the stored numbers
 // (never titles or URLs). --rule takes a JS expression over the feature names
 // in FEATURE_NAMES; protected tabs are never offered, whatever the rule says.
+// The "AI picks" rows replay the AI's recency guard at other cutoffs, on runs
+// where the AI answered (2b: the same for manual Smart tidies).
 //
 // 3-6 describe tabs you closed yourself, using these labels:
 //   close  closed by you, or saved by Neat Freak and not restored within 7 days
@@ -87,7 +89,8 @@ export function labelledRows(report, options) {
 // --- Policies replayed on stored numbers -------------------------------------
 
 export const FEATURE_NAMES = ['idleMin', 'activations', 'activeMin', 'clusterIdleMin', 'contentScore', 'heuristic',
-	'duplicate', 'clustered', 'audible', 'unsaved', 'unreadable', 'discarded', 'opener', 'pinned', 'active', 'domain']
+	'duplicate', 'clustered', 'audible', 'unsaved', 'unreadable', 'discarded', 'opener', 'pinned', 'active', 'domain',
+	'aiPicked', 'aiIdleMin']
 
 // Never offered by any policy, as in the extension: the active or pinned tab,
 // one playing audio, one with unsent input, or one the page check couldn't read.
@@ -109,6 +112,20 @@ export const POLICIES = [
 	{ name: 'heuristic + idle 1d+ seen <=1x', offer: f => replayHeuristic(f) || (f.idleMin >= 1440 && f.activations <= 1) },
 	{ name: 'any idle 12h+', offer: f => f.idleMin >= 720 },
 ]
+
+// The AI's recency guard (smart-scope.js expandCompactResponse), replayed:
+// the model's own picks (aiPicked, recorded before the guard) are offered when
+// the tab had been idle at least T when the model saw it (aiIdleMin on label
+// passes, idleMin on suggestions), plus URL duplicates, which are offered
+// whatever the model says. T = 30 ships. Only tabs the AI was asked about count;
+// the manual tidy's tab-limit floor is not replayed.
+export const AI_GUARD_MINUTES = [0, 15, 30, 60]
+export const aiRan = f => f.aiPicked === 0 || f.aiPicked === 1
+export const replayAiGuard = (f, minutes) => Boolean(f.duplicate || (f.aiPicked === 1 && (f.aiIdleMin ?? f.idleMin) >= minutes))
+export const AI_POLICIES = AI_GUARD_MINUTES.map(minutes => ({
+	name: `AI picks, idle ${minutes}m+${minutes === 30 ? ' (shipped)' : ''}`, applies: aiRan, offer: f => replayAiGuard(f, minutes),
+}))
+const appliesTo = (policy, f) => !policy.applies || policy.applies(f)
 
 export function compileRule(expression) {
 	const fn = new Function(...FEATURE_NAMES, `return Boolean(${expression})`)
@@ -245,33 +262,45 @@ function goldSection(report, policies) {
 	const lines = []
 	if (rows.some(row => row.inOffer !== null)) lines.push(line('offered at the time*', row => row.inOffer === true, row => row.inOffer !== null))
 	lines.push(line('heuristic (live)', row => row.heuristic))
-	for (const policy of policies) lines.push(line(policy.name, row => offers(policy, row)))
+	for (const policy of policies.filter(policy => rows.some(row => appliesTo(policy, row)))) {
+		lines.push(line(policy.name, row => offers(policy, row), row => appliesTo(policy, row)))
+	}
 	out.push(...table(['   policy', 'Important offered (gate, must be 0)', 'Close not offered (misses)', 'Either way offered'], lines))
 	if (rows.some(row => row.inOffer !== null)) out.push('   * only passes saved while a suggestion was prepared')
+	const asked = rows.filter(aiRan).length
+	out.push(asked ? `   AI picks rows: only the ${asked} tabs an AI suggestion had judged, unused since.`
+		: '   AI picks rows: none yet (they need passes saved while an AI suggestion was ready).')
 	const mismatched = rows.filter(row => row.heuristic !== offers(policies[0], row)).length
 	if (mismatched && policies[0] === POLICIES[0]) out.push(`   Replay check: replayed heuristic differs from the live one on ${mismatched} tabs.`)
 	return out
 }
 
-function offerSection(report, policies) {
-	const entries = offerEntries(report)
+function offerSection(entries, policies, { title, none, manual = false }) {
 	const tabs = list => new Set(list.map(entry => entry.record)).size
-	const out = ['', `2. Suggestions vs what you did next: ${tabs(entries)} tabs were candidates (counts are tabs)`]
-	if (!entries.length) return [...out, '   None yet. Prepared suggestions (automatic or Refresh) are recorded while the log is on.']
+	const out = ['', `${title}: ${tabs(entries)} tabs were candidates (counts are tabs${manual ? '; offered = put away' : ''})`]
+	if (!entries.length) return [...out, `   None yet. ${none}`]
 	const where = (label, offered) => entries.filter(entry => entry.label === label && (offered === undefined || entry.snap.offered === offered))
 	const [right, wrong, miss, keep] = ['right', 'wrong', 'miss', 'keep'].map(label => where(label))
 	out.push(`   offered:     right ${tabs(right)} · wrong ${tabs(wrong)} · not acted on yet ${tabs(where('pending', true))} · shown, then used again ${tabs(where('ignored'))}`)
 	out.push(`   not offered: missed ${tabs(miss)} · right keep ${tabs(keep)} · undecided ${tabs(where('pending', false))}`)
 	out.push(`   Wrong-offer rate: ${tabs(wrong)}/${tabs(wrong) + tabs(right)} = ${pct(tabs(wrong), tabs(wrong) + tabs(right))} (the gate: should be near 0). Misses: ${tabs(miss)}.`)
 	out.push('', '   Replayed on the stored numbers (vs what was offered):')
-	out.push(...table(['   policy', 'misses recovered', 'wrong offers added', 'wrong offers avoided', 'right offers lost', 'wrong-offer rate'], policies.map(policy => {
-		const yes = list => list.filter(entry => offers(policy, entry.features))
-		const no = list => list.filter(entry => !offers(policy, entry.features))
+	const shown = policies.filter(policy => entries.some(entry => appliesTo(policy, entry.features)))
+	out.push(...table(['   policy', 'misses recovered', 'wrong offers added', 'wrong offers avoided', 'right offers lost', 'wrong-offer rate'], shown.map(policy => {
+		const pool = list => list.filter(entry => appliesTo(policy, entry.features))
+		const yes = list => pool(list).filter(entry => offers(policy, entry.features))
+		const no = list => pool(list).filter(entry => !offers(policy, entry.features))
 		const badNow = tabs(yes(wrong)) + tabs(yes(keep))
 		const goodNow = tabs(yes(right)) + tabs(yes(miss))
-		return [`   ${policy.name}`, `${tabs(yes(miss))}/${tabs(miss)}`, `${tabs(yes(keep))}/${tabs(keep)}`,
-			`${tabs(no(wrong))}/${tabs(wrong)}`, `${tabs(no(right))}/${tabs(right)}`, pct(badNow, badNow + goodNow)]
+		return [`   ${policy.name}`, `${tabs(yes(miss))}/${tabs(pool(miss))}`, `${tabs(yes(keep))}/${tabs(pool(keep))}`,
+			`${tabs(no(wrong))}/${tabs(pool(wrong))}`, `${tabs(no(right))}/${tabs(pool(right))}`, pct(badNow, badNow + goodNow)]
 	})))
+	const ai = entries.filter(entry => aiRan(entry.features))
+	out.push(ai.length ? `   AI picks rows: only the ${tabs(ai)} tabs from runs where the AI answered.` : '   AI picks rows: none yet (no AI runs recorded).')
+	// Suggestions only: a manual tidy's floor adds tabs the guard replay can't know about.
+	const shipped = AI_POLICIES.find(policy => policy.name.includes('shipped'))
+	const differs = manual ? 0 : ai.filter(entry => offers(shipped, entry.features) !== entry.snap.offered).length
+	if (differs) out.push(`   Replay check: the shipped AI guard differs from what was offered on ${differs} of ${ai.length} AI snapshots (a Keep, or a tab changed before the offer was stored, also counts).`)
 	return out
 }
 
@@ -291,8 +320,13 @@ export function analyse(report, { openAsKeep = false, minDomain = 3, rules = [] 
 	for (const row of rows) sources[row.source] = (sources[row.source] || 0) + 1
 	const closes = rows.filter(row => row.y === 1)
 	const keeps = rows.filter(row => row.y === 0)
-	const policies = [...POLICIES, ...rules.map(compileRule)]
-	out.push(...goldSection(report, policies), ...offerSection(report, policies))
+	const policies = [...POLICIES, ...rules.map(compileRule), ...AI_POLICIES]
+	const entries = offerEntries(report)
+	out.push(...goldSection(report, policies),
+		...offerSection(entries.filter(entry => !entry.snap.manual), policies, { title: '2. Suggestions vs what you did next',
+			none: 'Prepared suggestions (automatic or Refresh) are recorded while the log is on.' }),
+		...offerSection(entries.filter(entry => entry.snap.manual), policies, { title: '2b. Manual Smart tidies vs what you did next',
+			none: 'Smart tidies are recorded while the log is on.', manual: true }))
 
 	out.push('', `Outcome labels for 3-6: close ${closes.length} (closed ${sources.closed || 0}, saved ${sources.saved || 0}) · keep ${keeps.length} (Keep ${sources.kept || 0}, restored within ${duration(RESTORE_WINDOW_MS)} ${sources.restored || 0}${openAsKeep ? `, open over ${duration(OPEN_KEEP_MIN_AGE_MS)} ${sources.open || 0}` : ''})`)
 	if (keeps.length) out.push('  Keep and restore labels exist only for tabs Neat Freak suggested, so they lean towards idle tabs.')

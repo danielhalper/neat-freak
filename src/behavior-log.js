@@ -56,9 +56,21 @@ const DOMAIN_PATTERN = /^(\([a-z]+\)|[a-z0-9.-]{1,253})$/
 // activations and activeMin come from this log. Never titles or URLs.
 const FEATURE_NUMBERS = ['idleMin', 'activations', 'activeMin', 'clusterIdleMin', 'contentScore']
 const FEATURE_FLAGS = ['heuristic', 'duplicate', 'clustered', 'audible', 'unsaved', 'unreadable', 'discarded']
-const OFFER_FLAGS = [...FEATURE_FLAGS, 'automatic', 'llm']
+const OFFER_FLAGS = [...FEATURE_FLAGS, 'automatic', 'llm', 'manual']
 const tenth = value => Number.isFinite(value) ? Math.round(value * 10) / 10 : null
 const offeredIds = offer => offer && !offer.expired && Array.isArray(offer.tabs) ? offer.tabs.map(tab => tab.originalTabId) : null
+const aiPickSet = plan => plan?.mode === 'llm' && Array.isArray(plan.aiPicks) ? new Set(plan.aiPicks) : null
+const NO_AI_PICK = { aiPicked: null, aiIdleMin: null }
+
+// The AI's own pick for one tab in a prepared suggestion, before its 30-minute
+// recency guard: 1 or 0, and how long the tab had been idle when the model saw
+// it. null when the suggestion wasn't the AI's, the tab wasn't shown to it, or
+// the tab has been used since (the pick no longer describes it).
+function aiPickOf(plan, tabId, lastAccessed) {
+	const picks = !plan?.expired && Array.isArray(plan?.aiCandidates) && Number.isFinite(plan.createdAt) ? aiPickSet(plan) : null
+	if (!picks || !plan.aiCandidates.includes(tabId) || lastAccessed > plan.createdAt) return NO_AI_PICK
+	return { aiPicked: picks.has(tabId) ? 1 : 0, aiIdleMin: tenth(Number.isFinite(lastAccessed) ? (plan.createdAt - lastAccessed) / 60_000 : 0) }
+}
 
 function candidateFeatures({ live, saved, signal, record, at }) {
 	const lastAccessed = saved?.lastAccessed ?? live?.lastAccessed
@@ -75,24 +87,33 @@ function candidateFeatures({ live, saved, signal, record, at }) {
 }
 
 // Offer snapshots are stored as short arrays (they repeat on every prepared
-// suggestion) and decoded to objects on export.
+// suggestion) and decoded to objects on export. aiPicked (1, 0, or null when
+// the AI didn't run) is last, so rows stored before it decode as null.
+const BITS_AT = 2 + FEATURE_NUMBERS.length
+const AI_PICKED_AT = BITS_AT + 1
+const MANUAL_BIT = 1 << OFFER_FLAGS.indexOf('manual')
+const aiPickedValue = value => value === 1 || value === 0 ? value : null
 function encodeOffer(row) {
 	const bits = OFFER_FLAGS.reduce((sum, name, i) => sum | (row[name] ? 1 << i : 0), 0)
-	return [row.at, row.offered ? 1 : 0, ...FEATURE_NUMBERS.map(name => row[name]), bits]
+	return [row.at, row.offered ? 1 : 0, ...FEATURE_NUMBERS.map(name => row[name]), bits, aiPickedValue(row.aiPicked)]
 }
 function decodeOffer(row) {
 	if (!Array.isArray(row) || !Number.isFinite(row[0])) return null
 	const out = { at: Math.round(row[0]), offered: row[1] === 1 }
 	FEATURE_NUMBERS.forEach((name, i) => { out[name] = tenth(row[2 + i]) })
-	const bits = row[2 + FEATURE_NUMBERS.length]
-	OFFER_FLAGS.forEach((name, i) => { out[name] = Boolean(bits & (1 << i)) })
+	OFFER_FLAGS.forEach((name, i) => { out[name] = Boolean(row[BITS_AT] & (1 << i)) })
+	out.aiPicked = aiPickedValue(row[AI_PICKED_AT])
 	return out
 }
+// Same offer decision, same AI pick, same kind of run (suggestion or manual tidy).
+const sameRun = (a, b) => a[1] === b[1] && aiPickedValue(a[AI_PICKED_AT]) === aiPickedValue(b[AI_PICKED_AT])
+	&& (a[BITS_AT] & MANUAL_BIT) === (b[BITS_AT] & MANUAL_BIT)
 
 function exportableLabelPass(pass) {
 	if (!Number.isFinite(pass?.at) || !Array.isArray(pass.tabs)) return null
 	return { at: Math.round(pass.at), offerReady: pass.offerReady === true, tabs: pass.tabs.filter(row => TAB_LABELS.includes(row?.label)).map(row => {
-		const out = { label: row.label, inOffer: typeof row.inOffer === 'boolean' ? row.inOffer : null }
+		const out = { label: row.label, inOffer: typeof row.inOffer === 'boolean' ? row.inOffer : null,
+			aiPicked: aiPickedValue(row.aiPicked), aiIdleMin: tenth(row.aiIdleMin) }
 		if (Number.isFinite(row.tabId)) out.tabId = row.tabId
 		if (DOMAIN_PATTERN.test(row.domain || '')) out.domain = row.domain
 		for (const name of FEATURE_NUMBERS) out[name] = tenth(row[name])
@@ -375,26 +396,30 @@ export function createBehaviorLog({ storage, enabled, queryTabs, now = Date.now 
 		})
 	}
 
-	// One prepared suggestion (automatic or Refresh): every candidate, whether
-	// it was offered, and the numbers the heuristic decided on. candidates are
-	// captured saved-tab objects; signals(candidates, at) runs only while recording.
-	function offerSnapshot(candidates, plan, { automatic = false, live = [], signals } = {}) {
+	// One prepared suggestion (automatic or Refresh), or a manual Smart tidy
+	// (manual: offered = put away): every candidate, whether it was offered,
+	// whether the AI picked it before its recency guard (plan.aiPicks), and the
+	// numbers the heuristic decided on. candidates are captured saved-tab
+	// objects; signals(candidates, at) runs only while recording.
+	function offerSnapshot(candidates, plan, { automatic = false, manual = false, live = [], signals } = {}) {
 		return change(async ctx => {
 			if (!candidates?.length) return false
 			const offered = new Set((plan?.tabs || []).map(tab => tab.originalTabId))
+			const picks = aiPickSet(plan)
 			const bySignal = signals?.(candidates, ctx.at) || new Map()
 			const liveById = new Map((live || []).map(tab => [tab.id, tab]))
 			for (const saved of candidates) {
 				const tabId = saved.originalTabId
 				if (!Number.isInteger(tabId)) continue
 				const record = ctx.open.tabs[tabId] ??= newRecord({ id: tabId, url: saved.url, pinned: saved.pinned }, ctx.at, true)
-				const row = encodeOffer({ at: ctx.at, offered: offered.has(tabId), automatic, llm: plan?.mode === 'llm',
+				const row = encodeOffer({ at: ctx.at, offered: offered.has(tabId), automatic, manual, llm: plan?.mode === 'llm',
+					aiPicked: picks ? Number(picks.has(tabId)) : null,
 					...candidateFeatures({ live: liveById.get(tabId), saved, signal: bySignal.get(saved.id), record, at: ctx.at }) })
 				record.offers ??= []
 				const last = record.offers.at(-1)
 				// One entry per run of the same decision, holding its latest state;
 				// a visit to the tab in between starts a new run.
-				if (last && last[1] === row[1] && !record.visits.some(visit => visit[0] > last[0])) record.offers[record.offers.length - 1] = row
+				if (last && sameRun(last, row) && !record.visits.some(visit => visit[0] > last[0])) record.offers[record.offers.length - 1] = row
 				else record.offers.push(row)
 				if (record.offers.length > BEHAVIOR_MAX_OFFERS) record.offers.splice(0, record.offers.length - BEHAVIOR_MAX_OFFERS)
 			}
@@ -422,6 +447,7 @@ export function createBehaviorLog({ storage, enabled, queryTabs, now = Date.now 
 				tabs[tab.id] = {
 					lastAccessed: Number.isFinite(tab.lastAccessed) ? tab.lastAccessed : null, active: Boolean(tab.active),
 					discarded: Boolean(tab.discarded), activations: record?.activations ?? 0, activeMs: (record?.activeMs ?? 0) + inFront,
+					...aiPickOf(plan, tab.id, tab.lastAccessed),
 				}
 			}
 			await storage.set({ [BEHAVIOR_FREEZE_KEY]: { at, offered: offeredIds(plan), tabs } })
@@ -463,6 +489,7 @@ export function createBehaviorLog({ storage, enabled, queryTabs, now = Date.now 
 				return {
 					tabId: tab.id, domain: registrableDomain(tab.url), label: wanted.get(tab.id),
 					inOffer: offered ? offered.has(tab.id) : null,
+					...(frozen ? { aiPicked: was(tab)?.aiPicked ?? null, aiIdleMin: was(tab)?.aiIdleMin ?? null } : aiPickOf(offer, tab.id, tab.lastAccessed)),
 					opener: Boolean(record?.opener), pinned: Boolean(tab.pinned), active: Boolean(tab.active),
 					...candidateFeatures({ live: tab, saved, signal: saved && bySignal.get(saved.id), record, at }),
 				}

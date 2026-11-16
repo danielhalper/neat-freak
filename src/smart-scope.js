@@ -197,7 +197,8 @@ export function applySmartHeuristic(tabs, clusters, now, opts = {}) {
  * @param {object} [opts]
  * @param {number} [opts.now] — epoch ms for tests
  * @param {number} [opts.minSaveCount] — hard floor for saved tabs
- * @returns {Promise<{ saveSet: object[], keepSet: object[], categories: object[], mode: "llm"|"heuristic", error?: string }>}
+ * @returns {Promise<{ saveSet: object[], keepSet: object[], categories: object[], mode: "llm"|"heuristic", error?: string, modelPicks?: string[] }>}
+ *   modelPicks (llm only): tab ids the model listed, before the recency guard and the floor.
  */
 export async function runSmartScope(tabs, settings, opts = {}) {
   const now = opts.now ?? Date.now();
@@ -664,20 +665,24 @@ export function buildCompactRequest(tabs, graph, now, floorContext = {}) {
 // tab, including a doc used 12 min ago), so recency is enforced here for both,
 // matching the local heuristic, which never closes a tab used in the last
 // 30 minutes. Only the manual tab-limit floor may override it.
+// modelPicks: every tab the model listed, before the recency guard (ids only,
+// unknown ids dropped), so the opt-in tab habits log can replay other guards.
 function expandCompactResponse(parsed, tabIdByShortId, tabs, now) {
   const allowed = new Set(tabs
     .filter((t) => Number.isFinite(t.lastAccessed) && now - t.lastAccessed >= MIN_IDLE_MIN * 60_000)
     .map((t) => t.id));
-  const groups = (Array.isArray(parsed?.groups) ? parsed.groups : []).map((group) => ({
+  const picked = (Array.isArray(parsed?.groups) ? parsed.groups : []).map((group) => ({
     name: group?.name,
     tabIds: (Array.isArray(group?.tabIds) ? group.tabIds : [])
       .map((shortId) => tabIdByShortId.get(String(shortId)))
-      .filter((tabId) => tabId && allowed.has(tabId))
+      .filter(Boolean)
   }));
+  const groups = picked.map((group) => ({ ...group, tabIds: group.tabIds.filter((tabId) => allowed.has(tabId)) }));
   const listed = new Set(groups.flatMap((group) => group.tabIds));
   return {
     groups,
-    tabActions: tabs.map((t) => ({ tabId: t.id, action: listed.has(t.id) ? "save" : "keep" }))
+    tabActions: tabs.map((t) => ({ tabId: t.id, action: listed.has(t.id) ? "save" : "keep" })),
+    modelPicks: [...new Set(picked.flatMap((group) => group.tabIds))]
   };
 }
 
@@ -708,8 +713,8 @@ async function runLlmPath(tabs, graph, settings, now, floorContext = {}) {
     const data = await response.json();
     const content = data?.choices?.[0]?.message?.content || "{}";
     const parsed = JSON.parse(content);
-    const standard = expandCompactResponse(parsed, request.tabIdByShortId, tabs, now);
-    return parseSmartScopeResponse(standard, tabs, graph, now, floorContext);
+    const { modelPicks, ...standard } = expandCompactResponse(parsed, request.tabIdByShortId, tabs, now);
+    return { ...parseSmartScopeResponse(standard, tabs, graph, now, floorContext), modelPicks };
   } finally {
     clearTimeout(timeout);
   }

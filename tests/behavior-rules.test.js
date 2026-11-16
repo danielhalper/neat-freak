@@ -2,6 +2,7 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import {
 	decisionOf, featuresAt, growTree, printTree, analyse, offerLabel, offers, replayHeuristic, compileRule, POLICIES,
+	replayAiGuard,
 } from '../eval/behavior-rules.js'
 import { buildSample } from '../eval/behavior-sample.js'
 
@@ -71,6 +72,50 @@ test('gold labels: gate, misses and either-way offers per policy', () => {
 	assert.match(text, /heuristic \(replayed\)\s+1\/2\s+1\/2\s+1\/1/)
 	assert.match(text, /idleMin >= 700\s+0\/2\s+2\/2\s+0\/1/)
 	assert.doesNotMatch(text, /Replay check/)
+})
+
+test('the AI guard is replayed at 0, 15, 30 and 60 minutes, on tabs the AI judged, using idle when it ran', () => {
+	assert.equal(replayAiGuard({ aiPicked: 1, aiIdleMin: 20, idleMin: 40 }, 30), false) // idle when the model saw it, not at labelling
+	assert.equal(replayAiGuard({ aiPicked: 1, idleMin: 30 }, 30), true)
+	assert.equal(replayAiGuard({ aiPicked: 0, duplicate: true, idleMin: 1 }, 60), true) // duplicates close whatever the model says
+	const row = (label, extra) => ({ label, inOffer: null, idleMin: 600, activations: 0, clustered: false, heuristic: false, aiPicked: null, aiIdleMin: null, ...extra })
+	const at = T0 - 2 * H
+	const record = (snap, extra) => ({ openedAt: T0 - D, visits: [[T0 - D, T0 - D + 60_000]], domain: 'example.com', offers: [{ at, llm: true, ...snap }], ...extra })
+	const report = {
+		kind: 'neat-freak-tab-behavior', exportedAt: T0 + 20 * D,
+		labelPasses: [{ at: T0, offerReady: true, tabs: [
+			row('important', { aiPicked: 1, aiIdleMin: 20 }), // the AI wanted it 20 min after its last use
+			row('important', { aiPicked: 0, aiIdleMin: 600 }),
+			row('close', { aiPicked: 1, aiIdleMin: 45 }),
+			row('close', { aiPicked: 0, aiIdleMin: 300 }),
+			row('close'), // no AI run: left out of the AI rows
+			row('either', { aiPicked: 1, aiIdleMin: 5 }),
+		] }],
+		records: [
+			record({ offered: false, aiPicked: 1, idleMin: 20 }, { outcome: 'closed', endedAt: T0 }), // a miss at 30
+			record({ offered: true, aiPicked: 1, idleMin: 45 }, { outcome: 'closed', endedAt: T0 }), // right
+			record({ offered: false, aiPicked: 1, idleMin: 50 }), // a Keep took it out: the replay check notices
+			record({ offered: false, aiPicked: null, llm: false, idleMin: 900 }, { outcome: 'closed', endedAt: T0 }), // local run: not in AI rows
+			record({ offered: true, aiPicked: 0, idleMin: 200, manual: true }, { outcome: 'saved', endedAt: at + H, restoredAt: T0 + D }), // floor, then restored
+		],
+	}
+	const text = analyse(report)
+	const [suggestions, manual] = text.split('2b. ')
+	// Gold: Important offered / Close not offered / Either way offered, AI-judged tabs only.
+	assert.match(suggestions, /AI picks, idle 0m\+\s+1\/2\s+1\/2\s+1\/1/)
+	assert.match(suggestions, /AI picks, idle 15m\+\s+1\/2\s+1\/2\s+0\/1/)
+	assert.match(suggestions, /AI picks, idle 30m\+ \(shipped\)\s+0\/2\s+1\/2\s+0\/1/)
+	assert.match(suggestions, /AI picks, idle 60m\+\s+0\/2\s+2\/2\s+0\/1/)
+	assert.match(suggestions, /AI picks rows: only the 5 tabs an AI suggestion had judged/)
+	// Suggestions: misses recovered / wrong added / wrong avoided / right lost / rate.
+	assert.match(suggestions, /AI picks, idle 15m\+\s+1\/1\s+0\/0\s+0\/0\s+0\/1\s+0%/)
+	assert.match(suggestions, /AI picks, idle 60m\+\s+0\/1\s+0\/0\s+0\/0\s+1\/1\s+—/)
+	assert.match(suggestions, /Replay check: the shipped AI guard differs from what was offered on 1 of 3 AI snapshots/)
+	// Manual Smart tidies are their own section; the floor isn't replayed, so no replay check.
+	assert.match(manual, /^Manual Smart tidies vs what you did next: 1 tabs were candidates \(counts are tabs; offered = put away\)/)
+	assert.match(manual, /AI picks, idle 30m\+ \(shipped\)\s+0\/0\s+0\/0\s+1\/1\s+0\/0\s+—/)
+	assert.doesNotMatch(manual.split('3. Tabs')[0], /Replay check/)
+	assert.doesNotMatch(analyse({ ...report, labelPasses: [], records: report.records.slice(3, 4) }), /AI picks, idle/) // no AI data: no 0/0 rows
 })
 
 test('idle is time since last in front, or the gap before a final visit that ended in a close', () => {

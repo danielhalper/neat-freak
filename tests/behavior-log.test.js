@@ -211,6 +211,26 @@ test('offer snapshots: one entry per run of the same decision, decoded on export
 	assert.equal(called, false) // features are only computed while recording
 })
 
+test('offer snapshots record the AI\'s own pick before its recency guard, and manual Smart tidies', async () => {
+	const h = fixture({ tabs: [tab(1, 'https://a.example.com/'), tab(2, 'https://b.example.com/'), tab(3, 'https://c.example.com/')] })
+	const saved = id => ({ id: `tab-${id}`, originalTabId: id, url: h.tabs[id - 1].url, lastAccessed: h.now() - 20 * MIN })
+	const candidates = [saved(1), saved(2), saved(3)]
+	await h.log.offerSnapshot(candidates, { mode: 'llm', tabs: [saved(1)], aiPicks: [1, 2] }, { automatic: true })
+	h.advance(MIN)
+	await h.log.offerSnapshot(candidates, { mode: 'llm', tabs: [saved(1)], aiPicks: [1] }) // tab 2: AI changed its mind, new entry
+	h.advance(MIN)
+	await h.log.offerSnapshot(candidates, { mode: 'heuristic', tabs: [] }) // local run: no AI pick
+	h.advance(MIN)
+	await h.log.offerSnapshot([saved(3)], { mode: 'llm', tabs: [saved(3)], aiPicks: [3] }, { manual: true })
+	// A row stored before aiPicked existed still decodes.
+	h.data[BEHAVIOR_OPEN_KEY].tabs[3].offers.unshift(h.data[BEHAVIOR_OPEN_KEY].tabs[3].offers[0].slice(0, -1))
+	const records = Object.fromEntries((await h.log.exportLog()).records.map(r => [r.tabId, r.offers]))
+	const view = offers => offers.map(o => [o.offered, o.aiPicked, o.manual])
+	assert.deepEqual(view(records[1]), [[true, 1, false], [false, null, false]])
+	assert.deepEqual(view(records[2]), [[false, 1, false], [false, 0, false], [false, null, false]])
+	assert.deepEqual(view(records[3]), [[false, null, false], [false, 0, false], [false, null, false], [true, 1, true]])
+})
+
 test('labelling passes store labels and features, never titles; heuristic sees all open candidates', async () => {
 	const now = 2_000_000_000_000
 	const h = fixture({ tabs: [
@@ -237,6 +257,7 @@ test('labelling passes store labels and features, never titles; heuristic sees a
 	const byTab = Object.fromEntries(pass.tabs.map(row => [row.tabId, row]))
 	assert.deepEqual([byTab[1].label, byTab[1].domain, byTab[1].inOffer, byTab[1].heuristic, byTab[1].idleMin], ['important', 'example.com', true, true, 300])
 	assert.deepEqual([byTab[3].label, byTab[3].active, byTab[3].heuristic], ['either', true, false])
+	assert.deepEqual([byTab[1].aiPicked, byTab[1].aiIdleMin], [null, null]) // the offer wasn't the AI's
 	assert.doesNotMatch(JSON.stringify(pass), /Private title|https?:/)
 	await h.log.clear()
 	assert.deepEqual(h.data, {})
@@ -259,7 +280,9 @@ test('a labelling pass is judged as of when the page opened: checking a tab whil
 	h.tabs[2].active = true
 	await h.log.tabActivated({ tabId: 3 }) // the label page opens
 	h.advance(60 * MIN)
-	const frozenAt = await h.log.beginLabels({ offer: async () => ({ tabs: [{ originalTabId: 2 }] }) })
+	// An AI suggestion prepared 10 minutes before the page opened.
+	const aiPlan = { mode: 'llm', createdAt: t0 + 55 * MIN, tabs: [{ originalTabId: 2 }], aiPicks: [2], aiCandidates: [1, 2] }
+	const frozenAt = await h.log.beginLabels({ offer: async () => aiPlan })
 	assert.equal(frozenAt, t0 + 65 * MIN)
 
 	// Peek at tab 1 while labelling, then come back.
@@ -286,6 +309,8 @@ test('a labelling pass is judged as of when the page opened: checking a tab whil
 	assert.equal(pass.at, frozenAt)
 	assert.deepEqual([byTab[1].idleMin, byTab[1].activations, byTab[1].activeMin, byTab[1].clusterIdleMin, byTab[1].inOffer], [65, 1, 5, 65, false])
 	assert.deepEqual([byTab[2].idleMin, byTab[2].inOffer], [115, true]) // the offer as it was at page open
+	// The AI's own picks, with idle time when the model saw the tab (not at page open).
+	assert.deepEqual([byTab[1].aiPicked, byTab[1].aiIdleMin, byTab[2].aiPicked, byTab[2].aiIdleMin], [0, 55, 1, 105])
 
 	// Saving again from the same page replaces its pass; without a freeze, it's judged now.
 	await h.log.saveLabels([{ tabId: 1, label: 'either' }, { tabId: 2, label: 'close' }], options)
@@ -295,6 +320,13 @@ test('a labelling pass is judged as of when the page opened: checking a tab whil
 	passes = (await h.log.exportLog()).labelPasses
 	assert.equal(passes.length, 2)
 	assert.deepEqual([passes[1].tabs[0].idleMin, passes[1].tabs[0].activations, passes[1].tabs[0].inOffer], [4, 2, false])
+	// Without a freeze: a tab used since the AI ran has no pick; an expired or local suggestion gives none.
+	await h.log.saveLabels([{ tabId: 1, label: 'either' }, { tabId: 2, label: 'close' }], { ...options, frozenAt: undefined, offer: aiPlan })
+	const live = (await h.log.exportLog()).labelPasses[2].tabs
+	assert.deepEqual(live.map(row => [row.aiPicked, row.aiIdleMin]), [[null, null], [1, 105]])
+	await h.log.saveLabels([{ tabId: 2, label: 'close' }], { ...options, frozenAt: undefined, offer: { ...aiPlan, expired: true } })
+	await h.log.saveLabels([{ tabId: 2, label: 'close' }], { ...options, frozenAt: undefined, offer: { ...aiPlan, mode: 'heuristic' } })
+	assert.deepEqual((await h.log.exportLog()).labelPasses.slice(3).map(pass => pass.tabs[0].aiPicked), [null, null])
 	await h.log.clear()
 	assert.deepEqual(h.data, {})
 })

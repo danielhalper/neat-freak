@@ -1,6 +1,6 @@
 import {
 	PLAN_REFRESH_MS, PLAN_MAX_AGE_MS, MANUAL_REFRESH_MS, reconcileRecommendation,
-	settingsIdentity, excludeFromPlan, tabIdentity, recommendationInputKey,
+	settingsIdentity, excludeFromPlan, tabIdentity, recommendationInputKey, aiPickFields,
 } from './tidy-plan.js'
 
 // Dependency injection keeps MV3 lifecycle, concurrent refreshes and delayed
@@ -66,7 +66,7 @@ export function createRecommendationService(deps) {
 			id: deps.createId(), createdAt: now(), settingsKey: settingsIdentity(settings),
 			snapshot: snapshot.map(tab => ({ id: tab.id, url: tab.url })),
 			tabs: result.saveSet, categories: result.categories,
-			mode: result.mode, error: result.error || '', stale: false,
+			mode: result.mode, error: result.error || '', stale: false, ...aiPickFields(result, tabs),
 			localReason: result.localReason || (settings.llmEnabled ? 'ai-unavailable' : 'ai-off'),
 			reviewRequired: result.mode !== 'llm', reviewed: false,
 		}

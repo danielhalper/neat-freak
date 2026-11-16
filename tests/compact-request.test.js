@@ -89,6 +89,27 @@ test('proactive model answer maps short ids back, keeps everything it left out, 
 	assert.deepEqual(result.categories.map(c => [c.name, c.tabIds]), [['Old research', [tabs[0].id]]])
 })
 
+test('the model\'s own picks, before the recency guard, come back as ids for the tab habits log', async t => {
+	const original = globalThis.fetch
+	t.after(() => { globalThis.fetch = original })
+	const settings = { llmEnabled: true, backendUrl: 'https://synthetic.invalid' }
+	const tabs = [tab(1), tab(2, { lastAccessed: NOW - 14 * 60_000 }), tab(3, { lastAccessed: undefined }), tab(4)]
+	globalThis.fetch = answer({ groups: [{ name: 'A', tabIds: ['2', '99', '1'] }, { name: 'B', tabIds: ['1', '3'] }] })
+	const proactive = await runSmartScope(tabs, settings, { proactive: true, now: NOW })
+	assert.deepEqual(proactive.saveSet.map(t => t.originalTabId), [1])
+	assert.deepEqual(proactive.modelPicks, [tabs[1].id, tabs[0].id, tabs[2].id]) // listed order, unknown dropped, once each
+
+	globalThis.fetch = answer({ groups: [{ name: 'A', tabIds: ['2'] }] })
+	const manual = await runSmartScope(tabs, settings, { now: NOW, minSaveCount: 2 })
+	assert.equal(manual.saveSet.length, 2) // the floor tops up; picks stay the model's own
+	assert.deepEqual(manual.modelPicks, [tabs[1].id])
+
+	globalThis.fetch = async () => { throw new Error('offline') }
+	const local = await runSmartScope(tabs, settings, { proactive: true, now: NOW })
+	assert.equal(local.mode, 'heuristic')
+	assert.equal(local.modelPicks, undefined)
+})
+
 test('manual Smart request is compact too, asks to clear clutter, and states the tab-limit floor', () => {
 	const { body } = build([tab(1), tab(2), tab(3)], { minSaveCount: 2 })
 	assert.equal(body.reasoning_effort, 'low')

@@ -81,6 +81,19 @@ test('background wiring: off by default, then labels manual closes, saves, Keep 
 		assert.doesNotMatch(JSON.stringify(pass), /private|secret|research|https?:/i)
 	})
 
+	await t.test('a manual Smart tidy is recorded too: what it put away, marked manual', async () => {
+		const result = await h.send({ type: 'SAVE_TABS', options: { scope: 'smart', reviewBeforeClose: true } })
+		assert.equal(result.ok, true, result.error)
+		const session = h.data.local.tabAtlasSessions[0]
+		const putAway = new Set(session.tabs.map(tab => tab.originalTabId))
+		const latest = (await exportLog()).records.filter(record => !record.outcome && record.offers?.at(-1)?.manual)
+		assert.ok(latest.some(record => record.offers.at(-1).offered)) // tab 5, the only candidate left
+		for (const record of latest) {
+			const snap = record.offers.at(-1)
+			assert.deepEqual([snap.offered, snap.aiPicked, snap.llm], [putAway.has(record.tabId), null, false]) // AI is off here
+		}
+	})
+
 	await t.test('diagnostics export stays separate, and Clear removes the log', async () => {
 		const diagnostics = await h.send({ type: 'EXPORT_DIAGNOSTICS' })
 		assert.doesNotMatch(JSON.stringify(diagnostics), /example\.com|behavior/i)

@@ -6,6 +6,15 @@ export const PLAN_REFRESH_MS = 15 * 60_000
 export const PLAN_MAX_AGE_MS = 60 * 60_000
 export const MANUAL_REFRESH_MS = 30_000
 
+// The AI's own picks before its 30-minute recency guard, as Chrome tab ids,
+// and every tab it was shown. Both null when the run wasn't the AI's. Ids only:
+// the opt-in tab habits log uses them to replay other guards offline.
+export function aiPickFields(result, tabs) {
+	if (result?.mode !== 'llm' || !Array.isArray(result.modelPicks)) return { aiPicks: null, aiCandidates: null }
+	const picks = new Set(result.modelPicks)
+	return { aiPicks: tabs.filter(tab => picks.has(tab.id)).map(tab => tab.originalTabId), aiCandidates: tabs.map(tab => tab.originalTabId) }
+}
+
 export function tabIdentity(tab) {
 	return `${tab.originalTabId ?? tab.id}:${tab.url || ''}`
 }
