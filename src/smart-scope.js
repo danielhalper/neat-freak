@@ -563,8 +563,109 @@ export function buildSmartScopeRequest(tabs, graph, now, floorContext = {}) {
   return body;
 }
 
+// Background suggestions must answer inside MV3's 30-second fetch window, and
+// latency is set by output tokens, not input size. On Tinfoil gpt-oss-120b
+// (2026-11-16) the full request above took ~40 s at 30-120 tabs (5.5-6.4k
+// output tokens); this one took 2-3.4 s (240-450). So: short tab ids, low
+// reasoning, and the model lists only the tabs to put away, in folders.
+// Everything it leaves out stays open.
+const PROACTIVE_MIN_IDLE_MIN = 30;
+
+export function buildProactiveRequest(tabs, graph, now) {
+  const summaryBudget = tabs.length >= 60 ? 300 : 500;
+  const shortIdByTabId = new Map(tabs.map((t, index) => [t.id, String(index + 1)]));
+  const clusterIdByTabId = new Map();
+  const clusters = graph.clusters.map((c, index) => {
+    const id = `c${index + 1}`;
+    for (const tabId of c.tabIds) clusterIdByTabId.set(tabId, id);
+    return { id, name: c.provisionalName || "" };
+  });
+  const tabsPayload = tabs.map((t) => {
+    const row = {
+      id: shortIdByTabId.get(t.id),
+      title: truncateText(t.title, 120),
+      url: truncateText(t.url, 120),
+      summary: truncateText(t.pageSummary, summaryBudget),
+      minutesAgo: Number.isFinite(t.lastAccessed) ? Math.round((now - t.lastAccessed) / 60_000) : null
+    };
+    if (t.hasUnsavedInput) row.unsaved = true;
+    if (clusterIdByTabId.has(t.id)) row.cluster = clusterIdByTabId.get(t.id);
+    return row;
+  });
+
+  const body = {
+    model: LLM_MODEL,
+    reasoning_effort: "low",
+    prompt_cache_key: "neat-freak-proactive",
+    response_format: {
+      type: "json_schema",
+      json_schema: {
+        name: "proactive_tidy",
+        strict: true,
+        schema: {
+          type: "object",
+          additionalProperties: false,
+          required: ["groups"],
+          properties: {
+            groups: {
+              type: "array",
+              items: {
+                type: "object",
+                additionalProperties: false,
+                required: ["name", "tabIds"],
+                properties: {
+                  name: { type: "string" },
+                  tabIds: { type: "array", items: { type: "string" } }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    messages: [
+      {
+        role: "system",
+        content: [
+          "You prepare an optional suggestion: which open Chrome tabs the user could put away now. Put-away tabs are saved into folders and reopen in one click. The user has not asked to close anything.",
+          "Include a tab only when its content and context suggest the user is finished with it. When unsure, leave it out. Including nothing is valid; there is no quota.",
+          "Never include a tab with unsaved:true, or with minutesAgo null (opened in the background, never looked at).",
+          `Tabs with minutesAgo under ${PROACTIVE_MIN_IDLE_MIN} stay open regardless; do not include them. Use them as context: an older tab in the same workstream as a recently used one may still be needed.`,
+          "Age alone does not prove a tab is finished. Work surfaces (documents being edited, mail, calendars, dashboards, forms) need stronger evidence than articles, searches, videos, social feeds or completed confirmations and receipts.",
+          "Group the included tabs into folders by workstream: shared topic, entity or site first; closeness in minutesAgo is only a tie-breaker. Folder names under 52 characters. Each included tab appears in exactly one folder. Use the short tab ids given."
+        ].join("\n")
+      },
+      { role: "user", content: JSON.stringify({ tabs: tabsPayload, clusters }) }
+    ]
+  };
+
+  return { body, tabIdByShortId: new Map([...shortIdByTabId].map(([tabId, shortId]) => [shortId, tabId])) };
+}
+
+// Translate the compact answer into the shape parseSmartScopeResponse reads:
+// listed tabs are saves, everything else is a keep (proactive default).
+// Low reasoning sometimes ignores the recency instruction (2026-11-16: 1 of 4
+// runs offered an inbox used 14 min ago), so recency is enforced here, matching
+// the local heuristic, which never offers a tab used in the last 30 minutes.
+function expandProactiveResponse(parsed, tabIdByShortId, tabs, now) {
+  const offerable = new Set(tabs
+    .filter((t) => Number.isFinite(t.lastAccessed) && now - t.lastAccessed >= PROACTIVE_MIN_IDLE_MIN * 60_000)
+    .map((t) => t.id));
+  const groups = (Array.isArray(parsed?.groups) ? parsed.groups : []).map((group) => ({
+    name: group?.name,
+    tabIds: (Array.isArray(group?.tabIds) ? group.tabIds : [])
+      .map((shortId) => tabIdByShortId.get(String(shortId)))
+      .filter((tabId) => tabId && offerable.has(tabId))
+  }));
+  return {
+    groups,
+    tabActions: groups.flatMap((group) => group.tabIds.map((tabId) => ({ tabId, action: "save" })))
+  };
+}
+
 async function runLlmPath(tabs, graph, settings, now, floorContext = {}) {
-  const body = buildSmartScopeRequest(tabs, graph, now, floorContext);
+  const proactive = floorContext.proactive ? buildProactiveRequest(tabs, graph, now) : null;
+  const body = proactive ? proactive.body : buildSmartScopeRequest(tabs, graph, now, floorContext);
   body.model = settings.llmModel || LLM_MODEL;
 
   // Proactive fetches must finish before MV3's 30-second fetch limit. A
@@ -589,7 +690,8 @@ async function runLlmPath(tabs, graph, settings, now, floorContext = {}) {
     const data = await response.json();
     const content = data?.choices?.[0]?.message?.content || "{}";
     const parsed = JSON.parse(content);
-    return parseSmartScopeResponse(parsed, tabs, graph, now, floorContext);
+    const standard = proactive ? expandProactiveResponse(parsed, proactive.tabIdByShortId, tabs, now) : parsed;
+    return parseSmartScopeResponse(standard, tabs, graph, now, floorContext);
   } finally {
     clearTimeout(timeout);
   }

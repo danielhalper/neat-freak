@@ -1,0 +1,86 @@
+import test from 'node:test'
+import assert from 'node:assert/strict'
+import { buildProactiveRequest, runSmartScope } from '../src/smart-scope.js'
+import { buildAssociationGraph } from '../src/categorizer.js'
+
+// Background suggestions must come back inside the 25-second MV3 fetch window.
+// Measured on Tinfoil gpt-oss-120b (2026-11-16): the full Smart request took
+// ~40 s at 30, 35 and 120 tabs (5.5-6.4k output tokens); this compact request
+// took 2-3.4 s (240-450 output tokens). Latency is driven by output tokens, so
+// these tests pin the things that keep the output small.
+
+const NOW = 1_800_000_000_000
+function tab(n, extra = {}) {
+	return {
+		id: `tab-${n}-0f8e2c1a-7b4d-4e8a-9f1c-2d3e4f5a6b7c`, originalTabId: n,
+		title: `Research article ${n}`, url: `https://example.com/article/${n}`,
+		pageSummary: 'x'.repeat(720), lastAccessed: NOW - 120 * 60_000, ...extra,
+	}
+}
+function build(tabs) {
+	return buildProactiveRequest(tabs, buildAssociationGraph(tabs), NOW)
+}
+
+test('proactive request asks only for folders of tabs to put away, with low reasoning', () => {
+	const { body } = build([tab(1), tab(2)])
+	assert.equal(body.reasoning_effort, 'low')
+	const schema = body.response_format.json_schema.schema
+	assert.deepEqual(schema.required, ['groups'])
+	assert.deepEqual(Object.keys(schema.properties), ['groups'])
+	assert.deepEqual(Object.keys(schema.properties.groups.items.properties).sort(), ['name', 'tabIds'])
+})
+
+test('proactive request replaces long tab ids with short ones the model echoes back', () => {
+	const tabs = [tab(1), tab(2), tab(3)]
+	const { body, tabIdByShortId } = build(tabs)
+	const sent = JSON.parse(body.messages[1].content).tabs
+	assert.deepEqual(sent.map(row => row.id), ['1', '2', '3'])
+	assert.doesNotMatch(JSON.stringify(body), /0f8e2c1a/)
+	assert.equal(tabIdByShortId.get('2'), tabs[1].id)
+})
+
+test('proactive request trims page summaries harder for large windows', () => {
+	const small = JSON.parse(build([tab(1)]).body.messages[1].content).tabs[0]
+	const large = JSON.parse(build(Array.from({ length: 60 }, (_, i) => tab(i + 1))).body.messages[1].content).tabs[0]
+	// truncateText keeps max - 1 characters and appends "...".
+	assert.ok(small.summary.length <= 502)
+	assert.ok(large.summary.length <= 302)
+	assert.ok(large.summary.length < small.summary.length)
+})
+
+test('proactive request passes recency and unsaved input, and null when a tab was never viewed', () => {
+	const tabs = [tab(1, { lastAccessed: NOW - 45 * 60_000, hasUnsavedInput: true }), tab(2, { lastAccessed: undefined })]
+	const sent = JSON.parse(build(tabs).body.messages[1].content).tabs
+	assert.equal(sent[0].minutesAgo, 45)
+	assert.equal(sent[0].unsaved, true)
+	assert.equal(sent[1].minutesAgo, null)
+	assert.equal('unsaved' in sent[1], false)
+})
+
+test('proactive AI never offers a tab used in the last 30 minutes or never viewed, even if the model lists it', async t => {
+	const original = globalThis.fetch
+	t.after(() => { globalThis.fetch = original })
+	const tabs = [tab(1), tab(2, { lastAccessed: NOW - 14 * 60_000 }), tab(3, { lastAccessed: undefined }), tab(4, { lastAccessed: NOW - 31 * 60_000 })]
+	globalThis.fetch = async () => ({
+		ok: true,
+		json: async () => ({ choices: [{ message: { content: JSON.stringify({ groups: [{ name: 'Everything', tabIds: ['1', '2', '3', '4'] }] }) } }] }),
+	})
+	const result = await runSmartScope(tabs, { llmEnabled: true, backendUrl: 'https://synthetic.invalid' }, { proactive: true, now: NOW })
+	assert.equal(result.mode, 'llm')
+	assert.deepEqual(result.saveSet.map(t => t.originalTabId), [1, 4])
+})
+
+test('proactive model answer maps short ids back, keeps everything it left out, and ignores unknown ids', async t => {
+	const original = globalThis.fetch
+	t.after(() => { globalThis.fetch = original })
+	const tabs = [tab(1), tab(2), tab(3)]
+	globalThis.fetch = async () => ({
+		ok: true,
+		json: async () => ({ choices: [{ message: { content: JSON.stringify({ groups: [{ name: 'Old research', tabIds: ['1', '99'] }] }) } }] }),
+	})
+	const result = await runSmartScope(tabs, { llmEnabled: true, backendUrl: 'https://synthetic.invalid' }, { proactive: true, now: NOW })
+	assert.equal(result.mode, 'llm')
+	assert.deepEqual(result.saveSet.map(t => t.id), [tabs[0].id])
+	assert.deepEqual(result.keepSet.map(t => t.id), [tabs[1].id, tabs[2].id])
+	assert.deepEqual(result.categories.map(c => [c.name, c.tabIds]), [['Old research', [tabs[0].id]]])
+})

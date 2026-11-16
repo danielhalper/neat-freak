@@ -279,9 +279,10 @@ test('LLM proactive request uses the same categorizer, keeps omitted actions, an
 	const tabs = [saved(live(1)), saved(live(2)), saved(live(3, { lastAccessed: NOW }))]
 	globalThis.fetch = async (_url, options) => {
 		const request = JSON.parse(options.body)
-		assert.match(request.messages[0].content, /optional proactive recommendation/)
-		assert.equal(JSON.parse(request.messages[1].content).saveFloor.minSaveCount, 0)
-		return { ok: true, json: async () => ({ choices: [{ message: { content: JSON.stringify({ groups: [{ name: 'Research', tabIds: ['saved-1'] }], tabActions: [{ tabId: 'saved-1', action: 'save' }] }) } }] }) }
+		assert.match(request.messages[0].content, /optional suggestion/)
+		assert.match(request.messages[0].content, /there is no quota/)
+		assert.equal('saveFloor' in JSON.parse(request.messages[1].content), false)
+		return { ok: true, json: async () => ({ choices: [{ message: { content: JSON.stringify({ groups: [{ name: 'Research', tabIds: ['1'] }] }) } }] }) }
 	}
 	const settings = { llmEnabled: true, backendUrl: 'https://synthetic.invalid' }
 	const result = await runSmartScope(tabs, settings, { proactive: true, now: NOW, minSaveCount: 3 })

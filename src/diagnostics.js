@@ -1,6 +1,6 @@
 // Local, bounded diagnostics. Never pass arbitrary payloads into the journal.
 export const DIAGNOSTICS_KEY = 'neatFreakDiagnostics'
-export const DIAGNOSTICS_BUILD = 'proactive-trial-4'
+export const DIAGNOSTICS_BUILD = 'proactive-trial-5'
 export const DIAGNOSTICS_LIMIT = 500
 export const DIAGNOSTICS_MAX_AGE_MS = 7 * 24 * 60 * 60_000
 
