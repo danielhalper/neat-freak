@@ -231,6 +231,7 @@ export async function runSmartScope(tabs, settings, opts = {}) {
   if (minSaveCount > result.saveSet.length) {
     result = enforceMinSaveCount(result, tabs, graph, minSaveCount, now);
   }
+  if (!opts.proactive) result = { ...result, targetCount: minSaveCount, floorAdded: result.floorAdded || 0 };
 
   // Hard safety net, applied last: never auto-close the tab the user is actively
   // on (active), a tab playing audio, or a tab with unsubmitted form input. The
@@ -280,7 +281,10 @@ function enforceMinSaveCount(result, tabs, graph, minSaveCount, now) {
   if (needed <= 0) return result;
 
   const floorContext = buildFloorClusterInfo(graph, now);
+  // Only tabs idle FLOOR_MIN_IDLE_MIN or more that are not protected; when
+  // they run out the list stops short of the goal.
   const ranked = result.keepSet
+    .filter((t) => floorEligible(t, now))
     .map((t) => ({
       tab: t,
       score: floorSavePriority(t, floorContext, now)
@@ -297,7 +301,7 @@ function enforceMinSaveCount(result, tabs, graph, minSaveCount, now) {
     ? finalizeLlmCategories(result.categories, saveSet, tabs, graph)
     : computeSmartCategories(tabs, graph, savedIdSet);
 
-  return { ...result, saveSet, keepSet, categories };
+  return { ...result, saveSet, keepSet, categories, floorAdded: added.length };
 }
 
 function floorSavePriority(tab, clusterInfo, now) {
@@ -574,6 +578,28 @@ export function buildSmartScopeRequest(tabs, graph, now, floorContext = {}) {
 // (240-450). So: short tab ids, low reasoning, and the model lists only the
 // tabs to put away, in folders. Everything it leaves out stays open.
 const MIN_IDLE_MIN = 30;
+// The goal top-up (enforceMinSaveCount) adds only tabs idle at least this long.
+export const FLOOR_MIN_IDLE_MIN = 180;
+
+// Never put away by the AI or the goal top-up: used in the last MIN_IDLE_MIN
+// minutes, never viewed, unsaved input, unknown page state, active, audible
+// or pinned.
+function neverAdded(tab, now) {
+  return !tab || tab.active || tab.audible || tab.pinned || tab.hasUnsavedInput || tab.signalsUnavailable
+    || !Number.isFinite(tab.lastAccessed) || now - tab.lastAccessed < MIN_IDLE_MIN * 60_000;
+}
+
+function floorEligible(tab, now) {
+  return !neverAdded(tab, now) && now - tab.lastAccessed >= FLOOR_MIN_IDLE_MIN * 60_000;
+}
+
+// The goal as a target, not a requirement.
+function goalTargetLine(target, { totalOpenTabCount, clutterThreshold } = {}) {
+  const goal = Number(clutterThreshold);
+  const open = Number(totalOpenTabCount);
+  const context = goal > 0 && open > 0 ? `They want to be under their goal of ${goal} open tabs and have ${open} open. ` : "";
+  return `${context}Aim to put away about ${target} of these tabs if there are good candidates, finished and stale content first. Do not add a tab just to reach the number.`;
+}
 
 export function buildCompactRequest(tabs, graph, now, floorContext = {}) {
   const proactive = Boolean(floorContext.proactive);
@@ -638,12 +664,10 @@ export function buildCompactRequest(tabs, graph, now, floorContext = {}) {
             "Include a tab only when its content and context suggest the user is finished with it. When unsure, leave it out. Including nothing is valid; there is no quota.",
             "Age alone does not prove a tab is finished. Work surfaces (documents being edited, mail, calendars, dashboards, forms) need stronger evidence than articles, searches, videos, social feeds or completed confirmations and receipts."
           ] : [
-            "The user clicked Smart because they want their tab clutter cleared. Choose which open Chrome tabs to put away now. Put-away tabs are saved into folders and reopen in one click.",
+            "The user asked Neat Freak to clear their tab clutter. Choose which open Chrome tabs to put away now. Put-away tabs are saved into folders and reopen in one click.",
             "Put away read-once and finished content: articles, searches, videos, social feeds, finished confirmations and receipts, and anything not used for hours.",
             "Keep the user's active work: documents being written, mail, calendars, dashboards, forms, dev tools and project pages used in the last 60 minutes, and anything they would notice disappearing mid-task. Most people keep 3-5 such tabs.",
-            ...(minSaveCount > 0 ? [
-              `You must put away at least ${minSaveCount} of the ${tabs.length} tabs to get the user under their tab limit. Put away stale reference and read-once content before active work surfaces.`
-            ] : [])
+            ...(minSaveCount > 0 ? [goalTargetLine(minSaveCount, floorContext)] : [])
           ]),
           "Never include a tab with unsaved:true, or with minutesAgo null (opened in the background, never looked at).",
           `Tabs with minutesAgo under ${MIN_IDLE_MIN} stay open regardless; do not include them. Use them as context: an older tab in the same workstream as a recently used one may still be needed.`,
@@ -668,9 +692,7 @@ export function buildCompactRequest(tabs, graph, now, floorContext = {}) {
 // modelPicks: every tab the model listed, before the recency guard (ids only,
 // unknown ids dropped), so the opt-in tab habits log can replay other guards.
 function expandCompactResponse(parsed, tabIdByShortId, tabs, now) {
-  const allowed = new Set(tabs
-    .filter((t) => Number.isFinite(t.lastAccessed) && now - t.lastAccessed >= MIN_IDLE_MIN * 60_000)
-    .map((t) => t.id));
+  const allowed = new Set(tabs.filter((t) => !neverAdded(t, now)).map((t) => t.id));
   const picked = (Array.isArray(parsed?.groups) ? parsed.groups : []).map((group) => ({
     name: group?.name,
     tabIds: (Array.isArray(group?.tabIds) ? group.tabIds : [])
