@@ -2963,7 +2963,10 @@ async function loadExpandedData(host) {
     if (scopeOverridden) refreshPreview(host);
     if (request === recommendationRequest && !recommendationBusy) {
       status.textContent = "";
-      if (response.recommendationNeedsRun) checkOfferOnOpen(host);
+      // Only opening the panel to tidy starts a check; expanding the done
+      // card ("See closed tabs") or a save/review in progress never does.
+      const openedToTidy = !["done", "saving", "review"].includes(currentState?.mode);
+      if (response.recommendationNeedsRun && openedToTidy) checkOfferOnOpen(host);
       else renderRecommendation(host, response.recommendation);
     }
     renderSessions(host, response.sessions || []);

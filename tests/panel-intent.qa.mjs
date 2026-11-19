@@ -68,6 +68,20 @@ try {
 	release()
 	for (let i = 0; i < 100 && (await panelMode()) === 'saving'; i++) await new Promise(resolve => setTimeout(resolve, 10))
 	assert.notEqual(await panelMode(), 'idle', 'the late check does not reopen the offer')
+	// After a tidy the list is used up; "See closed tabs" on the done card
+	// expands the panel but must not start an AI run.
+	const sent = []
+	const send = chrome.runtime.sendMessage.bind(chrome.runtime)
+	chrome.runtime.sendMessage = message => { sent.push(message?.type); return send(message) }
+	const fresh = (await chrome.storage.session.get('neatFreakRecommendation')).neatFreakRecommendation || {}
+	await chrome.storage.session.set({ neatFreakRecommendation: { ...fresh, plan: null, lastExplicitAttemptAt: 0 } })
+	await chrome.storage.session.set({ neatFreakPanelState: { mode: 'done', tabCount: 3, groupCount: 1, looseCount: 0, sessionId: '' } })
+	await settle(() => shadow()?.querySelector('[data-action="expand-panel"]'), 'done card')
+	shadow().querySelector('[data-action="expand-panel"]').click()
+	await settle(() => sent.includes('GET_POPUP_STATE'), 'expanded after a tidy')
+	await new Promise(resolve => setTimeout(resolve, 200))
+	assert.equal(sent.includes('PREPARE_RECOMMENDATION'), false, 'See closed tabs starts no AI run')
+	assert.notEqual(tidySub()?.textContent, 'Checking your tabs')
 	assert.deepEqual(errors, [])
-	process.stdout.write('PASS: panel open with no fresh list -> "Checking your tabs" -> fresh list; a press during the check tidies as with nothing prepared\n')
+	process.stdout.write('PASS: panel open with no fresh list -> "Checking your tabs" -> fresh list; a press during the check tidies as with nothing prepared; See closed tabs after a tidy starts no run\n')
 } finally { dom.window.close() }
