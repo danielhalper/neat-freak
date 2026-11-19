@@ -75,6 +75,9 @@
   // True after a check the user asked for came back with nothing to suggest,
   // until the panel moves on, so the open panel can say so under the button.
   let checkedEmpty = false;
+  // True while the run started by opening the panel (no list, or one over 30
+  // minutes old) is in flight; the Tidy line reads "Checking your tabs".
+  let offerChecking = false;
   const READY_MARK = '<svg width="15" height="15" viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="7.2" fill="rgba(255,255,255,.2)" stroke="currentColor" stroke-width="1.2"/><path d="M4.7 8.3l2.2 2.2 4.5-4.8" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg>';
 
   // Mascot mood inputs. Mood = sleeping (0 tabs) / happy (≤ threshold) /
@@ -2788,6 +2791,10 @@ function renderTidySub(host) {
     sub.innerHTML = `${READY_MARK}<span>${count} ${count === 1 ? "tab" : "tabs"} ready to ${offerOpensList(host, offer) ? "review" : "tidy"}</span>`;
     return;
   }
+  if (offerChecking && selectedScope === "smart") {
+    sub.textContent = "Checking your tabs";
+    return;
+  }
   // A count from another scope would be wrong; hold the line's height until
   // the recount lands.
   sub.textContent = lastPreviewScope !== selectedScope ? " "
@@ -2799,6 +2806,9 @@ function renderTidySub(host) {
 async function tidyFromButton(host, button) {
   const offer = preparedOffer();
   if (!offer) {
+    // A press before the opening check finishes is a press with nothing
+    // prepared; the check's late answer is ignored.
+    if (offerChecking) { offerChecking = false; recommendationRequest += 1; }
     triggerExpandedSave(host);
     return;
   }
@@ -2815,9 +2825,28 @@ async function tidyFromButton(host, button) {
   if (response && response.reviewOpened === false) triggerExpandedSave(host);
 }
 
+// Opening the panel with AI on and no list (or one over 30 minutes old) runs
+// a fresh check. The old list is not offered meanwhile.
+async function checkOfferOnOpen(host) {
+  offerChecking = true;
+  const request = ++recommendationRequest;
+  renderRecommendation(host, null);
+  const response = await safeSendMessageAwait({ type: "PREPARE_RECOMMENDATION" });
+  if (request !== recommendationRequest || !offerChecking) return;
+  offerChecking = false;
+  const current = document.getElementById(HOST_ID);
+  if (!current) return;
+  if (response?.ok && !response.superseded) {
+    checkedEmpty = Boolean(response.recommendation) && !response.recommendation.saveCount;
+    renderRecommendation(current, response.recommendation);
+  } else {
+    renderTidySub(current);
+  }
+}
+
 async function readCurrentSuggestion() {
   const host = document.getElementById(HOST_ID);
-  if (!host || recommendationBusy) return;
+  if (!host || recommendationBusy || offerChecking) return;
   const request = recommendationRequest;
   const response = await safeSendMessageAwait({ type: "GET_RECOMMENDATION" });
   if (request === recommendationRequest && response?.ok) renderRecommendation(host, response.recommendation);
@@ -2934,7 +2963,8 @@ async function loadExpandedData(host) {
     if (scopeOverridden) refreshPreview(host);
     if (request === recommendationRequest && !recommendationBusy) {
       status.textContent = "";
-      renderRecommendation(host, response.recommendation);
+      if (response.recommendationNeedsRun) checkOfferOnOpen(host);
+      else renderRecommendation(host, response.recommendation);
     }
     renderSessions(host, response.sessions || []);
     bindSearchInput(host);
