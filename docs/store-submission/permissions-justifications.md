@@ -1,79 +1,85 @@
-# Chrome Web Store — Permissions Justifications
+# Chrome Web Store — Privacy disclosures & permission justifications
 
-The store dashboard asks for a one-paragraph justification for each permission you request. Paste these into the matching fields.
+Paste these into the dashboard's **Privacy practices** tab. The store is strict about broad host permissions and data handling — expect a reviewer back-and-forth.
 
-The store has gotten progressively stricter about broad host permissions. Be ready for a back-and-forth with the reviewer; these justifications are what they'll grade you on.
-
----
-
-## `storage`
-
-```
-Neat Freak saves each tab session (titles, URLs, favicons, and short page summaries) to chrome.storage.local so users can return to grouped sessions across browser restarts. We also persist the user's settings (capture defaults, optional OpenAI API key for AI grouping) in chrome.storage.local. No data is transmitted to any server we operate.
-```
+> **This version changed the data model.** AI used to be opt-in with the user's own OpenAI key (nothing left the device by default). Now AI is **on by default** and routes tab data through Neat Freak's confidential backend. The data-usage section below reflects that — review it carefully on resubmission, and ideally have counsel look at the privacy policy.
 
 ---
 
-## `tabs`
+## Single purpose
 
 ```
-The core feature requires reading the list of open tabs (title, URL, favicon, pinned status, window ID) when the user clicks "Tidy tabs" so they can be saved into a session. We also use chrome.tabs.create to open URLs when the user clicks Restore, and chrome.tabs.remove to close saved tabs after they're snapshotted.
+Save open Chrome tabs into a memory-light, searchable archive — automatically grouped into folders by topic — and restore them in one click.
 ```
 
 ---
 
-## `scripting`
+## Permission justifications
 
+### `storage`
 ```
-To improve grouping accuracy, Neat Freak extracts a short text summary of each saved page (the page title, meta description, primary heading, and first few paragraphs) at the moment the user clicks "Tidy tabs". This summary feeds the local clustering algorithm so it can group tabs by topic rather than just by domain. The script runs only at save time, only on the tabs being saved, and only collects text content already visible to the user.
+Neat Freak saves each tab session (titles, URLs, favicons, and short page summaries) to chrome.storage.local so users can return to grouped sessions across browser restarts. It also stores user settings (capture defaults, whether AI is enabled) and a random, anonymous install identifier used only to rate-limit the AI backend. No data is stored on a server we operate.
 ```
+
+### `tabs`
+```
+The core feature reads open-tab metadata (title, URL, favicon, pinned status, window ID) for counts, suggestions and tidying. We also use chrome.tabs.create to reopen URLs on Restore and chrome.tabs.remove to close tabs after an explicit user action and a durable snapshot.
+```
+
+### `scripting`
+```
+Neat Freak extracts optional summaries (title, meta description, headings and paragraphs) from candidate pages while tidying or preparing suggestions, including candidates the user ultimately keeps. Background preparation is off until explicitly enabled. Local form checks protect unsaved input before closure; field values are not returned, and detected editable regions are excluded from summaries. Scripting also displays the floating panel. Users can disable summaries or background preparation in Settings.
+```
+
+### `notifications`
+```
+When the user tidies and closes the popup, Neat Freak shows a single desktop notification when the save finishes. Notifications fire only in response to user-initiated saves.
+```
+
+### `alarms`
+```
+Used to check the open-tab threshold for optional reminders and prepare suggestions when background preparation has been enabled. With AI on, preparation can send candidate titles, URLs and optional summaries before a Save click. The alarm itself is not analytics.
+```
+
+### Host permissions: `http://*/*` and `https://*/*`
+```
+Host access lets scripting inspect candidate pages for summaries and local form checks, and display the floating panel. Preparation runs on request or automatically after background preparation is enabled. It can inspect pages before a Save click. With AI on, titles, URLs and optional summaries go to the AI backend over HTTPS. Disabling AI keeps processing local; disabling summaries alone still allows titles and URLs to be sent. No ads are injected.
+```
+
+(Note: the old `https://api.openai.com/*` host permission has been removed — the extension no longer talks to OpenAI.)
 
 ---
 
-## `notifications`
+## Data usage disclosures (dashboard form)
 
-```
-When the user clicks "Tidy tabs" and closes the popup, Neat Freak shows a single desktop notification when the save finishes ("X tabs tucked away · N folders"). Clicking the notification opens the manager page so the user can review the newly-grouped session. Notifications are only fired in response to user-initiated save actions — there are no notifications outside of that flow.
-```
+**Does your extension run remote code?** → **No.** All code is bundled in the published package. The only network calls are to Neat Freak's AI backend (a token/relay service plus a confidential-enclave model), which return JSON data, not code.
 
----
+**What user data is collected or transferred?**
+- **Website content** — **Yes.** When AI is enabled, tab titles, URLs, and short page summaries are sent to the AI backend to select/group tabs and power search.
+- **Web history** — **Yes.** Candidate tab titles and URLs are transmitted when AI is on, including during requested suggestions or enabled background preparation before a Save click.
+- Personally identifiable info, health, financial, authentication, location, user activity — **No.**
 
-## Host permission: `http://*/*` and `https://*/*`
+> ⚠️ **Judgment call — "Personal communications":** page summaries are pulled from whatever page the user saves, so they can incidentally contain content from an email/chat/DM page. Decide (ideally with counsel) whether you must check "Personal communications." The conservative answer may be **yes**. At minimum, the privacy policy discloses this possibility.
 
-This is the most-scrutinized one. Be prepared to defend it.
+**How is the data used / shared?**
+- Used **solely** to provide the user-requested features (tab grouping, selection, and search).
+- Transferred to a third-party service provider (a confidential-computing AI provider) **only** to operate those features. The relay service sees only an anonymous install id; tab content is processed inside a hardware secure enclave and is not retained or used for training.
 
-```
-The "scripting" permission above requires matching host_permissions for the URLs it runs on. Neat Freak runs its page-summary extraction script only on tabs the user is explicitly saving (when they click "Tidy tabs"), and only at that moment. We need broad host access because users can save any tab they have open — a recipe site, a Google Doc, a LinkedIn profile, an internal wiki. Restricting host_permissions to a fixed set of domains would break the core feature for any tab outside that allowlist. We do not run content scripts persistently, do not inject ads or modify pages, and do not read tabs the user hasn't asked to save.
-```
+**Certifications (all true for Neat Freak):**
+- I do **not** sell or transfer user data to third parties outside the approved use case above.
+- I do **not** use or transfer user data for purposes unrelated to the item's single purpose.
+- I do **not** use or transfer user data to determine creditworthiness or for lending.
 
-If the reviewer pushes back, a fallback is to drop the `scripting` permission entirely and rely on titles + URLs only for grouping. Quality drops a bit but the review path becomes trivial. See the "Fallback plan" section at the bottom of this doc.
-
----
-
-## Host permission: `https://api.openai.com/*`
-
-```
-Used only when the user enables AI-smart group naming in settings AND provides their own OpenAI API key. In that case, Neat Freak sends tab titles, URLs, and page summaries to api.openai.com to generate workstream-aware folder names and to power natural-language search. Without a user-provided key, no requests are made to OpenAI. The key is stored on the user's device only.
-```
+**Privacy policy URL:** point this at the published `docs/landing/privacy.html` (e.g. your GitHub Pages / site URL for it).
 
 ---
 
-## Remote code / single-purpose declarations
+## Fallback plan (if the reviewer rejects broad host_permissions)
 
-The dashboard will also ask:
+If `http://*/*` + `https://*/*` are flagged as too broad, the cleanest path is to drop the scripting-based page summary:
 
-**"Does your extension run remote code?"** → **No.** All extension code is bundled in the published package. The only remote calls are to api.openai.com for the optional AI grouping feature, and those return JSON data (not code).
+1. Remove `scripting` and both broad host permissions from `manifest.json`.
+2. In `src/background.js`, remove `getPageSummary` / `collectPageSummary` and stop populating `pageSummary`.
+3. Resubmit with only `storage`, `tabs`, `notifications`, `alarms`.
 
-**"What is the single purpose of your extension?"** → **"Save open Chrome tabs into a memory-light, searchable archive — automatically grouped into folders by topic — and restore them in one click."**
-
----
-
-## Fallback plan (if reviewer rejects host_permissions)
-
-If the reviewer flags `http://*/*` and `https://*/*` as too broad, the simplest path forward is to remove the scripting-based page summary feature:
-
-1. Delete the `scripting` permission and both broad host permissions from `manifest.json`.
-2. In `src/background.js`, remove the `getPageSummary` and `collectPageSummary` functions and stop populating `pageSummary` on saved tabs.
-3. Resubmit. The only permissions remaining are `storage`, `tabs`, `notifications`, and `https://api.openai.com/*` — all narrow and unambiguous.
-
-The grouping engine will work with just titles, URLs, and domains. Quality drops on tabs with generic titles (e.g., "Untitled - Google Docs") but the trade-off may be worth the cleaner submission.
+But note: with AI on by default, you'd still need *some* host access for the backend calls, or you'd gate AI behind an explicit user opt-in. Weigh the review friction against the feature.

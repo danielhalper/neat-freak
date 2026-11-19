@@ -1,21 +1,18 @@
 // Pure helpers for the proactive clutter-reminder flow:
-//   arm on tier-cross → wait for a valid focused tab → compute-on-arrival →
-//   present → (on Tidy) reuse the cached plan if the tab set still matches.
+//   diff the live tab set against a prepared plan and prune it. When a nudge
+//   fires is decided in nudge-cycle.js.
 //
 // No Chrome APIs in here on purpose — these are the decision/diff functions, so
 // they're unit-testable in the Node harness. The service worker wires them to
 // chrome.tabs / chrome.storage. See docs/specs/2026-06-01-proactive-clutter-nudge-design.md.
 
-// Strip volatile URL bits (query, hash, trailing slash, case) so a scroll
-// anchor or a tracking param doesn't read as a real navigation.
+// Keep document-significant path case, query strings and fragments. A query
+// or hash can identify a different document in an SPA; extra invalidations are
+// preferable to closing a tab whose content changed.
 export function normalizeUrl(url) {
   if (typeof url !== "string" || !url) return "";
-  try {
-    const u = new URL(url);
-    return `${u.protocol}//${u.host}${u.pathname}`.replace(/\/+$/, "").toLowerCase();
-  } catch {
-    return String(url).split(/[?#]/)[0].replace(/\/+$/, "").toLowerCase();
-  }
+  try { return new URL(url).href; }
+  catch { return url; }
 }
 
 // Order-independent fingerprint of the candidate set: which tabs, by id +
@@ -46,25 +43,13 @@ export function classifyDelta(snapshotTabs, currentTabs) {
   return { removed, added, navigated, churn };
 }
 
-// Should we ARM a new reminder? Only when a higher tier than we've already
-// alerted for has been reached AND the cooldown since the last alert has
-// elapsed (or there was no prior alert). currentTier < 0 means "below
-// threshold" → never arm.
-export function shouldArm({ currentTier, lastAlertedTier, lastAlertAt, now, cooldownMs }) {
-  if (!Number.isFinite(currentTier) || currentTier < 0) return false;
-  const prevTier = Number.isFinite(lastAlertedTier) ? lastAlertedTier : -1;
-  const escalated = currentTier > prevTier;
-  const cooledDown = !lastAlertAt || (now - lastAlertAt) >= cooldownMs;
-  return escalated && cooledDown;
-}
-
 // Reconcile a cached plan against a delta. Pruning removed tabs is free (drop
 // them from groups + tabActions, drop any group that empties). A recompute is
 // only needed when additions/navigations exceed the churn cap; below it, added
 // tabs simply default to staying open (absent from the plan = not saved).
 export function reconcilePlan(plan, delta, { churnCap = 0.2 } = {}) {
   if (!plan) return { plan: null, needsRecompute: true };
-  const removedSet = new Set(delta?.removed || []);
+  const removedSet = new Set([...(delta?.removed || []), ...(delta?.navigated || [])]);
   const tabActions = (plan.tabActions || []).filter((a) => !removedSet.has(a.tabId));
   const groups = (plan.groups || [])
     .map((g) => ({ ...g, tabIds: (g.tabIds || []).filter((id) => !removedSet.has(id)) }))

@@ -1,0 +1,67 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Label your tabs · Neat Freak</title>
+    <link rel="stylesheet" href="src/styles.css">
+    <style>
+      .label-shell { max-width: 880px; margin: 0 auto; padding: 24px 16px 96px; }
+      .label-keys { color: var(--muted); font-size: 13px; margin: 4px 0 0; }
+      .label-keys kbd { font: inherit; border: 1px solid var(--border); border-radius: 4px; padding: 0 5px; background: var(--surface); }
+      .label-off { border: 1px solid var(--amber); border-radius: var(--radius); padding: 10px 12px; margin: 16px 0; display: flex; gap: 12px; align-items: center; justify-content: space-between; }
+      #label-list { list-style: none; margin: 16px 0 0; padding: 0; outline: none; border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface); }
+      .label-row { display: grid; grid-template-columns: 20px minmax(0, 1fr) auto; gap: 12px; align-items: center; padding: 8px 12px; border-top: 1px solid var(--border); cursor: pointer; }
+      .label-row:first-child { border-top: 0; }
+      .label-row[aria-selected="true"] { background: var(--surface-2); box-shadow: inset 3px 0 0 var(--accent); }
+      .label-icon { width: 16px; height: 16px; border-radius: 3px; display: inline-grid; place-items: center; font-size: 11px; font-weight: 600; color: var(--muted); background: var(--surface-2); }
+      .label-text { min-width: 0; display: grid; }
+      .label-title { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+      .label-meta { color: var(--muted); font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+      .label-chips { display: flex; gap: 4px; }
+      .label-chip { font: inherit; font-size: 12px; border: 1px solid var(--border); border-radius: 999px; padding: 2px 9px; background: var(--surface); color: var(--muted); cursor: pointer; white-space: nowrap; }
+      .label-chip[aria-pressed="true"] { color: #fff; border-color: transparent; }
+      .label-chip-important[aria-pressed="true"] { background: var(--danger); }
+      .label-chip-either[aria-pressed="true"] { background: var(--muted); }
+      .label-chip-close[aria-pressed="true"] { background: var(--accent); }
+      .label-row[data-label] .label-title { color: var(--text); }
+      .label-empty { padding: 16px; color: var(--muted); }
+      .label-footer { position: fixed; left: 0; right: 0; bottom: 0; background: var(--surface); border-top: 1px solid var(--border); }
+      .label-footer-inner { max-width: 880px; margin: 0 auto; padding: 10px 16px; display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }
+      #label-summary { flex: 1; min-width: 200px; color: var(--muted); font-size: 13px; }
+      @media (max-width: 640px) {
+        .label-row { grid-template-columns: 20px minmax(0, 1fr); }
+        .label-chips { grid-column: 2; }
+      }
+    </style>
+  </head>
+  <body>
+    <main class="label-shell">
+      <header class="app-header simple">
+        <div>
+          <h1>Label your tabs</h1>
+          <p>Your call on each open tab, so suggestions learn what never to offer. Best done mid-work, when you're over your tab limit, not while wrapping up for the day.</p>
+          <p class="label-keys" id="label-asof"></p>
+          <p class="label-keys">
+            <kbd>1</kbd> Important (never offer) · <kbd>2</kbd> Either way · <kbd>3</kbd> Close (done) ·
+            <kbd>↑</kbd><kbd>↓</kbd> move · <kbd>0</kbd> clear · <kbd>⌘S</kbd> save. Skipping is fine.
+          </p>
+        </div>
+      </header>
+      <div class="label-off" id="label-off" hidden>
+        <span>The tab habits log is off, so labels can't be saved.</span>
+        <button class="secondary-button" id="label-enable" type="button">Turn it on</button>
+      </div>
+      <ul id="label-list" role="listbox" aria-label="Open tabs" tabindex="0"></ul>
+      <p class="helper-text">Titles are shown only on this page. Saving keeps each tab's site domain, its usage numbers and your label, in this browser only.</p>
+    </main>
+    <footer class="label-footer">
+      <div class="label-footer-inner">
+        <span id="label-summary" aria-live="polite"></span>
+        <span id="label-status" class="status-line" role="status"></span>
+        <button class="primary-button" id="label-save" type="button" disabled>Save labels</button>
+      </div>
+    </footer>
+    <script type="module" src="src/label.js"></script>
+  </body>
+</html>

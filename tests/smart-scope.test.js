@@ -312,17 +312,13 @@ test("runSmartScope does not undo smart's own picks when floor is small", async 
   assert.ok(result.saveSet.some((t) => t.id === "old"));
 });
 
-test("runSmartScope LLM receives the save floor and keeps floor-added tabs out of unrelated LLM folders", async (t) => {
+test("runSmartScope LLM is told the save floor and keeps floor-added tabs out of unrelated LLM folders", async (t) => {
   const originalFetch = globalThis.fetch;
   t.after(() => { globalThis.fetch = originalFetch; });
 
   globalThis.fetch = async (_url, init) => {
     const body = JSON.parse(init.body);
-    const userPayload = JSON.parse(body.messages[1].content);
-    assert.equal(userPayload.saveFloor.minSaveCount, 2);
-    assert.equal(userPayload.saveFloor.totalOpenTabCount, 4);
-    assert.equal(userPayload.saveFloor.clutterThreshold, 3);
-    assert.match(body.messages[0].content, /at least 2/);
+    assert.match(body.messages[0].content, /at least 2 of the 3/);
 
     return {
       ok: true,
@@ -330,20 +326,8 @@ test("runSmartScope LLM receives the save floor and keeps floor-added tabs out o
         return {
           choices: [{
             message: {
-              content: JSON.stringify({
-                groups: [{
-                  name: "Proposal",
-                  description: "Client proposal work",
-                  confidence: 0.9,
-                  signals: ["proposal"],
-                  tabIds: ["doc"]
-                }],
-                tabActions: [
-                  { tabId: "doc", action: "save", reason: "old proposal reference" },
-                  { tabId: "blog", action: "keep", reason: "recent" },
-                  { tabId: "search", action: "keep", reason: "recent" }
-                ]
-              })
+              // Compact answer: short ids, and only the tabs to put away ("1" = doc).
+              content: JSON.stringify({ groups: [{ name: "Proposal", tabIds: ["1"] }] })
             }
           }]
         };

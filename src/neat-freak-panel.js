@@ -1,7 +1,7 @@
 // Unified floating panel. Replaces clutter-toast.js + done-toast.js with a
 // single persistent element that transitions between modes in place:
 //
-//   clutter  →  stressed mascot, "N tabs open", amber Tidy now button
+//   clutter  →  "N tabs ready to tidy", Review (opens the list) and Tidy now
 //   saving   →  stressed mascot wobbling, "Tidying your tabs", per-step sub
 //   done     →  calm mascot, "N tabs tucked away", teal Open manager button
 //
@@ -46,10 +46,39 @@
   // Local-only expanded-mode flag. Not stored — expansion is "the user is
   // interacting with this surface right now," tab-local intent.
   let expandedMode = false;
+  const dismissTimers = new WeakMap();
   let currentState = null;
   let outsideClickHandler = null;
   let selectedScope = "smart";
   let lastLoadedSessions = [];
+  let latestRecommendation = null;
+  let latestSettings = {};
+  let recommendationBusy = false;
+  let recommendationRequest = 0;
+  let pendingKeepWrites = 0;
+  let keepWriteQueue = Promise.resolve();
+  // The suggested-tabs list is a disclosure on the offer card. Opening it is
+  // the review; closing it keeps the review (and Keep choices) but folds the
+  // card back to one line. Reset to open whenever a different plan arrives.
+  let offerListOpen = true;
+  let offerListPlanId = "";
+  // Set when Tidy on a local offer opened the list instead of closing, so the
+  // card can say why nothing closed yet.
+  let offerTidyPendingPlanId = "";
+  // The Tidy button's second line: the last eligible-tab count and the scope
+  // it was counted for (a prepared offer replaces it; see renderTidySub).
+  let lastPreviewCount = 0;
+  let lastPreviewScope = "";
+  // True from a Tidy press that will stop at a list (review on) until the
+  // saving state ends, so the working card says "Checking", not "Tidying".
+  let checkingBeforeReview = false;
+  // True after a check the user asked for came back with nothing to suggest,
+  // until the panel moves on, so the open panel can say so under the button.
+  let checkedEmpty = false;
+  // True while the run started by opening the panel (no list, or one over 30
+  // minutes old) is in flight; the Tidy line reads "Checking your tabs".
+  let offerChecking = false;
+  const READY_MARK = '<svg width="15" height="15" viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="7.2" fill="rgba(255,255,255,.2)" stroke="currentColor" stroke-width="1.2"/><path d="M4.7 8.3l2.2 2.2 4.5-4.8" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg>';
 
   // Mascot mood inputs. Mood = sleeping (0 tabs) / happy (≤ threshold) /
   // nervous (> threshold) / cleaning (saving state) / celebrating (done).
@@ -187,6 +216,7 @@
       // Extension reload orphans this listener; bail out gracefully.
       if (!isExtensionValid()) { teardownOrphaned(); return; }
       if (area !== "session") return;
+      if (changes.neatFreakRecommendation && expandedMode) readCurrentSuggestion();
       if (!changes[STATE_KEY]) return;
       const newState = changes[STATE_KEY].newValue || { mode: "hidden" };
       let host = document.getElementById(HOST_ID);
@@ -306,6 +336,8 @@ function handlePanelChange(host, event) {
   if (key === "defaultIncludePinned" || key === "defaultKeepCurrentTab") {
     refreshPreview(host);
   }
+  // Review on/off changes what a press on a prepared list does.
+  if (key === "defaultReviewBeforeClose") renderTidySub(host);
 }
 
 function panelMarkup() {
@@ -476,14 +508,14 @@ function panelMarkup() {
          their roomier proportions. (The done card's has-auto-tidy variant adds
          its own padding-bottom override below, at higher specificity.) */
       .card.state-saving .mascot,
-      .card.state-done .mascot { top: -19px; }
+      .card.state-done .mascot { top: -22px; }
       .card.state-saving .row,
-      .card.state-done .row { min-height: 82px; }
+      .card.state-done .row { min-height: 74px; }
       .card.state-saving .actions,
       .card.state-done .actions {
-        margin-top: 10px;
-        padding-top: 10px;
-        padding-bottom: 10px;
+        margin-top: 8px;
+        padding-top: 7px;
+        padding-bottom: 7px;
       }
 
       .close {
@@ -648,6 +680,66 @@ function panelMarkup() {
       .card.state-review .expand-wrapper { display: none; }
       .card.state-review .actions { display: none; }
       .card.state-review .review-shell { display: flex; }
+      /* A suggested tidy folds back to its one-line offer without leaving
+         review: list hidden, Review / Tidy now back in the actions row. */
+      .card.state-review.offer-collapsed .review-shell { display: none; }
+      .card.state-review.offer-collapsed .actions { display: flex; }
+      .card.state-review .row[data-clickable-body="true"] { cursor: pointer; }
+
+      /* Review: a quiet text disclosure just left of Tidy now, so the row has
+         one button. margin-left: auto pins the pair to the right of any row.
+         The chevron is a pseudo-element so busy-state text swaps keep it. */
+      .offer-toggle {
+        margin-left: auto;
+        margin-right: 6px;
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        padding: 8px 4px;
+        border: 0;
+        border-radius: 6px;
+        background: none;
+        color: #33413b;
+        font: 600 13px/1 inherit;
+        font-family: inherit;
+        cursor: pointer;
+      }
+      .offer-toggle::after {
+        content: "";
+        width: 6px;
+        height: 6px;
+        border: solid currentColor;
+        border-width: 0 1.6px 1.6px 0;
+        transform: translateY(-2px) rotate(45deg);
+        transition: transform 160ms ease;
+      }
+      .offer-toggle[aria-expanded="true"]::after { transform: translateY(1px) rotate(-135deg); }
+      .offer-toggle:hover { color: #0f766e; }
+      .offer-toggle:focus-visible { outline: 2px solid #0f766e; outline-offset: 2px; }
+      .review-meta {
+        flex-basis: 100%;
+        margin: 0;
+        color: #8a948f;
+        font-size: 11px;
+      }
+      .review-meta .tertiary-link { font-size: 11px; }
+      /* Tidy area: one Tidy button. Under Smart, a status line and the
+         suggestions-off notice can sit below it; the status comes first so
+         "Checking…" lands right under the button that was pressed. */
+      .tidy-area { display: flex; flex-direction: column; }
+      .tidy-area.pending { visibility: hidden; }
+      .tidy-area > [hidden] { display: none !important; }
+      .recommendation-card { display: flex; flex-direction: column; gap: 4px; text-align: center; }
+      .recommendation-card:has(> :not(:empty)) { margin-top: 8px; }
+      .recommendation-card > :empty { display: none; }
+      .recommendation-card .suggestion-status { order: -1; }
+      .recommendation-card p { font-size: 12px; line-height: 1.5; color: #6b7772; margin: 0; }
+      .suggestion-link { padding: 2px 0; border: 0; background: none; color: #4a5651; font-family: inherit; font-size: 12px; font-weight: 600; line-height: 1.5; text-decoration: underline; text-underline-offset: 2px; cursor: pointer; }
+      .suggestion-link:hover { color: #0f766e; }
+      .suggestion-link:focus-visible { outline: 2px solid #0f766e; outline-offset: 2px; }
+      .panel-error { color: #9b3828; padding: 0 18px 10px; font: 12px/1.5 system-ui; }
+      .panel-error:empty { display: none; }
+      button:disabled { opacity: .55; cursor: wait; }
       .review-shell {
         display: none;
         flex-direction: column;
@@ -658,7 +750,7 @@ function panelMarkup() {
         background: #fefefc;
         border: 1px solid #e3ddd2;
         border-radius: 10px;
-        max-height: 320px;
+        max-height: min(420px, 55vh);
         overflow-y: auto;
         padding: 6px 4px 6px 8px;
       }
@@ -667,7 +759,8 @@ function panelMarkup() {
       .review-footer {
         align-items: center;
         display: flex;
-        gap: 12px;
+        flex-wrap: wrap;
+        gap: 8px 12px;
         justify-content: space-between;
         padding-top: 4px;
       }
@@ -691,28 +784,48 @@ function panelMarkup() {
         color: #99a39f;
         font-weight: 500;
       }
-      /* "Keep all" — group-level control to spare a whole folder at once.
-         Always visible in the header (unlike the per-row hover pill). */
+      /* Checkboxes: ticked rows close, unticked rows stay open. Shared by
+         the per-row control and the group header (which can be mixed). */
+      .review-remove,
       .review-group-keep {
-        margin-left: auto;
-        background: transparent;
-        border: 1px solid #d3ded9;
-        border-radius: 999px;
-        color: #4a5651;
+        position: relative;
+        flex: none;
+        width: 16px;
+        height: 16px;
+        margin: 0;
+        padding: 0;
+        border: 1.5px solid #0f766e;
+        border-radius: 4px;
+        background: #0f766e;
         cursor: pointer;
-        font-family: inherit;
-        font-size: 10px;
-        font-weight: 650;
-        letter-spacing: 0.01em;
-        text-transform: none;
-        padding: 2px 9px;
-        transition: background 120ms ease, color 120ms ease, border-color 120ms ease;
+        transition: background 120ms ease, border-color 120ms ease;
       }
-      .review-group-keep:hover { background: #fff; border-color: #b6c3bd; color: #17201d; }
-      .review-group-keep.kept { background: #eef4f2; border-color: #c7dfd9; color: #0f766e; }
-      .review-group-keep .review-remove-text-active { display: none; }
-      .review-group-keep.kept .review-remove-text-default { display: none; }
-      .review-group-keep.kept .review-remove-text-active { display: inline; }
+      .review-remove::after,
+      .review-group-keep::after {
+        content: "";
+        position: absolute;
+        left: 4px;
+        top: 1px;
+        width: 4px;
+        height: 8px;
+        border: solid #fff;
+        border-width: 0 2px 2px 0;
+        transform: rotate(45deg);
+      }
+      .review-remove[aria-checked="false"],
+      .review-group-keep[aria-checked="false"] { background: #fff; border-color: #b6c3bd; }
+      .review-remove[aria-checked="false"]::after,
+      .review-group-keep[aria-checked="false"]::after { display: none; }
+      .review-group-keep[aria-checked="mixed"]::after {
+        left: 3px;
+        top: 6px;
+        width: 7px;
+        height: 0;
+        border-width: 0 0 2px 0;
+        transform: none;
+      }
+      .review-remove:focus-visible,
+      .review-group-keep:focus-visible { outline: 2px solid #f4bd45; outline-offset: 2px; }
       .review-items {
         list-style: none;
         margin: 0;
@@ -727,13 +840,7 @@ function panelMarkup() {
         padding: 6px;
       }
       .review-item:hover { background: rgba(15, 118, 110, 0.04); }
-      .review-item.removed { opacity: 0.55; }
-      .review-item.removed .review-item-title,
-      .review-item.removed .review-item-domain,
-      .review-item.removed .review-item-age {
-        text-decoration: line-through;
-        text-decoration-color: #99a39f;
-      }
+      .review-item.removed .review-item-text { opacity: 0.55; }
       .review-item-text {
         display: flex;
         flex-direction: column;
@@ -774,50 +881,6 @@ function panelMarkup() {
         content: "·";
         margin: 0 4px;
       }
-      /* Pill button revealed on row hover (or sticky once active). Hidden
-         opacity:0 so the row stays clean by default but layout doesn't shift
-         when it appears. Text labels — "Keep" / "Kept ✓" — eliminate the ×
-         ambiguity (× could read as "close this" or "remove from close-pile";
-         "Keep" is unambiguous). */
-      .review-remove {
-        background: transparent;
-        border: 1px solid #d3ded9;
-        border-radius: 999px;
-        color: #4a5651;
-        cursor: pointer;
-        flex: 0 0 auto;
-        font-family: inherit;
-        font-size: 11px;
-        font-weight: 650;
-        height: 22px;
-        line-height: 1;
-        opacity: 0;
-        padding: 0 10px;
-        transition: opacity 120ms ease, background 120ms ease, color 120ms ease, border-color 120ms ease;
-      }
-      .review-item:hover .review-remove,
-      .review-item:focus-within .review-remove,
-      .review-item.removed .review-remove {
-        opacity: 1;
-      }
-      .review-remove:hover {
-        background: #fff;
-        border-color: #b6c3bd;
-        color: #17201d;
-      }
-      .review-item.removed .review-remove {
-        background: #eef4f2;
-        border-color: #c7dfd9;
-        color: #0f766e;
-      }
-      .review-item.removed .review-remove:hover {
-        background: #ddeae5;
-        color: #0a5a52;
-      }
-      /* Swap "Keep" ↔ "Kept ✓" labels based on the row's removed state. */
-      .review-item .review-remove-text-active { display: none; }
-      .review-item.removed .review-remove-text-default { display: none; }
-      .review-item.removed .review-remove-text-active { display: inline; }
       .review-empty {
         color: #63706b;
         font-size: 12px;
@@ -942,8 +1005,10 @@ function panelMarkup() {
       }
       /* With the toggle present, the actions row hands its bottom bleed to
          .done-auto so the white footer reaches the card edge as one block. */
-      .card.state-done.has-auto-tidy .actions { margin-bottom: 0; padding-bottom: 10px; }
-      .card.state-done.has-auto-tidy .done-auto { display: flex; }
+      /* Never while expanded: opening the full panel from the done card keeps
+         .has-auto-tidy, and the toggle would land on top of the header. */
+      .card.state-done.has-auto-tidy:not(.expanded) .actions { margin-bottom: 0; padding-bottom: 10px; }
+      .card.state-done.has-auto-tidy:not(.expanded) .done-auto { display: flex; }
       .done-auto input { margin: 0; accent-color: #0f766e; cursor: pointer; }
       .done-auto:hover { color: #63706b; }
 
@@ -1615,6 +1680,8 @@ function panelMarkup() {
         font-weight: 500;
         opacity: 0.85;
       }
+      /* A prepared list: tick mark + count, at full strength. */
+      .tidy-cta-sub.ready { display: inline-flex; align-items: center; gap: 6px; opacity: 1; }
 
       /* Search input */
       .search-wrap {
@@ -1703,6 +1770,7 @@ function panelMarkup() {
            Holds the categorized list of tabs about to close (per-item × button
            to keep open) and its own Cancel / Confirm tidy footer. The standard
            .expand-wrapper below is hidden in review mode. -->
+      <div class="panel-error" id="panel-error" role="status" aria-live="polite"></div>
       <div class="review-shell" id="review-shell" hidden>
         <div class="review-body" id="review-body"></div>
         <div class="review-footer" id="review-footer"></div>
@@ -1773,10 +1841,20 @@ function panelMarkup() {
             </button>
           </div>
 
-          <button class="tidy-cta" data-action="tidy-expanded" type="button">
-            <span class="tidy-cta-title">Tidy my tabs</span>
-            <span class="tidy-cta-sub" id="tidy-cta-sub"></span>
-          </button>
+          <!-- One Tidy button (see renderTidyArea). Its second line says what a
+               press does: open a prepared list, or have Smart pick now. The
+               section under it carries status and the suggestions-off notice.
+               Hidden until the first load so the line doesn't flash. -->
+          <div class="tidy-area pending" id="tidy-area">
+            <button class="tidy-cta" id="tidy-cta" data-action="tidy-expanded" type="button">
+              <span class="tidy-cta-title">Tidy my tabs</span>
+              <span class="tidy-cta-sub" id="tidy-cta-sub"></span>
+            </button>
+            <section id="recommendation-card" class="recommendation-card" aria-label="Tab suggestions">
+              <div id="suggestion-content"></div>
+              <p id="suggestion-status" class="suggestion-status" role="status"></p>
+            </section>
+          </div>
 
           <section class="sessions-section">
             <header class="sessions-header">
@@ -1803,7 +1881,25 @@ function panelMarkup() {
 function applyState(host, state) {
   const shadow = host.shadowRoot;
   if (!shadow) return;
+  if (state?.retiredSuggestion && (expandedMode || inPopupContext)) state = { mode: "idle" };
+  if (state?.mode === "clutter" && !state.needsPreparation && (state.expired || !state.saveCount)) {
+    // Retire old offers quietly, including when reopening a sleeping worker's
+    // cached state. An already expanded panel stays open as a neutral workspace.
+    state = { mode: expandedMode || inPopupContext ? "idle" : "hidden" };
+  }
+  const sameReview = state?.recommendation && currentState?.recommendation
+    && state.planId === currentState.planId && JSON.stringify(state.groups) === JSON.stringify(currentState.groups);
+  if (sameReview) {
+    // Keep acknowledgments must not rebuild the list or reset its scroll.
+    // Ignore older acknowledgments while this surface has optimistic edits.
+    if (pendingKeepWrites) return;
+    currentState = state;
+    applyKeptItems(host, state.keepOpenSessionTabIds);
+    return;
+  }
   currentState = state;
+  if (state?.mode !== "saving") checkingBeforeReview = false;
+  if (state?.mode !== "idle") checkedEmpty = false;
 
   if (!state || state.mode === "hidden") {
     cancelAutoDismiss();
@@ -1821,6 +1917,8 @@ function applyState(host, state) {
   }
 
   const card = shadow.getElementById("card");
+  clearTimeout(dismissTimers.get(host));
+  dismissTimers.delete(host);
   card.classList.remove("leaving");
   // Preserve the .expanded class through state transitions so a user mid-expansion
   // doesn't get yanked back to collapsed when, say, saving completes → done.
@@ -1832,7 +1930,7 @@ function applyState(host, state) {
   // Use suppressExpansionUI (not collapseExpansion) so the panel keeps
   // showing the new saving state — collapseExpansion's idle-mode branch
   // would dismiss the panel entirely.
-  if (state.mode === "saving" && expandedMode) {
+  if (["saving", "review"].includes(state.mode)) {
     suppressExpansionUI(host);
   }
 
@@ -1882,21 +1980,26 @@ function applyState(host, state) {
     // paint already reflects it.
     titleEl.textContent = "Neat Freak";
     subEl.textContent = "Ready when you are.";
+    if (state.error) shadow.getElementById("panel-error").textContent = state.error;
     actionsEl.innerHTML = "";
     // No auto-dismiss for user-opened states.
     return;
   }
 
   if (state.mode === "clutter") {
-    const count = Number(state.tabCount) || 0;
-    titleEl.textContent = `${count} tabs open`;
-    subEl.textContent = "Want me to tidy up?";
-    // Tertiary link on the LEFT, primary CTA on the RIGHT — .actions uses
-    // justify-content: space-between to pin them.
-    actionsEl.innerHTML = `
-      <button class="tertiary-link" data-action="open-options-link" type="button">Adjust nudges →</button>
-      <button class="primary" data-action="tidy" type="button">Tidy now</button>
-    `;
+    if (state.needsPreparation) {
+      latestRecommendation = null;
+      titleEl.textContent = `${Number(state.tabCount) || 0} tabs open`;
+      subEl.textContent = "Find a suggestion to see how many you can put away.";
+      actionsEl.innerHTML = '<button class="primary" data-action="find-recommendation" type="button">Find suggestions</button>';
+      if (!expandedMode) scheduleAutoDismiss(host);
+      return;
+    }
+    const count = Number(state.saveCount) || 0;
+    latestRecommendation = state.planId ? state : null;
+    titleEl.textContent = readyTitle(count);
+    subEl.textContent = offerReassurance(state.folderCount);
+    actionsEl.innerHTML = offerActions(false);
     // Only auto-dismiss when collapsed. If the user has explicitly expanded,
     // they're interacting — don't pull the rug out.
     if (!expandedMode) scheduleAutoDismiss(host);
@@ -1904,7 +2007,9 @@ function applyState(host, state) {
   }
 
   if (state.mode === "saving") {
-    titleEl.textContent = "Tidying your tabs";
+    // A press that stops at a list hasn't started closing anything yet.
+    const working = checkingBeforeReview ? "Checking your tabs" : "Tidying your tabs";
+    titleEl.textContent = working;
     // The reassurance ("No need to wait — I'll find you.") lives in the
     // .save-bubble speaking from the monster, shown via .card.state-saving CSS.
     // Clear the sub so the bubble + progress bar are the only message and
@@ -1915,7 +2020,7 @@ function applyState(host, state) {
     // explicit "Close" affordance so it's clear the panel is non-blocking —
     // you can dismiss it (or swipe it away) and the result still finds you.
     actionsEl.innerHTML = `
-      <div class="progress-bar" role="progressbar" aria-label="Tidying your tabs"></div>
+      <div class="progress-bar" role="progressbar" aria-label="${working}"></div>
       <button class="saving-close" data-action="dismiss-saving" type="button">Hide</button>
     `;
     // Saving doesn't auto-dismiss — completion transitions us to done.
@@ -1927,7 +2032,7 @@ function applyState(host, state) {
     if (tabCount === 0) {
       // "Nothing to tidy" path — user clicked Tidy when there were no
       // eligible tabs. Quick acknowledgment, no action button, auto-dismiss.
-      titleEl.textContent = "All clean";
+      titleEl.textContent = "Nothing to close";
       subEl.textContent = "Nothing to tidy right now.";
       actionsEl.innerHTML = "";
     } else {
@@ -1947,6 +2052,11 @@ function applyState(host, state) {
         <button class="primary" data-action="open-manager" data-session-id="${escapeAttr(sid)}" type="button">Open manager</button>
       `;
     }
+    if (state.protectedCount) subEl.textContent += ` ${state.protectedCount} changed or in-use tabs kept open.`;
+    if (state.failedCount) {
+      subEl.textContent += ` ${state.failedCount} could not close; saved in the manager.`;
+      actionsEl.innerHTML = `<button class="primary" data-action="open-manager" data-session-id="${escapeAttr(state.sessionId || "")}" type="button">Open manager</button>`;
+    }
     // Inconspicuous "make it automatic" toggle — only when the LLM is on and
     // something was actually tidied. Checked = automatic = review-before-close
     // currently off.
@@ -1965,17 +2075,14 @@ function applyState(host, state) {
 
   if (state.mode === "review") {
     const groups = Array.isArray(state.groups) ? state.groups : [];
-    const tabCount = groups.reduce((sum, g) => sum + (g.tabs?.length || 0), 0);
-    const folderCount = groups.length;
+    if (state.recommendation) {
+      renderOfferReview(host, state, groups);
+      return;
+    }
     const sid = String(state.sessionId || "");
 
-    titleEl.textContent = "Ready to tidy?";
-    const folderLabel = folderCount === 1 ? "folder" : "folders";
-    const tabLabel = tabCount === 1 ? "tab" : "tabs";
-    subEl.textContent = folderCount > 0
-      ? `${tabCount} ${tabLabel} across ${folderCount} ${folderLabel}. Hover any tab to keep it open.`
-      : "Hover any tab to keep it open.";
-
+    // Same header as a prepared list ("N tabs ready to tidy"); the title and
+    // sub are filled by updateReviewConfirmCount via applyKeptItems below.
     // Clear the standard actions row — review mode renders its CTAs in
     // .review-footer at the BOTTOM of the list (below the items the user
     // is reviewing), not above them.
@@ -1989,31 +2096,101 @@ function applyState(host, state) {
     }
     const reviewFooter = shadow.getElementById("review-footer");
     if (reviewFooter) {
+      // This list came from a press, not a standing offer, so the footer
+      // offers Cancel instead of Hide list / Refresh.
       reviewFooter.innerHTML = `
         <button class="tertiary-link" data-action="cancel-review" data-session-id="${escapeAttr(sid)}" type="button">Cancel</button>
-        <button class="primary" data-action="confirm-review" data-session-id="${escapeAttr(sid)}" type="button">Confirm tidy →</button>
+        <button class="primary" data-action="confirm-review" data-session-id="${escapeAttr(sid)}" type="button">Tidy now</button>
       `;
     }
+    applyKeptItems(host, state.keepOpenSessionTabIds);
     // Review needs full attention — no auto-dismiss.
     return;
   }
 }
 
-// Renders one folder group inside the review list. Each item has an × to
-// toggle a "removed" (struck-through) state; confirming closes only the
-// non-struck ones.
+function readyTitle(count) {
+  return `${count} ${count === 1 ? "tab" : "tabs"} ready to tidy`;
+}
+
+function offerReassurance(folderCount) {
+  const folders = Number(folderCount) || 0;
+  return folders > 1 ? `Saved into ${folders} folders.` : "Saved to a folder.";
+}
+
+// "Picked 12 min ago", so a list made earlier reads as earlier. Local picks
+// say so: they skip the AI and always open the list first.
+function pickedAgo(recommendation) {
+  const createdAt = Number(recommendation?.createdAt) || Date.now();
+  const minutes = Math.max(0, Math.floor((Date.now() - createdAt) / 60_000));
+  return `Picked ${minutes < 1 ? "just now" : `${minutes} min ago`}${recommendation?.local ? " without AI" : ""}`;
+}
+
+// Review sits to the left of Tidy now. It is a text disclosure for the list
+// of tabs ("Hide list" once open); the chevron is CSS so busy-state text
+// swaps can't drop it.
+function offerActions(open) {
+  return `
+    <button class="offer-toggle" data-action="toggle-offer-list" type="button" aria-expanded="${open ? "true" : "false"}">${open ? "Hide list" : "Review"}</button>
+    <button class="primary" data-action="tidy-recommendation" type="button">Tidy now</button>
+  `;
+}
+
+// A suggested tidy in review mode is the same offer card with its list open.
+// The header keeps the "N tabs ready to tidy" line, the list sits under it,
+// and Hide list / Tidy now stay together at the bottom.
+function renderOfferReview(host, state, groups) {
+  const shadow = host.shadowRoot;
+  if (offerListPlanId !== state.planId) {
+    offerListPlanId = state.planId;
+    offerListOpen = true;
+  }
+  shadow.getElementById("actions").innerHTML = offerActions(false);
+  shadow.getElementById("review-body").innerHTML = groups.length
+    ? groups.map(renderReviewGroup).join("")
+    : `<p class="review-empty">No tabs to review.</p>`;
+  shadow.getElementById("review-footer").innerHTML = `
+    <p class="review-meta">${escapeText(pickedAgo(state))} · <button class="tertiary-link" data-action="refresh-recommendation" type="button">Refresh</button></p>
+    ${offerActions(true)}
+  `;
+  applyKeptItems(host, state.keepOpenSessionTabIds);
+  setOfferListOpen(host, offerListOpen);
+}
+
+function setOfferListOpen(host, open, { moveFocus = false } = {}) {
+  offerListOpen = open;
+  const shadow = host.shadowRoot;
+  shadow.getElementById("card")?.classList.toggle("offer-collapsed", !open);
+  shadow.querySelectorAll(".offer-toggle").forEach(btn => btn.setAttribute("aria-expanded", open ? "true" : "false"));
+  // The two toggles live in different rows; keep focus on the visible one.
+  if (moveFocus) shadow.querySelector(open ? ".review-footer .offer-toggle" : "#actions .offer-toggle")?.focus();
+}
+
+function setItemKept(item, kept) {
+  item.classList.toggle("removed", kept);
+  item.querySelector(".review-remove")?.setAttribute("aria-checked", kept ? "false" : "true");
+}
+
+function applyKeptItems(host, keepIds) {
+  const shadow = host.shadowRoot;
+  const kept = new Set(keepIds || []);
+  shadow.querySelectorAll(".review-item").forEach(item => setItemKept(item, kept.has(item.dataset.sessionTabId)));
+  shadow.querySelectorAll(".review-group").forEach(syncGroupKeepButton);
+  updateReviewConfirmCount(host);
+}
+
+// Renders one folder group inside the review list. Each row has a checkbox;
+// ticked rows close, unticked rows (class "removed" from the close pile) stay
+// open.
 function renderReviewGroup(group) {
   const name = String(group?.name || "Other");
   const tabs = Array.isArray(group?.tabs) ? group.tabs : [];
   return `
     <div class="review-group">
       <div class="review-group-head">
+        <button class="review-group-keep" data-action="toggle-review-group" type="button" role="checkbox" aria-checked="true" aria-label="Close all tabs in ${escapeAttr(name)}"></button>
         <span class="review-group-name">${escapeText(name)}</span>
         <span class="review-group-count">${tabs.length}</span>
-        <button class="review-group-keep" data-action="toggle-review-group" type="button" aria-label="Keep this whole group open">
-          <span class="review-remove-text-default">Keep all</span>
-          <span class="review-remove-text-active">Kept ✓</span>
-        </button>
       </div>
       <ul class="review-items">
         ${tabs.map(renderReviewItem).join("")}
@@ -2022,36 +2199,43 @@ function renderReviewGroup(group) {
   `;
 }
 
-// Keeps a group's "Keep all" button in sync with its rows: it reads "Kept ✓"
-// only when every tab in the group is kept (struck-through), otherwise "Keep all".
+// Mirrors a group's rows onto its header checkbox: ticked when every tab
+// closes, unticked when every tab is kept, mixed otherwise.
 function syncGroupKeepButton(group) {
   if (!group) return;
   const btn = group.querySelector(".review-group-keep");
   if (!btn) return;
   const items = [...group.querySelectorAll(".review-item")];
-  const allKept = items.length > 0 && items.every((el) => el.classList.contains("removed"));
-  btn.classList.toggle("kept", allKept);
-  btn.setAttribute("aria-label", allKept ? "Close this whole group after all" : "Keep this whole group open");
+  const keptCount = items.filter((el) => el.classList.contains("removed")).length;
+  btn.setAttribute("aria-checked", keptCount === 0 ? "true" : keptCount === items.length ? "false" : "mixed");
 }
 
-// Live count update for the review sub-text. Fires on every toggle so the
-// user sees "X will close · Y kept open" reflect their current selection.
+// Live count update for the header and CTA. Fires on every toggle so the
+// copy always matches what Tidy now will actually close.
 function updateReviewConfirmCount(host) {
   const shadow = host?.shadowRoot;
   if (!shadow) return;
+  const titleEl = shadow.getElementById("title");
   const subEl = shadow.getElementById("sub");
-  if (!subEl) return;
+  if (!subEl || !titleEl) return;
   const total = shadow.querySelectorAll(".review-item").length;
   const removed = shadow.querySelectorAll(".review-item.removed").length;
   const remaining = Math.max(0, total - removed);
-  if (remaining === 0) {
-    subEl.textContent = "Nothing to close — cancel to back out.";
+  // A prepared list and a list from a plain Tidy press read the same.
+  const offer = Boolean(currentState?.recommendation);
+  const folders = [...shadow.querySelectorAll(".review-group")]
+    .filter(group => group.querySelector(".review-item:not(.removed)")).length;
+  titleEl.textContent = remaining ? readyTitle(remaining) : "Keeping every tab open";
+  subEl.textContent = remaining === 0 ? "Nothing will close."
+    : removed > 0 ? `${removed} kept open. The rest are saved.`
+    : offer && offerTidyPendingPlanId === currentState.planId ? "Check the list, then press Tidy now."
+    : offerReassurance(folders);
+  if (offer) {
+    shadow.querySelectorAll('[data-action="tidy-recommendation"]').forEach(btn => { btn.disabled = remaining === 0; });
     return;
   }
-  const tabLabel = remaining === 1 ? "tab" : "tabs";
-  subEl.textContent = removed > 0
-    ? `${remaining} ${tabLabel} will close · ${removed} kept open. Confirm when ready.`
-    : `${remaining} ${tabLabel} will close. Hover any tab to keep it open.`;
+  const confirm = shadow.querySelector('[data-action="confirm-review"]');
+  if (confirm) confirm.textContent = remaining ? "Tidy now" : "Keep all open";
 }
 
 function renderReviewItem(tab) {
@@ -2063,6 +2247,7 @@ function renderReviewItem(tab) {
   const lastActive = String(tab?.lastActive || "");
   return `
     <li class="review-item" data-session-tab-id="${escapeAttr(sessionTabId)}" data-action="toggle-review-item">
+      <button class="review-remove" data-action="toggle-review-item" type="button" role="checkbox" aria-checked="true" aria-label="Close ${escapeAttr(title)}"></button>
       <div class="review-item-text">
         <span class="review-item-title">${escapeText(title)}</span>
         <span class="review-item-sub">
@@ -2070,10 +2255,6 @@ function renderReviewItem(tab) {
           ${lastActive ? `<span class="review-item-age" title="Last active in this tab">${escapeText(lastActive)}</span>` : ""}
         </span>
       </div>
-      <button class="review-remove" data-action="toggle-review-item" type="button" aria-label="Keep this tab open">
-        <span class="review-remove-text-default">Keep</span>
-        <span class="review-remove-text-active">Kept ✓</span>
-      </button>
     </li>
   `;
 }
@@ -2103,6 +2284,16 @@ function handlePanelClick(host, event) {
   // No action attribute — check if the body was clicked to trigger expand.
   if (!action) {
     if (!expandedMode && target.closest("[data-clickable-body]")) {
+      // On a suggested tidy, clicking the card opens (or folds) its tab list
+      // rather than the full panel.
+      if (currentState?.recommendation && currentState.mode === "review") {
+        setOfferListOpen(host, !offerListOpen);
+        return;
+      }
+      if (currentState?.mode === "clutter" && latestRecommendation?.planId) {
+        openOfferList(host, shadow.querySelector("#actions .offer-toggle"));
+        return;
+      }
       if (currentState && currentState.mode !== "saving" && currentState.mode !== "hidden" && currentState.mode !== "review") {
         expandPanel(host);
       }
@@ -2127,6 +2318,7 @@ function handlePanelClick(host, event) {
     // ago and the tabs are still open; nothing's lost. Keeping it around in
     // a "review" limbo would just leave orphan state in storage.
     if (currentState?.mode === "review") {
+      if (currentState.recommendation) { dismissRecommendation(host); return; }
       safeSendMessage({ type: "PANEL_DISCARD_REVIEW", sessionId: currentState.sessionId || "" });
       if (inPopupContext) {
         try { window.close(); } catch { /* fallthrough */ }
@@ -2156,6 +2348,52 @@ function handlePanelClick(host, event) {
     dismissPanel(host);
     return;
   }
+  if (action === "enable-suggestions") {
+    runRecommendationAction(host, actionEl, { type: "SAVE_SETTINGS", settings: { prepareSuggestions: true } })
+      .then(saved => { if (saved) loadExpandedData(host); });
+    return;
+  }
+  if (action === "retry-suggestion-load") {
+    loadExpandedData(host);
+    return;
+  }
+  if (action === "toggle-offer-list") {
+    cancelAutoDismiss();
+    if (currentState?.recommendation && currentState.mode === "review") {
+      setOfferListOpen(host, !offerListOpen, { moveFocus: true });
+      return;
+    }
+    openOfferList(host, actionEl);
+    return;
+  }
+  if (action === "tidy-recommendation") {
+    cancelAutoDismiss();
+    if (currentState?.recommendation && currentState.mode === "review") {
+      confirmOfferReview(host, actionEl);
+      return;
+    }
+    // Local picks must be seen before they close: Tidy opens the list with
+    // Tidy now ready, and the card says why nothing closed yet.
+    if (latestRecommendation?.reviewRequired) {
+      offerTidyPendingPlanId = latestRecommendation.planId;
+      openOfferList(host, actionEl);
+      return;
+    }
+    runRecommendationAction(host, actionEl, { type: "EXECUTE_RECOMMENDATION", planId: latestRecommendation?.planId,
+      keepOpenSessionTabIds: [], offeredCount: latestRecommendation?.saveCount });
+    return;
+  }
+  if (["find-recommendation", "review-recommendation", "execute-recommendation", "refresh-recommendation"].includes(action)) {
+    cancelAutoDismiss();
+    const reviewing = Boolean(currentState?.recommendation);
+    const planId = reviewing ? currentState.planId : latestRecommendation?.planId;
+    const keepOpenSessionTabIds = reviewing ? reviewKeepIds(host) : [];
+    const type = ["find-recommendation", "refresh-recommendation"].includes(action) ? "REFRESH_RECOMMENDATION"
+      : action === "review-recommendation" ? "REVIEW_RECOMMENDATION" : "EXECUTE_RECOMMENDATION";
+    runRecommendationAction(host, actionEl, { type, planId, review: reviewing || action === "find-recommendation", keepOpenSessionTabIds,
+      offeredCount: latestRecommendation?.saveCount });
+    return;
+  }
   if (action === "tidy") {
     cancelAutoDismiss();
     safeSendMessage({ type: "PANEL_TIDY_NOW" });
@@ -2177,46 +2415,38 @@ function handlePanelClick(host, event) {
     // the right state no matter where the click came from.
     const li = actionEl.closest(".review-item");
     if (!li) return;
-    const nowRemoved = li.classList.toggle("removed");
-    const btn = li.querySelector(".review-remove");
-    if (btn) btn.setAttribute("aria-label", nowRemoved ? "Close this tab after all" : "Keep this tab open");
-    // Reflect the group's "Keep all" state (e.g. keeping the last tab in a
-    // group flips its header button to "Kept ✓").
+    setItemKept(li, !li.classList.contains("removed"));
+    // Reflect the row on its group's header checkbox.
     syncGroupKeepButton(li.closest(".review-group"));
     updateReviewConfirmCount(host);
+    persistReviewKeeps(host);
     return;
   }
   if (action === "toggle-review-group") {
     // Keep (or un-keep) every tab in the folder at once. If the whole group
-    // is already kept, this releases it; otherwise it keeps all of them.
+    // is already kept, this releases it; otherwise (all or some ticked) it
+    // keeps all of them, the cautious direction.
     const group = actionEl.closest(".review-group");
     if (!group) return;
     const items = [...group.querySelectorAll(".review-item")];
     const allKept = items.length > 0 && items.every((el) => el.classList.contains("removed"));
-    items.forEach((el) => {
-      el.classList.toggle("removed", !allKept);
-      const b = el.querySelector(".review-remove");
-      if (b) b.setAttribute("aria-label", !allKept ? "Close this tab after all" : "Keep this tab open");
-    });
+    items.forEach((el) => setItemKept(el, !allKept));
     syncGroupKeepButton(group);
     updateReviewConfirmCount(host);
+    persistReviewKeeps(host);
     return;
   }
   if (action === "confirm-review") {
     cancelAutoDismiss();
+    if (currentState?.recommendation) { confirmOfferReview(host, actionEl); return; }
     const sessionId = actionEl.dataset.sessionId || "";
-    const shadow = host.shadowRoot;
-    const keepOpenSessionTabIds = shadow
-      ? [...shadow.querySelectorAll(".review-item.removed")]
-          .map((el) => el.dataset.sessionTabId)
-          .filter(Boolean)
-      : [];
-    safeSendMessage({ type: "PANEL_CONFIRM_REVIEW", sessionId, keepOpenSessionTabIds });
+    runRecommendationAction(host, actionEl, { type: "PANEL_CONFIRM_REVIEW", sessionId, keepOpenSessionTabIds: reviewKeepIds(host) });
     return;
   }
   if (action === "cancel-review") {
     cancelAutoDismiss();
     const sessionId = actionEl.dataset.sessionId || "";
+    if (currentState?.recommendation) { dismissRecommendation(host); return; }
     safeSendMessage({ type: "PANEL_DISCARD_REVIEW", sessionId });
     if (inPopupContext) {
       try { window.close(); } catch { /* fallthrough */ }
@@ -2232,6 +2462,7 @@ function handlePanelClick(host, event) {
     if (newScope) {
       selectedScope = newScope;
       updateScopeButtons(host);
+      renderTidyArea(host);
       refreshPreview(host);
       // Persist so this scope is the default the next time the panel opens.
       safeSendMessage({ type: "SAVE_SETTINGS", settings: { defaultScope: newScope } });
@@ -2239,7 +2470,7 @@ function handlePanelClick(host, event) {
     return;
   }
   if (action === "tidy-expanded") {
-    triggerExpandedSave(host);
+    tidyFromButton(host, actionEl);
     return;
   }
   if (action === "open-manager-link") {
@@ -2342,7 +2573,6 @@ function expandPanel(host) {
 // expanded view's DOM and unbinds outside-click. Use when an underlying mode
 // transition (e.g. → saving) requires collapsing without dismissing.
 function suppressExpansionUI(host) {
-  if (!expandedMode) return;
   expandedMode = false;
   const shadow = host.shadowRoot;
   const card = shadow.getElementById("card");
@@ -2515,13 +2745,206 @@ function bindSwipeToDismiss(host, card) {
   card.addEventListener("pointercancel", endDrag);
 }
 
+// A prepared offer changes nothing about the layout: the Tidy button stays,
+// and only its second line changes (see renderTidySub). The section under the
+// button holds two optional lines: the answer to a check that found nothing,
+// and the suggestions-off notice. It must be exactly empty when there is
+// neither, so the CSS :empty rules can drop it.
+function renderRecommendation(host, recommendation) {
+  if (recommendation?.expired) recommendation = null;
+  latestRecommendation = recommendation;
+  const content = host.shadowRoot?.getElementById("suggestion-content");
+  if (!content) return;
+  const none = checkedEmpty && recommendation && !recommendation.saveCount ? '<p class="suggestion-none">No tabs suggested right now.</p>' : "";
+  const notice = latestSettings.prepareSuggestions === false ? `<p class="suggestion-notice">Background suggestions are off. Enabling them checks inactive tabs before you ask. With AI on, titles, URLs and optional page summaries are sent for processing.</p><button class="suggestion-link" data-action="enable-suggestions" type="button">Enable background suggestions</button>` : "";
+  content.innerHTML = none + notice;
+  renderTidyArea(host);
+}
+
+// One Tidy button for every scope. The section under it (status + notice)
+// only applies to Smart.
+function renderTidyArea(host) {
+  const card = host.shadowRoot?.getElementById("recommendation-card");
+  if (card) card.hidden = selectedScope !== "smart";
+  renderTidySub(host);
+}
+
+// The prepared list a Tidy press would use: only Smart has one.
+function preparedOffer() {
+  return selectedScope === "smart" && (latestRecommendation?.saveCount || 0) > 0 ? latestRecommendation : null;
+}
+
+// Local picks always open their list first (the worker refuses to close them
+// unseen). AI picks follow the "Review before closing" option.
+function offerOpensList(host, offer) {
+  return Boolean(offer.reviewRequired) || host.shadowRoot.getElementById("opt-review")?.checked !== false;
+}
+
+// The Tidy button's second line says what a press will do.
+function renderTidySub(host) {
+  const sub = host.shadowRoot?.getElementById("tidy-cta-sub");
+  if (!sub) return;
+  const offer = preparedOffer();
+  sub.classList.toggle("ready", Boolean(offer));
+  if (offer) {
+    const count = offer.saveCount;
+    sub.innerHTML = `${READY_MARK}<span>${count} ${count === 1 ? "tab" : "tabs"} ready to ${offerOpensList(host, offer) ? "review" : "tidy"}</span>`;
+    return;
+  }
+  if (offerChecking && selectedScope === "smart") {
+    sub.textContent = "Checking your tabs";
+    return;
+  }
+  // A count from another scope would be wrong; hold the line's height until
+  // the recount lands.
+  sub.textContent = lastPreviewScope !== selectedScope ? " "
+    : lastPreviewCount ? scopeSubtitle(selectedScope, lastPreviewCount) : "No savable tabs in scope";
+}
+
+// The one Tidy button. With a prepared list it shows that list (or, with
+// review off and AI picks, closes them); without one it runs a tidy now.
+async function tidyFromButton(host, button) {
+  const offer = preparedOffer();
+  if (!offer) {
+    // A press before the opening check finishes is a press with nothing
+    // prepared; the check's late answer is ignored.
+    if (offerChecking) { offerChecking = false; recommendationRequest += 1; }
+    triggerExpandedSave(host);
+    return;
+  }
+  cancelAutoDismiss();
+  if (!offerOpensList(host, offer)) {
+    runRecommendationAction(host, button, { type: "EXECUTE_RECOMMENDATION", planId: offer.planId,
+      keepOpenSessionTabIds: [], offeredCount: offer.saveCount });
+    return;
+  }
+  offerListOpen = true;
+  const response = await runRecommendationAction(host, button, { type: "REVIEW_RECOMMENDATION", planId: offer.planId });
+  // The list can empty out between the render and the press (tabs closed or
+  // visited since); then this is a plain press with nothing prepared.
+  if (response && response.reviewOpened === false) triggerExpandedSave(host);
+}
+
+// Opening the panel with AI on and no list (or one over 30 minutes old) runs
+// a fresh check. The old list is not offered meanwhile.
+async function checkOfferOnOpen(host) {
+  offerChecking = true;
+  const request = ++recommendationRequest;
+  renderRecommendation(host, null);
+  const response = await safeSendMessageAwait({ type: "PREPARE_RECOMMENDATION" });
+  if (request !== recommendationRequest || !offerChecking) return;
+  offerChecking = false;
+  const current = document.getElementById(HOST_ID);
+  if (!current) return;
+  if (response?.ok && !response.superseded) {
+    checkedEmpty = Boolean(response.recommendation) && !response.recommendation.saveCount;
+    renderRecommendation(current, response.recommendation);
+  } else {
+    renderTidySub(current);
+  }
+}
+
+async function readCurrentSuggestion() {
+  const host = document.getElementById(HOST_ID);
+  if (!host || recommendationBusy || offerChecking) return;
+  const request = recommendationRequest;
+  const response = await safeSendMessageAwait({ type: "GET_RECOMMENDATION" });
+  if (request === recommendationRequest && response?.ok) renderRecommendation(host, response.recommendation);
+}
+
+function showSuggestionLoadFailure(host) {
+  latestRecommendation = null;
+  host.shadowRoot.getElementById("suggestion-status").textContent = "Couldn’t load tab suggestions.";
+  host.shadowRoot.getElementById("suggestion-content").innerHTML = '<button class="suggestion-link" data-action="retry-suggestion-load" type="button">Try again</button>';
+  renderTidyArea(host);
+}
+
+async function dismissRecommendation(host) {
+  await keepWriteQueue;
+  await safeSendMessageAwait({ type: "PANEL_DISMISS" });
+  if (inPopupContext) { try { window.close(); } catch { /* ignore */ } }
+  else dismissPanel(host);
+}
+
+function reviewKeepIds(host) {
+  return [...host.shadowRoot.querySelectorAll(".review-item.removed")].map(item => item.dataset.sessionTabId);
+}
+
+// Opening the list from a one-line offer starts the review in the worker,
+// which is what lets a local pick close afterwards.
+function openOfferList(host, button) {
+  if (!button) return;
+  offerListOpen = true;
+  runRecommendationAction(host, button, { type: "REVIEW_RECOMMENDATION", planId: latestRecommendation?.planId });
+}
+
+function confirmOfferReview(host, button) {
+  const items = [...host.shadowRoot.querySelectorAll(".review-item")];
+  runRecommendationAction(host, button, {
+    type: "EXECUTE_RECOMMENDATION", planId: currentState.planId, keepOpenSessionTabIds: reviewKeepIds(host),
+    offeredCount: items.length, offeredTabIds: items.map(item => item.dataset.sessionTabId)
+  });
+}
+
+function persistReviewKeeps(host) {
+  if (!currentState?.recommendation) return;
+  const message = { type: "SET_RECOMMENDATION_KEEP", planId: currentState.planId, keepOpenSessionTabIds: reviewKeepIds(host) };
+  currentState = { ...currentState, keepOpenSessionTabIds: message.keepOpenSessionTabIds };
+  pendingKeepWrites += 1;
+  keepWriteQueue = keepWriteQueue.then(() => safeSendMessageAwait(message)).finally(() => { pendingKeepWrites -= 1; });
+}
+
+async function runRecommendationAction(host, button, message) {
+  if (recommendationBusy) return;
+  recommendationBusy = true;
+  recommendationRequest += 1;
+  // Buttons in the tidy area report under the Tidy button and keep their label.
+  const inSuggestion = Boolean(button.closest("#tidy-area"));
+  const error = host.shadowRoot.getElementById(inSuggestion ? "suggestion-status" : "panel-error");
+  error.textContent = "";
+  button.disabled = true;
+  const previousText = button.textContent;
+  const progress = message.type === "REFRESH_RECOMMENDATION" ? "Checking tabs…" : "Checking…";
+  if (inSuggestion) error.textContent = progress;
+  else button.textContent = progress;
+  try {
+    await keepWriteQueue;
+    const response = await safeSendMessageAwait(message);
+    if (!response?.ok) {
+      error.textContent = response?.error || "Couldn't finish. Your tabs are still available. Try again.";
+      return;
+    }
+    error.textContent = "";
+    if (response.superseded) return;
+    if (message.type === "REFRESH_RECOMMENDATION") checkedEmpty = Boolean(response.recommendation) && !response.recommendation.saveCount;
+    if ("recommendation" in response) renderRecommendation(host, response.recommendation);
+    if (response.refreshDeferred) error.textContent = "Just checked these tabs. Refresh is available again after 30 seconds.";
+    else if (message.type === "REFRESH_RECOMMENDATION" && !response.recommendation) error.textContent = "Couldn’t finish checking tabs. Try again in a moment.";
+    return response;
+  } finally {
+    recommendationBusy = false;
+    button.disabled = false;
+    if (!inSuggestion) button.textContent = previousText;
+  }
+}
+
 async function loadExpandedData(host) {
+  const request = recommendationRequest;
+  const status = host.shadowRoot.getElementById("suggestion-status");
   try {
     const response = await safeSendMessageAwait({ type: "GET_POPUP_STATE" });
-    if (!response?.ok) return;
+    if (!response?.ok) {
+      if (request === recommendationRequest && !recommendationBusy) showSuggestionLoadFailure(host);
+      return;
+    }
     if (response.settings?.defaultScope) {
       selectedScope = response.settings.defaultScope;
     }
+    // A waiting offer is the first thing to show, so open on Smart for this
+    // view (the saved default is left alone until the user picks a scope).
+    const offerWaiting = (response.recommendation?.saveCount || 0) > 0 && !response.recommendation.expired;
+    const scopeOverridden = offerWaiting && selectedScope !== "smart";
+    if (scopeOverridden) selectedScope = "smart";
     // Only flip the valid flag once we actually got a finite number back.
     // If background returns nothing, determineMood will keep falling back
     // to "happy" instead of misreading undefined as 0 → sleeping.
@@ -2531,14 +2954,30 @@ async function loadExpandedData(host) {
       totalTabCountValid = true;
     }
     clutterThreshold = Number(response.settings?.clutterThreshold) || clutterThreshold;
+    latestSettings = response.settings || {};
     renderScopePicker(host);
-    renderPreview(host, response.preview);
+    // Before the Tidy button's line: "Review before closing" changes its wording.
     renderMoreOptions(host, response.settings);
+    renderPreview(host, response.preview);
+    // The preview above was counted for the saved scope; recount for Smart.
+    if (scopeOverridden) refreshPreview(host);
+    if (request === recommendationRequest && !recommendationBusy) {
+      status.textContent = "";
+      // Only opening the panel to tidy starts a check; expanding the done
+      // card ("See closed tabs") or a save/review in progress never does.
+      const openedToTidy = !["done", "saving", "review"].includes(currentState?.mode);
+      if (response.recommendationNeedsRun && openedToTidy) checkOfferOnOpen(host);
+      else renderRecommendation(host, response.recommendation);
+    }
     renderSessions(host, response.sessions || []);
     bindSearchInput(host);
     updateMascot(host);
   } catch (err) {
+    if (request === recommendationRequest && !recommendationBusy) showSuggestionLoadFailure(host);
     console.warn("[Neat Freak] Load expanded data failed:", err?.message || err);
+  } finally {
+    renderTidyArea(host);
+    host.shadowRoot.getElementById("tidy-area")?.classList.remove("pending");
   }
 }
 
@@ -2861,18 +3300,11 @@ function updateScopeButtons(host) {
 }
 
 function renderPreview(host, preview) {
-  // The standalone .preview-line element was removed when we adopted the
-  // popup-equivalent layout; the eligible-tab info now lives in the Tidy
-  // CTA subtitle. Keep this function as the single update point.
-  const shadow = host.shadowRoot;
-  const sub = shadow.getElementById("tidy-cta-sub");
-  if (!sub) return;
-  const count = Number(preview?.count) || 0;
-  if (!count) {
-    sub.textContent = "No savable tabs in scope";
-    return;
-  }
-  sub.textContent = scopeSubtitle(selectedScope, count);
+  // The eligible-tab count lives in the Tidy CTA subtitle. Record it for the
+  // scope it was counted for; renderTidySub decides what the line shows.
+  lastPreviewCount = Number(preview?.count) || 0;
+  lastPreviewScope = selectedScope;
+  renderTidySub(host);
 }
 
 // Subtitle under the Tidy CTA. Deterministic scopes state the concrete outcome
@@ -2904,7 +3336,7 @@ function renderSessions(host, sessions) {
   if (!list) return;
   lastLoadedSessions = sessions;
   if (!sessions.length) {
-    list.innerHTML = `<p class="session-empty">No saved sessions yet. Hit "Tidy my tabs" to make your first one.</p>`;
+    list.innerHTML = `<p class="session-empty">No saved sessions yet. Tidy your tabs to make your first one.</p>`;
     return;
   }
 
@@ -3081,11 +3513,13 @@ function formatRelativeTime(iso) {
 async function refreshPreview(host) {
   const includePinned = host.shadowRoot.getElementById("opt-include-pinned")?.checked || false;
   const keepCurrentTab = host.shadowRoot.getElementById("opt-keep-current")?.checked !== false;
+  const scope = selectedScope;
   const response = await safeSendMessageAwait({
     type: "PREVIEW_TABS",
-    options: { scope: selectedScope, includePinned, keepCurrentTab }
+    options: { scope, includePinned, keepCurrentTab }
   });
-  if (response?.ok) renderPreview(host, response.preview);
+  // A count for a scope the user has since left would mislabel the button.
+  if (response?.ok && scope === selectedScope) renderPreview(host, response.preview);
 }
 
 async function triggerExpandedSave(host) {
@@ -3114,6 +3548,7 @@ async function triggerExpandedSave(host) {
   // immediately. Without this, the panel would briefly flash the prior mode's
   // collapsed view, OR — in idle mode — collapseExpansion would dismiss the
   // panel entirely before saveTabs starts emitting progress.
+  checkingBeforeReview = reviewBeforeClose;
   const stateWritten = await safeStorageSessionSet({
     neatFreakPanelState: { mode: "saving", label: "Tidying your tabs" }
   });
@@ -3164,7 +3599,8 @@ function resumeAutoDismiss() {
     autoDismissHost = null;
     autoDismissRemainingMs = 0;
     if (host) {
-      safeSendMessage({ type: "PANEL_DISMISS" });
+      // auto: the card hid itself; only a user close skips the reminder.
+      safeSendMessage({ type: "PANEL_DISMISS", auto: true });
       dismissPanel(host);
     }
   }, autoDismissRemainingMs);
@@ -3191,7 +3627,13 @@ function cancelAutoDismiss() {
 // run once per injected world).
 function bindVisibilityPause() {
   const onChange = () => {
-    if (panelIsOnScreen()) resumeAutoDismiss();
+    if (panelIsOnScreen()) {
+      resumeAutoDismiss();
+      const host = document.getElementById(HOST_ID);
+      if (host && expandedMode && currentState?.mode === "idle") {
+        readCurrentSuggestion();
+      }
+    }
     else pauseAutoDismiss();
   };
   try {
@@ -3205,7 +3647,11 @@ function dismissPanel(host) {
   const card = host.shadowRoot?.getElementById("card");
   if (!card) { host.remove(); return; }
   card.classList.add("leaving");
-  setTimeout(() => host.remove(), 220);
+  clearTimeout(dismissTimers.get(host));
+  dismissTimers.set(host, setTimeout(() => {
+    dismissTimers.delete(host);
+    host.remove();
+  }, 220));
 }
 
 function escapeAttr(value) {
