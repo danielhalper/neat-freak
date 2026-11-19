@@ -1,9 +1,11 @@
 // When Neat Freak runs the AI in the background and when it nudges.
 //
-// A cycle: over the tab goal on a usable page -> one automatic run -> first
-// nudge -> the reminder slot 30 minutes later, where the same (pruned) list is
-// shown again unless the user opened or acted on it, closed the card, or the
-// list emptied. The cycle ends at that slot whether or not the reminder showed.
+// A cycle: over the tab goal on a usable page -> one automatic run -> a nudge.
+// The first cycle after a reset (start, engagement or growth) also has a
+// reminder slot 30 minutes later, where the same (pruned) list shows again
+// unless the user opened or acted on it, closed the card, or the list emptied;
+// that cycle ends at the slot whether or not the reminder showed. A repeat
+// cycle shows its one nudge and ends right then.
 //
 // Then a quiet period. It starts from how far over the goal the user is
 // (OVER_GOAL_BANDS) and doubles for each cycle in a row without engagement, up
@@ -17,13 +19,14 @@
 
 // ---- Pacing: change the policy here only. ----
 export const REMINDER_DELAY_MS = 30 * 60_000
-// true: every cycle gets the 30-minute reminder. false: only the first cycle
-// after a reset (start, engagement or growth).
-export const REMIND_EVERY_CYCLE = true
+// false: only the first cycle after a reset (start, engagement or growth) gets
+// the 30-minute reminder; repeat cycles go quiet when their nudge shows.
+// true: every cycle gets the reminder slot.
+export const REMIND_EVERY_CYCLE = false
 // Starting quiet period by over = (open tabs - goal) / goal. A band applies
 // from its fromOver upward (goal 20: 20-39, 40-69 and 70+ tabs).
 export const OVER_GOAL_BANDS = [
-	{ name: 'up-to-100', fromOver: 0, quietMs: 180 * 60_000 },
+	{ name: 'up-to-100', fromOver: 0, quietMs: 210 * 60_000 },
 	{ name: '100-250', fromOver: 1, quietMs: 150 * 60_000 },
 	{ name: 'over-250', fromOver: 2.5, quietMs: 90 * 60_000 },
 ]
@@ -130,10 +133,12 @@ export function finishRun(cycle, { now, listCount }) {
 }
 
 // tabCount: open tabs when the nudge showed, the baseline for growth.
-// Showing the reminder ends the cycle, timed from its slot.
-export function markShown(cycle, { now, kind, planId, tabCount }) {
+// Showing the reminder ends the cycle, timed from its slot. A repeat cycle has
+// no slot, so it ends, and its quiet period starts, when its nudge shows.
+export function markShown(cycle, { now, kind, planId, tabCount }, { remindEveryCycle = REMIND_EVERY_CYCLE } = {}) {
 	const shown = { ...cycle, shownAt: now, shownPlanId: planId || '', shownTabCount: count(tabCount) }
 	if (kind === 'reminder') return endCycle(shown, cycle.nudgedAt + REMINDER_DELAY_MS, { counted: true })
+	if (!remindEveryCycle && cycle.startStreak > 0) return endCycle(shown, now, { counted: true })
 	return { ...shown, phase: 'nudged', nudgedAt: now, closedByUser: false }
 }
 

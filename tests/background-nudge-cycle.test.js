@@ -132,15 +132,21 @@ test('a suggestion run waits about 1 second per tab for page signals; the check 
 	assert.ok(timers.filter(ms => ms === 4000).length >= 7, 'the pre-close check keeps 4 seconds')
 })
 
-test('diagnostics mark the first nudge and the reminder, with the band, doubling step and tab count', async t => {
+test('diagnostics record the band, doubling step and tab count; a repeat cycle shows one nudge and no reminder', async t => {
 	const f = await boot(t)
 	f.h.data.local.neatFreakNudgeCycle = { phase: 'quiet', quietFrom: 0, ignoredStreak: 2, quietStep: 1 }
 	await f.check()
+	assert.equal(f.state.mode, 'clutter')
+	assert.equal(f.cycle.phase, 'quiet', 'a repeat cycle ends when its nudge shows')
+	assert.ok(Math.abs(f.cycle.quietFrom - Date.now()) < 5_000)
+	assert.equal(f.cycle.quietStep, 2)
+	await f.h.send({ type: 'PANEL_DISMISS', auto: true })
 	f.rewind(REMINDER_DELAY_MS)
 	await f.check()
+	assert.equal(f.state.mode, 'hidden', 'no reminder')
 	const shown = f.h.data.local.neatFreakDiagnostics.filter(entry => entry.event === 'nudge_shown')
 	assert.deepEqual(shown.map(entry => [entry.nudgeKind, entry.quietBand, entry.doublingStep, entry.tabCount, entry.cycleStart]),
-		[['first', 'up-to-100', 1, 8, 'time'], ['reminder', 'up-to-100', 1, 8, 'time']])
+		[['first', 'up-to-100', 1, 8, 'time']])
 })
 
 test('growth of half the goal since the last nudge resets the doubling to the starting period for the new level', async t => {

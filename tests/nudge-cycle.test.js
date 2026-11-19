@@ -13,23 +13,29 @@ const GOAL = 20
 const ready = { nudgesOn: true, overThreshold: true, surfaceReady: true, panelBusy: false, listCount: 5, tabCount: 30, goal: GOAL }
 const step = (cycle, ctx = {}, options) => nextNudgeStep(cycle, { now: T0, ...ready, ...ctx }, options)
 
-// A cycle at `now` with `tabCount` tabs: run, first nudge, reminder at the slot.
-function ignoredCycle(cycle, now, tabCount = 30) {
+// An ignored cycle at `now` with `tabCount` tabs: run, nudge, and the reminder
+// at the slot when this cycle gets one (only the first after a reset).
+function ignoredCycle(cycle, now, tabCount = 30, nudges = []) {
 	const start = step(cycle, { now, tabCount })
 	assert.equal(start.action, 'run')
 	cycle = finishRun(startRun(cycle, now, start), { now, listCount: 5 })
 	cycle = markShown(cycle, { now, kind: 'first', planId: 'plan-a', tabCount })
-	return markShown(cycle, { now: now + REMINDER_DELAY_MS, kind: 'reminder', planId: 'plan-a', tabCount })
+	nudges.push(now)
+	if (cycle.phase !== 'nudged') return cycle
+	const slot = now + REMINDER_DELAY_MS
+	assert.deepEqual(step(cycle, { now: slot, tabCount }), { action: 'show', kind: 'reminder' })
+	nudges.push(slot)
+	return markShown(cycle, { now: slot, kind: 'reminder', planId: 'plan-a', tabCount })
 }
 const quietMinutes = (cycle, tabCount = 30) => (quietDue(cycle, { tabCount, goal: GOAL }).due - cycle.quietFrom) / MIN
 
 test('pacing numbers are named constants in one place', () => {
 	assert.deepEqual(OVER_GOAL_BANDS.map(band => [band.name, band.fromOver, band.quietMs / MIN]),
-		[['up-to-100', 0, 180], ['100-250', 1, 150], ['over-250', 2.5, 90]])
+		[['up-to-100', 0, 210], ['100-250', 1, 150], ['over-250', 2.5, 90]])
 	assert.equal(QUIET_CAP_MS, 24 * 60 * MIN)
 	assert.equal(GROWTH_RESET_SHARE, 0.5)
 	assert.equal(REMINDER_DELAY_MS, 30 * MIN)
-	assert.equal(REMIND_EVERY_CYCLE, true)
+	assert.equal(REMIND_EVERY_CYCLE, false)
 })
 
 test('bands by how far over the goal: with a goal of 20, 20-39, 40-69 and 70+ tabs', () => {
@@ -59,7 +65,7 @@ test('a run with a list waits to show its first nudge; a run with nothing waits 
 	assert.deepEqual(step(pending, { surfaceReady: false }), { action: 'none' }, 'the list waits for a usable page, no re-run')
 	const empty = finishRun(running, { now: T0, listCount: 0 })
 	assert.equal(empty.phase, 'quiet')
-	assert.equal(quietMinutes(empty), 180)
+	assert.equal(quietMinutes(empty), 210)
 	assert.equal(empty.ignoredStreak, 0)
 })
 
@@ -89,16 +95,33 @@ test('the reminder comes at the 30-minute slot; the cycle ends at the slot wheth
 	assert.equal(markClosedByUser(readCycle(undefined)).phase, 'idle', 'closing only counts on a shown nudge')
 })
 
-test('with reminders limited to the first cycle after a reset, repeat cycles skip it', () => {
+test('only the first cycle after a reset gets the reminder; a repeat cycle goes quiet when its nudge shows', () => {
 	let cycle = ignoredCycle(readCycle(undefined), T0)
-	const next = cycle.quietFrom + 180 * MIN
-	cycle = finishRun(startRun(cycle, next, step(cycle, { now: next })), { now: next, listCount: 5 })
-	cycle = markShown(cycle, { now: next, kind: 'first', planId: 'plan-b', tabCount: 30 })
-	const slot = next + REMINDER_DELAY_MS
-	assert.deepEqual(step(cycle, { now: slot }), { action: 'show', kind: 'reminder' }, 'every cycle by default')
-	assert.deepEqual(step(cycle, { now: slot }, { remindEveryCycle: false }), { action: 'end', counted: true, at: slot })
-	const fresh = markShown(finishRun(startRun(readCycle(undefined), T0, step(readCycle(undefined))), { now: T0, listCount: 5 }), { now: T0, kind: 'first', planId: 'plan-c', tabCount: 30 })
-	assert.deepEqual(step(fresh, { now: T0 + REMINDER_DELAY_MS }, { remindEveryCycle: false }), { action: 'show', kind: 'reminder' })
+	const next = cycle.quietFrom + 210 * MIN
+	const running = finishRun(startRun(cycle, next, step(cycle, { now: next })), { now: next, listCount: 5 })
+	cycle = markShown(running, { now: next, kind: 'first', planId: 'plan-b', tabCount: 30 })
+	assert.equal(cycle.phase, 'quiet', 'no reminder slot on a repeat cycle')
+	assert.equal(cycle.quietFrom, next)
+	assert.equal(cycle.quietStep, 1)
+	const always = markShown(running, { now: next, kind: 'first', planId: 'plan-b', tabCount: 30 }, { remindEveryCycle: true })
+	assert.equal(always.phase, 'nudged', 'REMIND_EVERY_CYCLE = true would keep the slot')
+	assert.deepEqual(step(always, { now: next + REMINDER_DELAY_MS }, { remindEveryCycle: true }), { action: 'show', kind: 'reminder' })
+	assert.deepEqual(step(always, { now: next + REMINDER_DELAY_MS }), { action: 'end', counted: true, at: next + REMINDER_DELAY_MS })
+})
+
+test('worked examples, nothing clicked and nothing changing: nudge times by band', () => {
+	const schedule = tabCount => {
+		let cycle = readCycle(undefined)
+		const nudges = []
+		let now = T0
+		while (nudges.length < 5 && now - T0 < 48 * 60 * MIN) {
+			cycle = ignoredCycle(cycle, now, tabCount, nudges)
+			now = quietDue(cycle, { tabCount, goal: GOAL }).due
+		}
+		return nudges.map(at => `${Math.floor((at - T0) / 60 / MIN)}:${String((at - T0) / MIN % 60).padStart(2, '0')}`)
+	}
+	assert.deepEqual(schedule(75).slice(0, 5), ['0:00', '0:30', '2:00', '5:00', '11:00'], 'top band (70+ tabs, goal 20)')
+	assert.deepEqual(schedule(30).slice(0, 4), ['0:00', '0:30', '4:00', '11:00'], 'lowest band (20-39 tabs)')
 })
 
 test('starting quiet period by level, then each cycle without engagement doubles it, capped at 24 hours', () => {
@@ -114,7 +137,7 @@ test('starting quiet period by level, then each cycle without engagement doubles
 		}
 		return waits
 	}
-	assert.deepEqual(ladder(30), [180, 360, 720, 1440, 1440, 1440])
+	assert.deepEqual(ladder(30), [210, 420, 840, 1440, 1440, 1440])
 	assert.deepEqual(ladder(50), [150, 300, 600, 1200, 1440, 1440])
 	assert.deepEqual(ladder(80), [90, 180, 360, 720, 1440, 1440])
 })
@@ -122,7 +145,7 @@ test('starting quiet period by level, then each cycle without engagement doubles
 test('the due time follows the current level, so moving into a higher band shortens the wait', () => {
 	let cycle = ignoredCycle(readCycle(undefined), T0, 35)
 	cycle = ignoredCycle(cycle, quietDue(cycle, { tabCount: 35, goal: GOAL }).due, 35)
-	assert.equal(quietMinutes(cycle, 35), 360, 'second cycle without engagement at 35 tabs')
+	assert.equal(quietMinutes(cycle, 35), 420, 'second cycle without engagement at 35 tabs')
 	assert.equal(quietMinutes(cycle, 44), 300, '44 tabs: the 100-250% band, still doubled (growth under half the goal)')
 	assert.deepEqual(step(cycle, { now: cycle.quietFrom + 300 * MIN, tabCount: 44 }), { action: 'run', trigger: 'time', band: 1, step: 1 })
 	assert.deepEqual(step(cycle, { now: cycle.quietFrom + 299 * MIN, tabCount: 44 }), { action: 'none' })
@@ -132,8 +155,8 @@ test('growth of half the goal since the last nudge resets the doubling to the st
 	let cycle = ignoredCycle(readCycle(undefined), T0, 30)
 	cycle = ignoredCycle(cycle, quietDue(cycle, { tabCount: 30, goal: GOAL }).due, 30)
 	cycle = ignoredCycle(cycle, quietDue(cycle, { tabCount: 30, goal: GOAL }).due, 30)
-	assert.equal(quietMinutes(cycle, 30), 720)
-	assert.equal(quietMinutes(cycle, 39), 720, '9 new tabs is under half the goal')
+	assert.equal(quietMinutes(cycle, 30), 840)
+	assert.equal(quietMinutes(cycle, 39), 840, '9 new tabs is under half the goal')
 	assert.equal(quietMinutes(cycle, 40), 150, '10 new tabs: starting period, and 40 tabs is the 100-250% band')
 	const start = step(cycle, { now: cycle.quietFrom + 150 * MIN, tabCount: 40 })
 	assert.deepEqual(start, { action: 'run', trigger: 'growth', band: 1, step: 0 })
@@ -152,7 +175,7 @@ test('any engagement resets to the starting quiet period for the current level',
 	assert.equal(cycle.phase, 'quiet')
 	assert.equal(cycle.ignoredStreak, 0)
 	assert.equal(cycle.quietFrom, T0 + 999 * MIN)
-	assert.equal(quietMinutes(cycle, 30), 180)
+	assert.equal(quietMinutes(cycle, 30), 210)
 	assert.equal(quietMinutes(cycle, 80), 90)
 	const nudged = markShown(finishRun(startRun(readCycle(undefined), T0, step(readCycle(undefined))), { now: T0, listCount: 5 }), { now: T0, kind: 'first', planId: 'plan-1', tabCount: 30 })
 	assert.deepEqual(step(markEngaged(nudged, T0 + 5 * MIN), { now: T0 + REMINDER_DELAY_MS }), { action: 'none' }, 'no reminder after the list was opened or acted on')
@@ -167,7 +190,7 @@ test('dropping below the goal and back does not nudge inside the quiet period', 
 test('ending without a cycle keeps the doubling where it was', () => {
 	const cycle = endCycle({ ...readCycle(undefined), ignoredStreak: 2 }, T0, { counted: false })
 	assert.equal(cycle.ignoredStreak, 2)
-	assert.equal(quietMinutes(cycle), 180)
+	assert.equal(quietMinutes(cycle), 210)
 })
 
 test('opening the panel starts a fresh AI run only when the list is missing or old, unless a nudge just showed it', () => {
