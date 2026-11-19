@@ -24,10 +24,9 @@ test('background routes: cached nudge -> review -> safety-filtered close -> rest
 		assert.equal(h.probes.length, 0)
 		assert.equal(h.data.session.neatFreakPanelState.needsPreparation, true)
 		await h.send({ type: 'PANEL_DISMISS' })
-		// Reset count-nudge cooldown to exercise the newly enabled prepare path.
-		for (const key of Object.keys(h.data.session)) {
-			if (/clutter/i.test(key)) delete h.data.session[key]
-		}
+		// Reset the nudge cycle (count-only nudge shown, reminder pending) to
+		// exercise the newly enabled prepare path.
+		delete h.data.local.neatFreakNudgeCycle
 		h.data.local.tabAtlasSettings.prepareSuggestions = true
 	})
 

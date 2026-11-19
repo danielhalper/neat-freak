@@ -3,7 +3,10 @@ import { heuristicSignals, runSmartScope } from "./smart-scope.js";
 import { createRecommendationService } from "./recommendations.js";
 import { createRecommendationBudget } from "./recommendation-budget.js";
 import { aiPickFields, trimPlan } from "./tidy-plan.js";
-import { shouldArm } from "./clutter-reminder.js";
+import {
+  readCycle, nextNudgeStep, startRun, finishRun, markShown, markClosedByUser, markEngaged,
+  endCycle, backoffLevel, needsIntentRun
+} from "./nudge-cycle.js";
 import { closeValidatedTabs } from "./safe-close.js";
 import { createDiagnostics, diagnosticError, diagnosticDetails, DIAGNOSTICS_KEY } from "./diagnostics.js";
 import { createBehaviorLog } from "./behavior-log.js";
@@ -85,9 +88,12 @@ async function routeMessage(message) {
   if (saveInFlight && ["DELETE_SESSION", "DELETE_TAB", "DELETE_GROUP", "IMPORT_SESSIONS", "RECATEGORIZE_SESSION", "PANEL_DISCARD_REVIEW"].includes(message?.type)) {
     throw new Error("A tidy is in progress. Wait for it to finish before editing saved sessions.");
   }
+  if (NUDGE_ENGAGEMENT_MESSAGES.has(message?.type)) await noteNudgeEngagement();
   switch (message?.type) {
     case "GET_POPUP_STATE":
       return getPopupState();
+    case "PREPARE_RECOMMENDATION":
+      return prepareRecommendationOnOpen();
     case "PREVIEW_TABS":
       return { preview: await previewTabs(message.options || {}) };
     case "GET_SESSIONS":
@@ -185,6 +191,11 @@ async function routeMessage(message) {
         if (state.recommendation && state.keepOpenSessionTabIds?.length) {
           await recommendations.exclude(state.planId, state.keepOpenSessionTabIds).catch(() => undefined);
         }
+        // The user closing a nudge card skips its reminder; the card's own
+        // 10-second auto-hide (message.auto) does not.
+        if (!message.auto && state.mode === "clutter") {
+          await updateNudgeCycle(cycle => ({ cycle: markClosedByUser(cycle) })).catch(() => undefined);
+        }
       }
       await setPanelState({ mode: "hidden" });
       return {};
@@ -253,7 +264,31 @@ async function getPopupState() {
     const allTabs = await queryTabs({});
     totalTabCount = allTabs.length;
   } catch { /* best-effort */ }
-  return { preview, sessions: sessions.slice(0, 3), settings, totalTabCount, recommendation: await getRecommendationForUi() };
+  const plan = await recommendations.get();
+  const recommendationNeedsRun = needsIntentRun({
+    aiOn: aiPreparesSuggestions(settings), plan, now: Date.now(), cycle: await readNudgeCycle()
+  });
+  return { preview, sessions: sessions.slice(0, 3), settings, totalTabCount, recommendation: recommendationSummary(plan), recommendationNeedsRun };
+}
+
+// Background page inspection is opt-in (prepareSuggestions); opening the panel
+// only starts an AI run for users who opted in and have AI on.
+function aiPreparesSuggestions(settings) {
+  return Boolean(settings.prepareSuggestions && settings.llmEnabled && settings.tokenServiceUrl);
+}
+
+// Opening the panel with no list, or a list older than 30 minutes, starts a
+// run then. It is user-initiated, so it does not use the automatic AI budget.
+async function prepareRecommendationOnOpen() {
+  const settings = await getSettings();
+  const current = await recommendations.get();
+  if (saveInFlight || !needsIntentRun({ aiOn: aiPreparesSuggestions(settings), plan: current, now: Date.now(), cycle: await readNudgeCycle() })) {
+    return { recommendation: recommendationSummary(current) };
+  }
+  const revision = recommendationUiRevision;
+  const plan = await recommendations.refresh({ force: true });
+  if (revision !== recommendationUiRevision || saveInFlight) return { superseded: true };
+  return { recommendation: recommendationSummary(plan) };
 }
 
 async function previewTabs(options) {
@@ -1536,33 +1571,16 @@ async function finishSessionClose(session, selectedTabs) {
 // Two surfaces, both inside Chrome (never OS-level):
 //   1. Icon badge — persistent count when the user is at or above the threshold.
 //      Always reactive to tab events, can't be denied by the OS.
-//   2. Prepared suggestion — shown on a focused, injectable tab at tier
-//      crossings, with a 45-minute cooldown. Hidden suggestions refresh on a
-//      bounded schedule; visible offers and reviews never silently grow.
+//   2. Prepared suggestion — one cycle at a time (src/nudge-cycle.js): over
+//      the threshold on a focused, injectable tab → one automatic run → nudge
+//      → one reminder 30 minutes later → quiet period with backoff. No
+//      scheduled re-runs; between runs the list only shrinks.
 
-const CLUTTER_HYSTERESIS = 3; // count must dip to (threshold - this) before we'll alert again
 const CLUTTER_THRESHOLD_FALLBACK = 20; // used only if reading settings fails
-// Tier schedule expressed as tabs OVER threshold. With threshold=20 this fires
-// at 20 (t0), 27 (t1), 40 (t2), 70 (t3), 110 (t4), 160 (t5), 220 (t6). The
-// first two come quickly (catch-and-correct); the rest are progressively
-// bigger jumps — real escalation for habitual heavy-tab users, with the gap
-// widening (40 → 50 → 60) as they keep ignoring it. Keep sorted ascending —
-// the currentTier scan relies on it.
-const CLUTTER_TIER_OFFSETS = [0, 7, 20, 50, 90, 140, 200];
-// Catches the "lives at 35 tabs in one Chrome session for a month" user.
-// Once the highest tier alerted has fired and the schedule is silent, we
-// still re-fire once every REENGAGE_MS as long as the user is over threshold.
-// Doesn't escalate the tier — just re-shows the existing nudge.
-const CLUTTER_REENGAGE_MS = 48 * 60 * 60 * 1000;
 const CLUTTER_DISABLED_KEY = "neatFreakClutterDisabled";
-// session-scoped: highest tier index we've already alerted at this session.
-// -1 (or missing) means not yet alerted. Each tier fires once. Once tab
-// count dips below threshold - HYSTERESIS the tier resets to -1 so the next
-// climb starts the schedule fresh.
-const CLUTTER_ALERTED_TIER_KEY = "neatFreakClutterAlertedTier";
-// Wall-clock ms of the last alert in this Chrome session. Pairs with the
-// tier key so the 48h re-engage check can run without a separate timer.
-const CLUTTER_LAST_ALERT_AT_KEY = "neatFreakClutterLastAlertAt";
+// Nudge cycle and backoff, in local storage so a Chrome restart or extension
+// reload does not nudge again straight away.
+const NUDGE_CYCLE_KEY = "neatFreakNudgeCycle";
 const CLUTTER_BADGE_COLOR = "#dc2626";
 const CLUTTER_CHECK_DEBOUNCE_MS = 3000;
 const CLUTTER_ALARM_NAME = "neat-freak-clutter-check";
@@ -1652,7 +1670,40 @@ function isInjectablePageUrl(url) {
 }
 
 let clutterInFlight = null;
-const CLUTTER_COOLDOWN_MS = 45 * 60_000;
+
+async function readNudgeCycle() {
+  return readCycle((await chrome.storage.local.get(NUDGE_CYCLE_KEY))[NUDGE_CYCLE_KEY]);
+}
+
+// Serialized read-modify-write of the cycle. fn returns { cycle, ...extra };
+// a falsy cycle leaves the stored state as it was.
+let nudgeCycleQueue = Promise.resolve();
+function updateNudgeCycle(fn) {
+  const next = nudgeCycleQueue.then(async () => {
+    const result = (await fn(await readNudgeCycle())) || {};
+    if (result.cycle) await chrome.storage.local.set({ [NUDGE_CYCLE_KEY]: result.cycle });
+    return result;
+  });
+  nudgeCycleQueue = next.catch(() => undefined);
+  return next;
+}
+
+// Opening the list, tidying, pressing Tidy or Refresh: no reminder for this
+// cycle, and the quiet period resets to 90 minutes.
+const NUDGE_ENGAGEMENT_MESSAGES = new Set([
+  "REVIEW_RECOMMENDATION", "EXECUTE_RECOMMENDATION", "REFRESH_RECOMMENDATION",
+  "PANEL_TIDY_NOW", "CLUTTER_TOAST_TIDY", "SAVE_TABS", "PANEL_CONFIRM_REVIEW"
+]);
+async function noteNudgeEngagement() {
+  await updateNudgeCycle(cycle => ({ cycle: markEngaged(cycle, Date.now()) })).catch(() => undefined);
+}
+
+async function nudgeSurfaceReady(tabs) {
+  const focused = await chrome.windows.getLastFocused();
+  if (!focused?.focused) return false;
+  const target = tabs.find(tab => tab.windowId === focused.id && tab.active);
+  return Boolean(target && isInjectablePageUrl(target.url));
+}
 
 function checkClutter() {
   if (!clutterInFlight) clutterInFlight = checkClutterOnce().catch(async err => {
@@ -1681,56 +1732,80 @@ async function checkClutterOnce() {
   if (state.mode === "clutter" && plan && !state.needsPreparation) {
     await chrome.storage.session.set({ [PANEL_STATE_KEY]: { ...state, ...recommendationSummary(plan) } });
   }
-  if (disabled) return;
-  if (tabs.length < threshold) {
-    if (tabs.length < threshold - CLUTTER_HYSTERESIS) {
-      await chrome.storage.session.set({ [CLUTTER_ALERTED_TIER_KEY]: -1 });
+  await advanceNudgeCycle({ settings, tabs, threshold, disabled, plan, state });
+}
+
+// What the cycle needs to know right now. Without background preparation the
+// nudge is the count-only card, so "the list" is just being over the limit.
+async function nudgeContext({ settings, tabs, threshold, disabled, plan, state }) {
+  const overThreshold = tabs.length >= threshold;
+  return {
+    now: Date.now(), nudgesOn: !disabled, overThreshold,
+    surfaceReady: await nudgeSurfaceReady(tabs),
+    // A nudge card still on some tab (it pauses off-screen) never blocks the
+    // cycle; an open panel, review, save or result does.
+    panelBusy: !["hidden", "clutter"].includes(state.mode),
+    listCount: !settings.prepareSuggestions ? Number(overThreshold)
+      : plan && !plan.expired ? plan.tabs.length : 0
+  };
+}
+
+async function advanceNudgeCycle(input) {
+  const ctx = await nudgeContext(input);
+  const decision = await updateNudgeCycle(cycle => {
+    const step = nextNudgeStep(cycle, ctx);
+    if (step.action === "end") return { step, cycle: endCycle(cycle, ctx.now, step) };
+    if (step.action === "run") return { step, cycle: startRun(cycle, ctx.now) };
+    return { step };
+  });
+  if (decision.step.action === "end") {
+    if (input.state.mode === "clutter") await setPanelState({ mode: "hidden", retiredSuggestion: true });
+    return;
+  }
+  if (decision.step.action === "show") return showNudge(decision.step.kind, input);
+  if (decision.step.action !== "run") return;
+
+  // The cycle's one automatic run. Count-only nudges inspect no pages.
+  const runStartedAt = ctx.now;
+  let plan = input.plan;
+  if (input.settings.prepareSuggestions) {
+    const revision = recommendationUiRevision;
+    plan = await recommendations.refresh();
+    if (saveInFlight || revision !== recommendationUiRevision) {
+      // A user action took over; it already set the cycle (engagement).
+      await updateNudgeCycle(cycle => ({ cycle: cycle.phase === "running" && cycle.runStartedAt === runStartedAt
+        ? endCycle(cycle, Date.now(), { ignored: false }) : null }));
+      return;
     }
-    return;
   }
-  const focused = await chrome.windows.getLastFocused();
-  if (!focused?.focused) return;
-  const target = tabs.find(tab => tab.windowId === focused.id && tab.active);
-  if (!target || !isInjectablePageUrl(target.url)) return;
-  const stamps = await chrome.storage.session.get([CLUTTER_ALERTED_TIER_KEY, CLUTTER_LAST_ALERT_AT_KEY]);
-  const previousTier = Number.isFinite(stamps[CLUTTER_ALERTED_TIER_KEY]) ? stamps[CLUTTER_ALERTED_TIER_KEY] : -1;
-  const lastAt = stamps[CLUTTER_LAST_ALERT_AT_KEY] || 0;
-  const tier = CLUTTER_TIER_OFFSETS.findLastIndex(offset => tabs.length - threshold >= offset);
-  const mayNudge = shouldArm({ currentTier: tier, lastAlertedTier: previousTier,
-    lastAlertAt: lastAt, now: Date.now(), cooldownMs: CLUTTER_COOLDOWN_MS })
-    || (lastAt > 0 && Date.now() - lastAt >= CLUTTER_REENGAGE_MS);
-  // Preserve the existing count-only reminder without inspecting any pages
-  // until the user requests suggestions or enables background preparation.
-  if (!settings.prepareSuggestions) {
-    if (!mayNudge || ["idle", "clutter"].includes(state.mode)) return;
-    const shown = await setPanelState({ mode: "clutter", tabCount: tabs.length, needsPreparation: true });
-    if (shown) await chrome.storage.session.set({
-      [CLUTTER_ALERTED_TIER_KEY]: Math.max(tier, previousTier), [CLUTTER_LAST_ALERT_AT_KEY]: Date.now()
-    });
-    return;
-  }
-  // Once a plan exists it remains fresh on a bounded schedule, even if its
-  // nudge was ignored. No model calls on each tab switch.
-  if (!mayNudge && !plan) return;
-  if (state.mode === "clutter") return;
-  const revision = recommendationUiRevision;
-  plan = await recommendations.refresh();
-  if (!plan || saveInFlight || revision !== recommendationUiRevision) return;
-  const latest = await readPanelState();
-  if (["saving", "review", "idle"].includes(latest.mode)) return;
-  const currentWindow = await chrome.windows.getLastFocused();
-  const currentTabs = await queryTabs({});
-  const currentTarget = currentTabs.find(tab => tab.active && tab.windowId === currentWindow?.id);
-  if (!(await getSettings()).showClutterNudges || !currentWindow?.focused
-      || !isInjectablePageUrl(currentTarget?.url) || currentTabs.length < threshold) return;
-  if (latest.mode === "clutter") {
-    await chrome.storage.session.set({ [PANEL_STATE_KEY]: { ...latest, ...recommendationSummary(plan) } });
-  }
-  if (!mayNudge || !plan.tabs.length || plan.expired) return;
-  const shown = await setPanelState({ mode: "clutter", ...recommendationSummary(plan) });
-  if (shown) await diagnostics.record("nudge_shown", { run: plan.id.replace(/^plan-/, "run_"), suggestedCount: plan.tabs.length, mode: plan.mode });
-  if (shown) await chrome.storage.session.set({
-    [CLUTTER_ALERTED_TIER_KEY]: Math.max(tier, previousTier), [CLUTTER_LAST_ALERT_AT_KEY]: Date.now()
+  const listCount = !input.settings.prepareSuggestions ? 1 : plan && !plan.expired ? plan.tabs.length : 0;
+  await updateNudgeCycle(cycle => ({ cycle: cycle.phase === "running" && cycle.runStartedAt === runStartedAt
+    ? finishRun(cycle, { now: Date.now(), listCount }) : null }));
+  // Show it now if the page and panel still allow; otherwise the list waits
+  // (pruned, never re-run) for the next check.
+  const state = await readPanelState();
+  if (saveInFlight || ["saving", "review", "done"].includes(state.mode)) return;
+  const tabs = (await queryTabs({})).filter(tab => !tab.incognito);
+  const next = await nudgeContext({ ...input, tabs, plan: await recommendations.get(), state });
+  const step = nextNudgeStep(await readNudgeCycle(), next);
+  if (step.action === "show") return showNudge(step.kind, { ...input, tabs, plan: await recommendations.get(), state });
+}
+
+async function showNudge(kind, { settings, tabs, plan }) {
+  const countOnly = !settings.prepareSuggestions;
+  if (!countOnly && (!plan || plan.expired || !plan.tabs.length)) return;
+  const cycle = await readNudgeCycle();
+  const shown = await setPanelState(countOnly
+    ? { mode: "clutter", tabCount: tabs.length, needsPreparation: true }
+    : { mode: "clutter", ...recommendationSummary(plan) });
+  if (!shown) return;
+  await updateNudgeCycle(current => ({
+    cycle: (kind === "first" ? current.phase === "pending" : current.phase === "nudged")
+      ? markShown(current, { now: Date.now(), kind, planId: plan?.id }) : null
+  }));
+  await diagnostics.record("nudge_shown", {
+    run: plan?.id?.replace(/^plan-/, "run_"), suggestedCount: countOnly ? undefined : plan.tabs.length,
+    mode: countOnly ? undefined : plan.mode, nudgeKind: kind, backoffLevel: backoffLevel(cycle), tabCount: tabs.length
   });
 }
 

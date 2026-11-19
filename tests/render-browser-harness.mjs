@@ -5,7 +5,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
-const modules = ['src/utils.js', 'src/storage.js', 'src/categorizer.js', 'src/smart-scope.js', 'src/clutter-reminder.js', 'src/tidy-plan.js', 'src/recommendation-budget.js', 'src/recommendations.js', 'src/safe-close.js', 'src/diagnostics.js', 'src/behavior-log.js', 'tests/helpers/chrome-harness.js']
+const modules = ['src/utils.js', 'src/storage.js', 'src/categorizer.js', 'src/smart-scope.js', 'src/clutter-reminder.js', 'src/nudge-cycle.js', 'src/tidy-plan.js', 'src/recommendation-budget.js', 'src/recommendations.js', 'src/safe-close.js', 'src/diagnostics.js', 'src/behavior-log.js', 'tests/helpers/chrome-harness.js']
 let script = ''
 for (const relative of modules) {
 	let source = fs.readFileSync(path.join(root, relative), 'utf8')

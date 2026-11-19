@@ -4,7 +4,6 @@ import {
   normalizeUrl,
   hashTabSet,
   classifyDelta,
-  shouldArm,
   reconcilePlan
 } from "../src/clutter-reminder.js";
 
@@ -57,22 +56,6 @@ test("classifyDelta: pure removals are zero churn", () => {
   const d = classifyDelta(snapshot, current);
   assert.deepEqual(d.removed, [2]);
   assert.equal(d.churn, 0, "closing tabs never drives churn");
-});
-
-test("shouldArm: arms only on escalation past the cooldown", () => {
-  const cooldownMs = 30 * 60 * 1000;
-  const now = 1_000_000_000;
-
-  // Fresh escalation, no prior alert → arm.
-  assert.equal(shouldArm({ currentTier: 0, lastAlertedTier: -1, lastAlertAt: 0, now, cooldownMs }), true);
-  // Same tier already alerted → don't arm.
-  assert.equal(shouldArm({ currentTier: 1, lastAlertedTier: 1, lastAlertAt: now - cooldownMs - 1, now, cooldownMs }), false);
-  // Higher tier but still inside cooldown → don't arm yet.
-  assert.equal(shouldArm({ currentTier: 2, lastAlertedTier: 1, lastAlertAt: now - 1000, now, cooldownMs }), false);
-  // Higher tier and cooldown elapsed → arm.
-  assert.equal(shouldArm({ currentTier: 2, lastAlertedTier: 1, lastAlertAt: now - cooldownMs, now, cooldownMs }), true);
-  // Below threshold → never arm.
-  assert.equal(shouldArm({ currentTier: -1, lastAlertedTier: -1, lastAlertAt: 0, now, cooldownMs }), false);
 });
 
 test("reconcilePlan: prunes removed tabs for free, drops emptied groups", () => {

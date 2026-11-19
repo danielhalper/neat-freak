@@ -1,6 +1,6 @@
 // Pure helpers for the proactive clutter-reminder flow:
-//   arm on tier-cross → wait for a valid focused tab → compute-on-arrival →
-//   present → (on Tidy) reuse the cached plan if the tab set still matches.
+//   diff the live tab set against a prepared plan and prune it. When a nudge
+//   fires is decided in nudge-cycle.js.
 //
 // No Chrome APIs in here on purpose — these are the decision/diff functions, so
 // they're unit-testable in the Node harness. The service worker wires them to
@@ -41,18 +41,6 @@ export function classifyDelta(snapshotTabs, currentTabs) {
   const size = snap.size || 1;
   const churn = (added.length + navigated.length) / size;
   return { removed, added, navigated, churn };
-}
-
-// Should we ARM a new reminder? Only when a higher tier than we've already
-// alerted for has been reached AND the cooldown since the last alert has
-// elapsed (or there was no prior alert). currentTier < 0 means "below
-// threshold" → never arm.
-export function shouldArm({ currentTier, lastAlertedTier, lastAlertAt, now, cooldownMs }) {
-  if (!Number.isFinite(currentTier) || currentTier < 0) return false;
-  const prevTier = Number.isFinite(lastAlertedTier) ? lastAlertedTier : -1;
-  const escalated = currentTier > prevTier;
-  const cooledDown = !lastAlertAt || (now - lastAlertAt) >= cooldownMs;
-  return escalated && cooledDown;
 }
 
 // Reconcile a cached plan against a delta. Pruning removed tabs is free (drop

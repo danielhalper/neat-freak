@@ -3566,7 +3566,8 @@ function resumeAutoDismiss() {
     autoDismissHost = null;
     autoDismissRemainingMs = 0;
     if (host) {
-      safeSendMessage({ type: "PANEL_DISMISS" });
+      // auto: the card hid itself; only a user close skips the reminder.
+      safeSendMessage({ type: "PANEL_DISMISS", auto: true });
       dismissPanel(host);
     }
   }, autoDismissRemainingMs);
