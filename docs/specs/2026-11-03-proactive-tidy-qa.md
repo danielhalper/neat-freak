@@ -30,20 +30,20 @@ human close/keep labels, so it cannot establish personal preference accuracy.
 
 ## Freshness and cost
 
-- Automatic full recomputation: at most once per 15 minutes, while Chrome is
-  focused on a regular page, preparation is enabled and the tab count remains
-  above the nudge threshold. Unchanged metadata and eligibility time buckets
-  reuse the offer until expiry; explicit Refresh still recomputes.
-- Automatic AI attempts: at most eight per UTC day, persisted in local storage
+- Automatic runs: one per nudge cycle (see November 18). Nothing recomputes on
+  a schedule; a prepared list is only pruned. Opening the panel with AI on and
+  no list, or one older than 30 minutes, starts a run; explicit Refresh still
+  recomputes.
+- Automatic AI attempts: at most twelve per UTC day, persisted in local storage
   before a request. Worker/browser restarts and failures cannot reset the limit.
-  After that, preparation uses local selection and requires Review. Explicit
-  Refresh bypasses this automatic-attempt limit. This bounds request count,
+  After that, or when the automatic AI call fails, AI users get no local list
+  and no nudge. Explicit requests bypass this limit. This bounds request count,
   not tokens or dollars, and does not guarantee a reserved manual quota.
 - Five-minute Chrome alarm plus debounced tab/focus events. Existing alarms are
   not reset on every worker wake.
 - Explicit Refresh: separate 30-second limit; concurrent requests share one run.
   A cancelled older run cannot swallow or overwrite a new explicit request.
-- Nudge: 45-minute cooldown, existing widening tab-count tiers and 48-hour re-engage.
+- Nudge: cycle pacing in `src/nudge-cycle.js` (see November 18).
 - Visible offers and open reviews do not silently acquire new members. Only a
   fresh, presented recommendation may expand the set. Cheap reconciliation
   removes tabs that changed, were revisited, pinned, started audio or closed.
@@ -206,7 +206,7 @@ user; this checkout has not been confirmed running in their Chrome.
 | --- | --- |
 | Idle mistaken for finished | In the unlabeled metadata corpus, aging tabs expanded local picks from 17 to 35. This is a warning, not an accuracy measurement. Compare suggestions before and after lunch/meetings on real work before changing the algorithm. |
 | Silent local fallback | Fixed locally: AI/local source and fallback reasons are visible, and local suggestions require Review. Verify rendering in real Chrome. |
-| Background work consumes manual budget | Reduced locally: unchanged offers are reused and automatic AI attempts are capped at eight per UTC day. Explicit Refresh remains available. Checked-in backend configuration is 200k tokens per install/day; deployment and actual usage remain unverified. The attempt cap does not reserve tokens for manual work. |
+| Background work consumes manual budget | Reduced locally: one automatic run per nudge cycle, and automatic AI attempts are capped at twelve per UTC day. Explicit Refresh remains available. Checked-in backend configuration is 200k tokens per install/day; deployment and actual usage remain unverified. The attempt cap does not reserve tokens for manual work. |
 | Background page reading exceeds the disclosure | Fixed locally: preparation defaults off, an inline opt-in explains data processing, and settings/onboarding/privacy/store copy describe candidate inspection before Save. These copy changes have not been published. Disabling summaries still allows titles/URLs to be sent; disabling AI keeps processing local. |
 | Different Smart results look arbitrary | Proactive selection has no forced quota; manual Smart retains its minimum-save behavior. Suggestions now label all-window scope and source. Test whether Suggested tidy versus the existing manual command is clear. |
 | Safety checks are incomplete on real pages | Custom/shadow-DOM editors, controlled inputs, changed non-text controls, iframe permissions and active web apps require actual Chrome tests. URL recovery is not draft recovery. Any lost draft blocks release. |
@@ -359,3 +359,44 @@ Manual press, Nov 17 (10 eligible tabs, nothing prepared, review on):
 Not checked live: the folded nudge card with a prepared list (none was
 prepared at 10 tabs), the “ready to tidy” straight close, and the done-card
 toggle on screen (needs a real tidy).
+
+## November 18: nudge cycle and pacing (build proactive-trial-6)
+
+Covers `8d819ef` to `4aae62a`. Why: on Nov 16 only 2 of 19 background runs
+showed a nudge, the eight-attempt cap ran out by 13:17, and five lists fell
+back to local picks.
+
+Rules as built (`src/nudge-cycle.js`, all numbers are constants there):
+
+- Over the tab goal on a usable page: one run, then a nudge. The first cycle
+  after a reset also gets one reminder 30 minutes later, unless the list was
+  opened, the card was closed by hand, or the list emptied. The 10-second
+  auto-hide does not cancel it. It waits up to 30 more minutes for a usable
+  page, then is dropped.
+- Quiet period after a cycle, by how far over the goal: 3.5 h (up to 100%
+  over), 2.5 h (100–250%), 1.5 h (250% and up). Each ignored cycle doubles it,
+  capped at 24 h. Goal 20, 70+ tabs, nothing clicked: 0:00, 0:30, 2:00, 5:00,
+  11:00.
+- Reset to the starting period: engagement (open the list, tidy, Tidy or
+  Refresh), or tabs up by half the goal since the last nudge.
+- Cycle state lives in `chrome.storage.local`, so a restart does not re-nudge.
+- A list a nudge showed in the last 15 minutes opens as is; otherwise the
+  30-minute rule above applies when the panel opens.
+- Page-signal wait before a run is 1 s per tab (was 4 s). The check before
+  closing is unchanged.
+- Diagnostics add token totals, tab counts, nudge kind, band and doubling step.
+
+Verified: 169 unit tests; `panel-dom`, `panel-dom --popup` and `panel-intent`
+rendered runs with jsdom 29 (jsdom 16 does not settle). An independent review
+of `8d819ef` to `b34af87` found no path that closes tabs without a button
+press. Its four findings are fixed in `c85b297` to `4aae62a`: a late reminder
+followed at once by a new nudge, an AI user nudged with a stored local list,
+an AI run started by "See closed tabs", and a missing test for Tidy pressed
+during the panel-open run. Left as is: clock set backwards, and a goal changed
+mid-cycle.
+
+Not checked live (needs a reload; exports should say `proactive-trial-6`):
+first nudge and reminder timing, the two resets, no nudge after a restart
+inside a quiet period, the AI-unavailable path, the panel-open run, the 1 s
+capture, and token counts in an export. The deployed backend still has the
+smaller daily token budget.
