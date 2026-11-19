@@ -182,3 +182,36 @@ test('with AI on, a local list left by a failed panel-open run is never nudged',
 	assert.equal(f.plan.mode, 'heuristic', 'the local list stays available in the panel')
 	assert.equal(f.h.data.local.neatFreakDiagnostics.filter(entry => entry.event === 'nudge_shown').length, 0)
 })
+
+test('a Tidy press while the panel-open run is in flight drops that list; with review on nothing closes until confirmed', async t => {
+	const originalFetch = globalThis.fetch
+	globalThis.fetch = async () => { throw new Error('Simulated offline AI') }
+	t.after(() => { globalThis.fetch = originalFetch })
+	const f = await boot(t, null, { llmEnabled: true })
+	// Hold the panel-open run's page inspection so it is still in flight.
+	let release
+	const gate = new Promise(resolve => { release = resolve })
+	const execute = f.h.chrome.scripting.executeScript.bind(f.h.chrome.scripting)
+	let held = false
+	f.h.chrome.scripting.executeScript = async (options, callback) => {
+		if (!options.files && !held) { held = true; await gate }
+		return execute(options, callback)
+	}
+	const preparing = f.h.send({ type: 'PREPARE_RECOMMENDATION' })
+	for (let i = 0; i < 200 && !held; i++) await new Promise(resolve => setImmediate(resolve))
+	assert.equal(held, true, 'the panel-open run is in flight')
+	// The panel's press with nothing prepared and "Review before closing" on.
+	const saved = await f.h.send({ type: 'SAVE_TABS', options: { scope: 'smart', reviewBeforeClose: true, openManager: false } })
+	assert.equal(saved.ok, true, saved.error)
+	release()
+	const prepared = await preparing
+	assert.equal(prepared.ok, true, prepared.error)
+	assert.equal(prepared.superseded, true, 'the in-flight list is not returned to the panel')
+	assert.equal(f.plan ?? null, null, 'nor stored as an offer')
+	assert.equal(f.h.removed.length, 0, 'review on: nothing closes yet')
+	const session = f.h.data.local.tabAtlasSessions.find(item => item.closeStatus === 'review')
+	assert.ok(session, 'the press stopped at a review list')
+	const confirmed = await f.h.send({ type: 'PANEL_CONFIRM_REVIEW', sessionId: session.id, keepOpenSessionTabIds: [] })
+	assert.equal(confirmed.ok, true, confirmed.error)
+	assert.ok(f.h.removed.length > 0, 'closing happens only after PANEL_CONFIRM_REVIEW')
+})
