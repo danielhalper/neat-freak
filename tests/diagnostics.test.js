@@ -64,14 +64,14 @@ test('recording can be disabled and cleared; logging failures never poison later
 	assert.equal(diagnosticError(new Error('Something private')), 'unknown')
 })
 
-test('token totals, tab counts and nudge kind and backoff level are kept; anything else is dropped', async () => {
+test('token totals, tab counts, nudge kind, band and doubling step are kept; anything else is dropped', async () => {
 	const h = fixture()
 	await h.log.record('suggestion_prepared', { promptTokens: 9531, completionTokens: 236, tabCount: 72, discarded: true, title: 'Private' })
-	await h.log.record('nudge_shown', { nudgeKind: 'reminder', backoffLevel: 2, tabCount: 72 })
-	await h.log.record('nudge_shown', { nudgeKind: 'https://private.example.com', backoffLevel: '3', discarded: 'yes' })
+	await h.log.record('nudge_shown', { nudgeKind: 'reminder', quietBand: 'over-250', doublingStep: 2, tabCount: 72 })
+	await h.log.record('nudge_shown', { nudgeKind: 'https://private.example.com', quietBand: 'Private band', doublingStep: '3', discarded: 'yes' })
 	const [prepared, reminder, junk] = h.entries
 	assert.deepEqual([prepared.promptTokens, prepared.completionTokens, prepared.tabCount, prepared.discarded], [9531, 236, 72, true])
-	assert.deepEqual([reminder.nudgeKind, reminder.backoffLevel, reminder.tabCount], ['reminder', 2, 72])
+	assert.deepEqual([reminder.nudgeKind, reminder.quietBand, reminder.doublingStep, reminder.tabCount], ['reminder', 'over-250', 2, 72])
 	assert.deepEqual(Object.keys(junk).sort(), ['at', 'event'])
 	assert.doesNotMatch(JSON.stringify(h.entries), /Private|private/)
 })

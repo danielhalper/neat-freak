@@ -5,7 +5,7 @@ import { createRecommendationBudget } from "./recommendation-budget.js";
 import { aiPickFields, trimPlan } from "./tidy-plan.js";
 import {
   readCycle, nextNudgeStep, startRun, finishRun, markShown, markClosedByUser, markEngaged,
-  endCycle, backoffLevel, needsIntentRun
+  endCycle, needsIntentRun, OVER_GOAL_BANDS
 } from "./nudge-cycle.js";
 import { closeValidatedTabs } from "./safe-close.js";
 import { createDiagnostics, diagnosticError, diagnosticDetails, DIAGNOSTICS_KEY } from "./diagnostics.js";
@@ -1745,7 +1745,7 @@ async function checkClutterOnce() {
 async function nudgeContext({ settings, tabs, threshold, disabled, plan, state }) {
   const overThreshold = tabs.length >= threshold;
   return {
-    now: Date.now(), nudgesOn: !disabled, overThreshold, tabCount: tabs.length,
+    now: Date.now(), nudgesOn: !disabled, overThreshold, tabCount: tabs.length, goal: threshold,
     surfaceReady: await nudgeSurfaceReady(tabs),
     // A nudge card still on some tab (it pauses off-screen) never blocks the
     // cycle; an open panel, review, save or result does.
@@ -1759,8 +1759,8 @@ async function advanceNudgeCycle(input) {
   const ctx = await nudgeContext(input);
   const decision = await updateNudgeCycle(cycle => {
     const step = nextNudgeStep(cycle, ctx);
-    if (step.action === "end") return { step, cycle: endCycle(cycle, ctx.now, step) };
-    if (step.action === "run") return { step, cycle: startRun(cycle, ctx.now, step.trigger) };
+    if (step.action === "end") return { step, cycle: endCycle(cycle, step.at, step) };
+    if (step.action === "run") return { step, cycle: startRun(cycle, ctx.now, step) };
     return { step };
   });
   if (decision.step.action === "end") {
@@ -1779,7 +1779,7 @@ async function advanceNudgeCycle(input) {
     if (saveInFlight || revision !== recommendationUiRevision) {
       // A user action took over; it already set the cycle (engagement).
       await updateNudgeCycle(cycle => ({ cycle: cycle.phase === "running" && cycle.runStartedAt === runStartedAt
-        ? endCycle(cycle, Date.now(), { ignored: false }) : null }));
+        ? endCycle(cycle, Date.now(), { counted: false }) : null }));
       return;
     }
   }
@@ -1810,8 +1810,8 @@ async function showNudge(kind, { settings, tabs, plan }) {
   }));
   await diagnostics.record("nudge_shown", {
     run: plan?.id?.replace(/^plan-/, "run_"), suggestedCount: countOnly ? undefined : plan.tabs.length,
-    mode: countOnly ? undefined : plan.mode, nudgeKind: kind, backoffLevel: backoffLevel(cycle), tabCount: tabs.length,
-    cycleStart: cycle.cycleTrigger
+    mode: countOnly ? undefined : plan.mode, nudgeKind: kind, tabCount: tabs.length,
+    quietBand: OVER_GOAL_BANDS[cycle.startBand]?.name, doublingStep: cycle.startStep, cycleStart: cycle.cycleTrigger
   });
 }
 
