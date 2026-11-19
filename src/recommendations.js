@@ -70,7 +70,7 @@ export function createRecommendationService(deps) {
 		// blunt local lists were the trust problem. The last valid AI list stands.
 		const automaticAi = !force && Boolean(settings.llmEnabled)
 		if (automaticAi && deps.automaticAiAvailable && !(await deps.automaticAiAvailable())) {
-			await record('suggestion_prepared', { automatic: true, mode: 'heuristic', reason: 'background-limit', discarded: true, durationMs: now() - startedAt })
+			await record('suggestion_prepared', { automatic: true, mode: 'heuristic', reason: 'background-limit', discarded: true, durationMs: now() - startedAt, tabCount: snapshot.length })
 			return lastAiPlan()
 		}
 		const tabs = await deps.capture(snapshot.filter(tab => /^https?:/.test(tab.url || '') && !tab.active && !tab.pinned && !tab.incognito), settings)
@@ -79,7 +79,7 @@ export function createRecommendationService(deps) {
 			await record('suggestion_prepared', {
 				automatic: true, candidateCount: tabs.length, mode: 'heuristic', discarded: true,
 				reason: result.localReason || 'ai-unavailable', errorCode: result.errorCode,
-				durationMs: now() - startedAt, ...usageFields(result),
+				durationMs: now() - startedAt, tabCount: snapshot.length, ...usageFields(result),
 			})
 			return lastAiPlan()
 		}
@@ -102,6 +102,7 @@ export function createRecommendationService(deps) {
 				folderCount: next.categories.length, mode: next.mode,
 				reason: next.mode === 'llm' ? undefined : next.localReason,
 				errorCode: result.errorCode, durationMs: now() - startedAt,
+				tabCount: snapshot.length, ...usageFields(result),
 			})
 			// Opt-in tab habits log: every candidate and whether it was offered.
 			try { deps.prepared?.({ tabs, plan: next, automatic: !force, live: snapshot }) } catch { /* optional */ }

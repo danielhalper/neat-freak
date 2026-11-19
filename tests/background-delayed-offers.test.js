@@ -108,7 +108,7 @@ test('real message routes record useful local counts and failures, export withou
 	await f.h.send({ type: 'RESTORE_SESSION', sessionId: result.session.id })
 	await f.h.send({ type: 'RESTORE_SESSION', sessionId: 'missing' })
 	const report = (await f.h.send({ type: 'EXPORT_DIAGNOSTICS' })).diagnostics
-	assert.equal(report.build, 'proactive-trial-5')
+	assert.equal(report.build, 'proactive-trial-6')
 	assert.ok(report.entries.some(entry => entry.event === 'nudge_shown' && entry.suggestedCount === 7))
 	assert.ok(report.entries.some(entry => entry.event === 'keep_changed' && entry.keptCount === 1))
 	assert.ok(report.entries.some(entry => entry.event === 'close_finished' && entry.closedCount === 6))

@@ -346,3 +346,13 @@ test('explicit runs with AI on, and automatic runs with AI off, still prepare lo
 	const off = harness()
 	assert.equal((await off.service.refresh()).mode, 'heuristic')
 })
+
+test('a prepared suggestion records its token totals and the open tab count', async () => {
+	const h = harness()
+	const recorded = []
+	h.deps.record = async (event, fields) => { recorded.push({ event, ...fields }) }
+	h.deps.select = async tabs => ({ saveSet: tabs.slice(0, 1), categories: [], mode: 'llm', usage: { promptTokens: 900, completionTokens: 40 } })
+	await h.service.refresh()
+	const prepared = recorded.find(entry => entry.event === 'suggestion_prepared')
+	assert.deepEqual([prepared.promptTokens, prepared.completionTokens, prepared.tabCount], [900, 40, 3])
+})

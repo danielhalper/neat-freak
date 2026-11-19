@@ -714,7 +714,10 @@ async function runLlmPath(tabs, graph, settings, now, floorContext = {}) {
     const content = data?.choices?.[0]?.message?.content || "{}";
     const parsed = JSON.parse(content);
     const { modelPicks, ...standard } = expandCompactResponse(parsed, request.tabIdByShortId, tabs, now);
-    return { ...parseSmartScopeResponse(standard, tabs, graph, now, floorContext), modelPicks };
+    // Token totals for diagnostics; counts only, never content.
+    const usage = Number.isFinite(data?.usage?.prompt_tokens) || Number.isFinite(data?.usage?.completion_tokens)
+      ? { promptTokens: data.usage.prompt_tokens, completionTokens: data.usage.completion_tokens } : undefined;
+    return { ...parseSmartScopeResponse(standard, tabs, graph, now, floorContext), modelPicks, ...(usage ? { usage } : {}) };
   } finally {
     clearTimeout(timeout);
   }

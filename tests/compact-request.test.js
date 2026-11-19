@@ -159,3 +159,14 @@ test('manual Smart gives up on the model after 25 seconds and tidies locally', a
 	assert.ok(delays.length > 0)
 	assert.ok(Math.max(...delays) <= 25_000, `model wait was ${Math.max(...delays)} ms`)
 })
+
+test('the model run reports its token totals, and nothing else from the response', async t => {
+	const original = globalThis.fetch
+	t.after(() => { globalThis.fetch = original })
+	globalThis.fetch = async () => ({ ok: true, json: async () => ({
+		usage: { prompt_tokens: 5267, completion_tokens: 236, total_tokens: 5503 },
+		choices: [{ message: { content: JSON.stringify({ groups: [{ name: 'Old research', tabIds: ['1'] }] }) } }],
+	}) })
+	const result = await runSmartScope([tab(1), tab(2)], { llmEnabled: true, backendUrl: 'https://synthetic.invalid' }, { proactive: true, now: NOW })
+	assert.deepEqual(result.usage, { promptTokens: 5267, completionTokens: 236 })
+})

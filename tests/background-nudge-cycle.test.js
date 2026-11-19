@@ -129,3 +129,13 @@ test('a suggestion run waits about 1 second per tab for page signals; the check 
 	await f.h.send({ type: 'EXECUTE_RECOMMENDATION', planId: f.plan.id })
 	assert.ok(timers.filter(ms => ms === 4000).length >= 7, 'the pre-close check keeps 4 seconds')
 })
+
+test('diagnostics mark the first nudge and the reminder, with the backoff level and tab count', async t => {
+	const f = await boot(t)
+	f.h.data.local.neatFreakNudgeCycle = { phase: 'quiet', quietUntil: 0, ignoredStreak: 1 }
+	await f.check()
+	f.rewind(REMINDER_DELAY_MS)
+	await f.check()
+	const shown = f.h.data.local.neatFreakDiagnostics.filter(entry => entry.event === 'nudge_shown')
+	assert.deepEqual(shown.map(entry => [entry.nudgeKind, entry.backoffLevel, entry.tabCount]), [['first', 1, 8], ['reminder', 1, 8]])
+})
