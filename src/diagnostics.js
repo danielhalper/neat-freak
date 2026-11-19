@@ -13,6 +13,7 @@ const enums = {
 	reason: new Set(['ai-off', 'ai-unavailable', 'background-limit', 'expired', 'empty', 'unavailable', 'replaced']),
 	errorCode: new Set(['timeout', 'connection', 'quota', 'storage', 'busy', 'suggestion-unavailable', 'invalid-session', 'unknown']),
 	nudgeKind: new Set(['first', 'reminder']),
+	cycleStart: new Set(['time', 'growth']),
 	errorType: new Set(['Error', 'TypeError', 'ReferenceError', 'SyntaxError', 'RangeError', 'AbortError', 'TimeoutError']),
 }
 

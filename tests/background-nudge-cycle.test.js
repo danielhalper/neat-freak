@@ -137,5 +137,20 @@ test('diagnostics mark the first nudge and the reminder, with the backoff level 
 	f.rewind(REMINDER_DELAY_MS)
 	await f.check()
 	const shown = f.h.data.local.neatFreakDiagnostics.filter(entry => entry.event === 'nudge_shown')
-	assert.deepEqual(shown.map(entry => [entry.nudgeKind, entry.backoffLevel, entry.tabCount]), [['first', 1, 8], ['reminder', 1, 8]])
+	assert.deepEqual(shown.map(entry => [entry.nudgeKind, entry.backoffLevel, entry.tabCount, entry.cycleStart]), [['first', 1, 8, 'time'], ['reminder', 1, 8, 'time']])
+})
+
+test('10 or more new tabs since the last nudge start a cycle after 90 minutes, inside a longer backoff', async t => {
+	const f = await boot(t)
+	const now = Date.now()
+	f.h.data.local.neatFreakNudgeCycle = { phase: 'quiet', ignoredStreak: 2, quietFrom: now - 91 * MIN, quietUntil: now + 89 * MIN, shownAt: now - 121 * MIN, shownTabCount: 8 }
+	await f.check()
+	assert.notEqual(f.state?.mode, 'clutter', 'without growth the 3-hour wait holds')
+	f.h.tabs.push(...Array.from({ length: 10 }, (_, i) => ({ id: 60 + i, windowId: 1, title: `New ${i}`, url: `https://example.test/new/${i}`, lastAccessed: Date.now() - 120 * MIN })))
+	await f.check()
+	assert.equal(f.state.mode, 'clutter')
+	const shown = f.h.data.local.neatFreakDiagnostics.filter(entry => entry.event === 'nudge_shown').at(-1)
+	assert.deepEqual([shown.cycleStart, shown.backoffLevel, shown.tabCount], ['growth', 2, 18])
+	assert.equal(f.cycle.ignoredStreak, 2, 'growth does not reset the backoff')
+	assert.equal(f.cycle.shownTabCount, 18)
 })

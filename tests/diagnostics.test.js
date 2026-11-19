@@ -75,3 +75,11 @@ test('token totals, tab counts and nudge kind and backoff level are kept; anythi
 	assert.deepEqual(Object.keys(junk).sort(), ['at', 'event'])
 	assert.doesNotMatch(JSON.stringify(h.entries), /Private|private/)
 })
+
+test('nudge_shown keeps whether the cycle started on time or on growth, and nothing else in that field', async () => {
+	const h = fixture()
+	await h.log.record('nudge_shown', { cycleStart: 'growth' })
+	await h.log.record('nudge_shown', { cycleStart: 'https://private.example.com' })
+	assert.equal(h.entries[0].cycleStart, 'growth')
+	assert.equal('cycleStart' in h.entries[1], false)
+})

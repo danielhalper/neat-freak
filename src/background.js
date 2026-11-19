@@ -1745,7 +1745,7 @@ async function checkClutterOnce() {
 async function nudgeContext({ settings, tabs, threshold, disabled, plan, state }) {
   const overThreshold = tabs.length >= threshold;
   return {
-    now: Date.now(), nudgesOn: !disabled, overThreshold,
+    now: Date.now(), nudgesOn: !disabled, overThreshold, tabCount: tabs.length,
     surfaceReady: await nudgeSurfaceReady(tabs),
     // A nudge card still on some tab (it pauses off-screen) never blocks the
     // cycle; an open panel, review, save or result does.
@@ -1760,7 +1760,7 @@ async function advanceNudgeCycle(input) {
   const decision = await updateNudgeCycle(cycle => {
     const step = nextNudgeStep(cycle, ctx);
     if (step.action === "end") return { step, cycle: endCycle(cycle, ctx.now, step) };
-    if (step.action === "run") return { step, cycle: startRun(cycle, ctx.now) };
+    if (step.action === "run") return { step, cycle: startRun(cycle, ctx.now, step.trigger) };
     return { step };
   });
   if (decision.step.action === "end") {
@@ -1806,11 +1806,12 @@ async function showNudge(kind, { settings, tabs, plan }) {
   if (!shown) return;
   await updateNudgeCycle(current => ({
     cycle: (kind === "first" ? current.phase === "pending" : current.phase === "nudged")
-      ? markShown(current, { now: Date.now(), kind, planId: plan?.id }) : null
+      ? markShown(current, { now: Date.now(), kind, planId: plan?.id, tabCount: tabs.length }) : null
   }));
   await diagnostics.record("nudge_shown", {
     run: plan?.id?.replace(/^plan-/, "run_"), suggestedCount: countOnly ? undefined : plan.tabs.length,
-    mode: countOnly ? undefined : plan.mode, nudgeKind: kind, backoffLevel: backoffLevel(cycle), tabCount: tabs.length
+    mode: countOnly ? undefined : plan.mode, nudgeKind: kind, backoffLevel: backoffLevel(cycle), tabCount: tabs.length,
+    cycleStart: cycle.cycleTrigger
   });
 }
 
