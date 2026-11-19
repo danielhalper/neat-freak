@@ -1,7 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import {
-	REMINDER_DELAY_MS, REMIND_EVERY_CYCLE, OVER_GOAL_BANDS, QUIET_CAP_MS, GROWTH_RESET_SHARE,
+	REMINDER_DELAY_MS, REMINDER_GRACE_MS, REMIND_EVERY_CYCLE, OVER_GOAL_BANDS, QUIET_CAP_MS, GROWTH_RESET_SHARE,
 	RUN_STALE_MS, LIST_FRESH_MS, SHOWN_LIST_FRESH_MS,
 	readCycle, bandFor, quietDue, nextNudgeStep, startRun, finishRun, markShown, markClosedByUser,
 	markEngaged, endCycle, needsIntentRun,
@@ -35,6 +35,7 @@ test('pacing numbers are named constants in one place', () => {
 	assert.equal(QUIET_CAP_MS, 24 * 60 * MIN)
 	assert.equal(GROWTH_RESET_SHARE, 0.5)
 	assert.equal(REMINDER_DELAY_MS, 30 * MIN)
+	assert.equal(REMINDER_GRACE_MS, 30 * MIN)
 	assert.equal(REMIND_EVERY_CYCLE, false)
 })
 
@@ -80,19 +81,41 @@ test('a run lost to a worker restart is abandoned after a while', () => {
 	assert.deepEqual(step(running, { now: T0 + RUN_STALE_MS + 1 }), { action: 'end', counted: false, at: T0 + RUN_STALE_MS + 1 })
 })
 
-test('the reminder comes at the 30-minute slot; the cycle ends at the slot whether or not it showed', () => {
+test('the reminder comes at the 30-minute slot, waits up to 30 more minutes for a usable page, and times quiet from when it shows', () => {
 	const nudged = markShown(finishRun(startRun(readCycle(undefined), T0, step(readCycle(undefined))), { now: T0, listCount: 5 }), { now: T0, kind: 'first', planId: 'plan-1', tabCount: 30 })
 	const slot = T0 + REMINDER_DELAY_MS
 	assert.deepEqual(step(nudged, { now: slot - 1 }), { action: 'none' })
 	assert.deepEqual(step(nudged, { now: slot }), { action: 'show', kind: 'reminder' })
-	assert.deepEqual(step(nudged, { now: slot + 5 * MIN, surfaceReady: false }), { action: 'end', counted: true, at: slot })
-	assert.deepEqual(step(nudged, { now: slot, panelBusy: true }), { action: 'end', counted: true, at: slot })
+	assert.deepEqual(step(nudged, { now: slot + 5 * MIN, surfaceReady: false }), { action: 'none' }, 'unfocused: wait inside the window')
+	assert.deepEqual(step(nudged, { now: slot, panelBusy: true }), { action: 'none' })
+	assert.deepEqual(step(nudged, { now: slot + 10 * MIN }), { action: 'show', kind: 'reminder' }, 'focused 10 minutes later: show it then')
+	const late = markShown(nudged, { now: slot + 10 * MIN, kind: 'reminder', planId: 'plan-1', tabCount: 30 })
+	assert.equal(late.phase, 'quiet')
+	assert.equal(late.quietFrom, slot + 10 * MIN, 'quiet is timed from when it showed')
+	assert.deepEqual(step(nudged, { now: slot + REMINDER_GRACE_MS + 1 }), { action: 'end', counted: true, at: slot }, 'past the window nothing shows')
 	assert.deepEqual(step(markClosedByUser(nudged), { now: slot }), { action: 'end', counted: true, at: slot }, 'closing by hand skips the reminder and is no engagement')
 	assert.deepEqual(step(nudged, { now: slot, listCount: 0 }), { action: 'end', counted: true, at: slot })
-	const reminded = markShown(nudged, { now: slot + 2 * MIN, kind: 'reminder', planId: 'plan-1', tabCount: 30 })
-	assert.equal(reminded.phase, 'quiet')
-	assert.equal(reminded.quietFrom, slot)
+	assert.deepEqual(step(nudged, { now: slot, overThreshold: false }), { action: 'end', counted: true, at: slot })
 	assert.equal(markClosedByUser(readCycle(undefined)).phase, 'idle', 'closing only counts on a shown nudge')
+})
+
+test('a laptop asleep through the reminder window gives one nudge on waking, not a late reminder plus a nudge', () => {
+	const at = (h, m = 0) => T0 + (h * 60 + m) * MIN
+	const asleep = { surfaceReady: false, panelBusy: false }
+	let cycle = finishRun(startRun(readCycle(undefined), at(18), step(readCycle(undefined), { now: at(18) })), { now: at(18), listCount: 1 })
+	cycle = markShown(cycle, { now: at(18), kind: 'first', planId: '', tabCount: 30 })
+	assert.deepEqual(step(cycle, { now: at(18, 10), ...asleep }), { action: 'none' })
+	const shown = []
+	let now = at(32) // 08:00 the next day
+	for (let i = 0; i < 4; i++) {
+		const next = step(cycle, { now })
+		if (next.action === 'end') cycle = endCycle(cycle, next.at, next)
+		else if (next.action === 'run') cycle = finishRun(startRun(cycle, now, next), { now, listCount: 1 })
+		else if (next.action === 'show') { shown.push([next.kind, now]); cycle = markShown(cycle, { now, kind: next.kind, planId: '', tabCount: 30 }) }
+		now += 1_000
+	}
+	assert.deepEqual(shown, [['first', at(32) + 2_000]], 'exactly one nudge at 08:00 and no reminder')
+	assert.equal(cycle.phase, 'quiet', 'a repeat cycle ends at its one nudge')
 })
 
 test('only the first cycle after a reset gets the reminder; a repeat cycle goes quiet when its nudge shows', () => {
