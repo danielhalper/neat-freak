@@ -436,9 +436,7 @@ async function saveTabs(options) {
     // count against the limit, so we compute against the global tab count.
     const allOpenTabs = await queryTabs({});
     const threshold = Number(settings.clutterThreshold) || 0;
-    const minSaveCount = threshold > 0
-      ? Math.max(0, allOpenTabs.length - (threshold - 1))
-      : 0;
+    const minSaveCount = goalTarget(allOpenTabs.length, threshold);
     smartResult = await runSmartScope(tabs, settings, {
       minSaveCount,
       totalOpenTabCount: allOpenTabs.length,
@@ -1350,6 +1348,12 @@ const recommendations = createRecommendationService({
   createId: () => createId("plan")
 });
 
+// Tabs to put away to end up under the goal: open tabs - (goal - 1). A target
+// for the AI and the cap for the top-up, never a requirement.
+function goalTarget(openTabCount, threshold) {
+  return threshold > 0 ? Math.max(0, openTabCount - (threshold - 1)) : 0;
+}
+
 async function selectRecommendation(tabs, settings, { automatic } = {}) {
   let localReason = settings.llmEnabled ? "ai-unavailable" : "ai-off";
   let resolved = settings;
@@ -1359,7 +1363,18 @@ async function selectRecommendation(tabs, settings, { automatic } = {}) {
       localReason = "background-limit";
     } else resolved = await resolveLlmSettings(settings);
   }
-  const result = await runSmartScope(tabs, resolved, { proactive: true });
+  // Automatic (nudge) lists stay cautious with no target: "Tidy now" on the
+  // nudge card closes without showing a list. Lists the user asks for (panel
+  // open, Refresh) aim at the tab goal, like a Tidy press.
+  let result;
+  if (automatic) result = await runSmartScope(tabs, resolved, { proactive: true });
+  else {
+    const allOpenTabs = await queryTabs({});
+    const threshold = Number(settings.clutterThreshold) || 0;
+    result = await runSmartScope(tabs, resolved, {
+      minSaveCount: goalTarget(allOpenTabs.length, threshold), totalOpenTabCount: allOpenTabs.length, clutterThreshold: threshold
+    });
+  }
   return { ...result, localReason, errorCode: result.error ? diagnosticError(result.error) : undefined };
 }
 
@@ -1703,11 +1718,12 @@ async function noteNudgeEngagement() {
   await updateNudgeCycle(cycle => ({ cycle: markEngaged(cycle, Date.now()) })).catch(() => undefined);
 }
 
-// For a user whose suggestions come from AI, only an AI list is ever nudged;
+// Only an automatic (cautious) list is nudged. For a user whose suggestions
+// come from AI, only an AI list is ever nudged;
 // a local list (from a user-initiated run whose AI call failed) stays in the
 // panel for Review but counts as nothing to show.
 function nudgeableCount(plan, settings) {
-  if (!plan || plan.expired) return 0;
+  if (!plan || plan.expired || plan.requested) return 0; // a target list is never nudged
   if (settings.llmEnabled && plan.mode !== "llm") return 0;
   return plan.tabs.length;
 }

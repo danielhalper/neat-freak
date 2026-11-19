@@ -57,12 +57,14 @@ export function createRecommendationService(deps) {
 		const inputKey = recommendationInputKey(snapshot, now())
 		const reserved = await mutate(async () => {
 			const state = await readState()
-			if (!force && state.plan?.settingsKey === settingsIdentity(settings)
+			// An automatic run reuses only an automatic list; a list the user
+			// asked for aims at the goal and is never what a nudge offers.
+			if (!force && state.plan?.settingsKey === settingsIdentity(settings) && !state.plan.requested
 				&& state.inputKey === inputKey && now() - state.plan.createdAt < PLAN_MAX_AGE_MS) return false
 			const interval = force ? MANUAL_REFRESH_MS : PLAN_REFRESH_MS
 			const last = force ? state.lastExplicitAttemptAt : state.lastAttemptAt
 			if (last && now() - last < interval) return false
-			await deps.write({ ...state, lastAttemptAt: now(), ...(force ? { lastExplicitAttemptAt: now() } : {}) })
+			await deps.write({ ...state, ...(force ? { lastExplicitAttemptAt: now() } : { lastAttemptAt: now() }) })
 			return true
 		})
 		// With AI on, an automatic run that cannot use the AI prepares nothing:
@@ -89,6 +91,8 @@ export function createRecommendationService(deps) {
 			snapshot: snapshot.map(tab => ({ id: tab.id, url: tab.url })),
 			tabs: result.saveSet, categories: result.categories,
 			mode: result.mode, error: result.error || '', stale: false, ...aiPickFields(result, tabs),
+			// true: the user asked for it (panel open, Refresh), so it aims at the goal.
+			requested: Boolean(force),
 			localReason: result.localReason || (settings.llmEnabled ? 'ai-unavailable' : 'ai-off'),
 			reviewRequired: result.mode !== 'llm', reviewed: false,
 		}
@@ -104,6 +108,7 @@ export function createRecommendationService(deps) {
 				reason: next.mode === 'llm' ? undefined : next.localReason,
 				errorCode: result.errorCode, durationMs: now() - startedAt,
 				tabCount: snapshot.length, ...usageFields(result),
+				targetCount: result.targetCount, floorAdded: result.floorAdded,
 			})
 			// Opt-in tab habits log: every candidate and whether it was offered.
 			try { deps.prepared?.({ tabs, plan: next, automatic: !force, live: snapshot }) } catch { /* optional */ }
@@ -113,7 +118,7 @@ export function createRecommendationService(deps) {
 
 	async function lastAiPlan() {
 		const plan = await get()
-		return plan && plan.mode === 'llm' && !plan.expired && plan.tabs.length ? plan : null
+		return plan && plan.mode === 'llm' && !plan.requested && !plan.expired && plan.tabs.length ? plan : null
 	}
 
 	async function refresh({ force = false } = {}) {

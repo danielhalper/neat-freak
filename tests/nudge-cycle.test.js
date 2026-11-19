@@ -216,18 +216,19 @@ test('ending without a cycle keeps the doubling where it was', () => {
 	assert.equal(quietMinutes(cycle), 210)
 })
 
-test('opening the panel starts a fresh AI run only when the list is missing or old, unless a nudge just showed it', () => {
+test('opening the panel reuses a list a nudge just showed, or a list the user asked for under 30 minutes old; otherwise it runs', () => {
 	const plan = (ageMs, extra = {}) => ({ id: 'plan-1', createdAt: T0 - ageMs, expired: false, tabs: [{}], ...extra })
 	const cycle = readCycle(undefined)
 	assert.equal(needsIntentRun({ aiOn: false, plan: null, now: T0, cycle }), false)
 	assert.equal(needsIntentRun({ aiOn: true, plan: null, now: T0, cycle }), true)
-	assert.equal(needsIntentRun({ aiOn: true, plan: plan(10 * MIN), now: T0, cycle }), false)
-	assert.equal(needsIntentRun({ aiOn: true, plan: plan(LIST_FRESH_MS + 1), now: T0, cycle }), true)
 	assert.equal(needsIntentRun({ aiOn: true, plan: plan(10 * MIN, { expired: true }), now: T0, cycle }), true)
-	const remindedRecently = { ...cycle, shownAt: T0 - 5 * MIN, shownPlanId: 'plan-1' }
-	assert.equal(needsIntentRun({ aiOn: true, plan: plan(35 * MIN), now: T0, cycle: remindedRecently }), false)
-	const remindedLongAgo = { ...cycle, shownAt: T0 - SHOWN_LIST_FRESH_MS - 1, shownPlanId: 'plan-1' }
-	assert.equal(needsIntentRun({ aiOn: true, plan: plan(35 * MIN), now: T0, cycle: remindedLongAgo }), true)
+	assert.equal(needsIntentRun({ aiOn: true, plan: plan(5 * MIN), now: T0, cycle }), true, 'a fresh automatic list is not a target list')
+	assert.equal(needsIntentRun({ aiOn: true, plan: plan(10 * MIN, { requested: true }), now: T0, cycle }), false)
+	assert.equal(needsIntentRun({ aiOn: true, plan: plan(LIST_FRESH_MS + 1, { requested: true }), now: T0, cycle }), true)
+	const shownRecently = { ...cycle, shownAt: T0 - 5 * MIN, shownPlanId: 'plan-1' }
+	assert.equal(needsIntentRun({ aiOn: true, plan: plan(35 * MIN), now: T0, cycle: shownRecently }), false, 'clicking a nudge opens its list at once')
+	const shownLongAgo = { ...cycle, shownAt: T0 - SHOWN_LIST_FRESH_MS - 1, shownPlanId: 'plan-1' }
+	assert.equal(needsIntentRun({ aiOn: true, plan: plan(20 * MIN), now: T0, cycle: shownLongAgo }), true)
 	const otherPlan = { ...cycle, shownAt: T0 - 5 * MIN, shownPlanId: 'plan-0' }
-	assert.equal(needsIntentRun({ aiOn: true, plan: plan(35 * MIN), now: T0, cycle: otherPlan }), true)
+	assert.equal(needsIntentRun({ aiOn: true, plan: plan(10 * MIN), now: T0, cycle: otherPlan }), true)
 })
