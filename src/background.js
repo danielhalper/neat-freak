@@ -1703,6 +1703,15 @@ async function noteNudgeEngagement() {
   await updateNudgeCycle(cycle => ({ cycle: markEngaged(cycle, Date.now()) })).catch(() => undefined);
 }
 
+// For a user whose suggestions come from AI, only an AI list is ever nudged;
+// a local list (from a user-initiated run whose AI call failed) stays in the
+// panel for Review but counts as nothing to show.
+function nudgeableCount(plan, settings) {
+  if (!plan || plan.expired) return 0;
+  if (settings.llmEnabled && plan.mode !== "llm") return 0;
+  return plan.tabs.length;
+}
+
 async function nudgeSurfaceReady(tabs) {
   const focused = await chrome.windows.getLastFocused();
   if (!focused?.focused) return false;
@@ -1750,8 +1759,7 @@ async function nudgeContext({ settings, tabs, threshold, disabled, plan, state }
     // A nudge card still on some tab (it pauses off-screen) never blocks the
     // cycle; an open panel, review, save or result does.
     panelBusy: !["hidden", "clutter"].includes(state.mode),
-    listCount: !settings.prepareSuggestions ? Number(overThreshold)
-      : plan && !plan.expired ? plan.tabs.length : 0
+    listCount: !settings.prepareSuggestions ? Number(overThreshold) : nudgeableCount(plan, settings)
   };
 }
 
@@ -1783,7 +1791,7 @@ async function advanceNudgeCycle(input) {
       return;
     }
   }
-  const listCount = !input.settings.prepareSuggestions ? 1 : plan && !plan.expired ? plan.tabs.length : 0;
+  const listCount = !input.settings.prepareSuggestions ? 1 : nudgeableCount(plan, input.settings);
   await updateNudgeCycle(cycle => ({ cycle: cycle.phase === "running" && cycle.runStartedAt === runStartedAt
     ? finishRun(cycle, { now: Date.now(), listCount }) : null }));
   // Show it now if the page and panel still allow; otherwise the list waits
@@ -1798,7 +1806,7 @@ async function advanceNudgeCycle(input) {
 
 async function showNudge(kind, { settings, tabs, plan }) {
   const countOnly = !settings.prepareSuggestions;
-  if (!countOnly && (!plan || plan.expired || !plan.tabs.length)) return;
+  if (!countOnly && !nudgeableCount(plan, settings)) return;
   const cycle = await readNudgeCycle();
   const shown = await setPanelState(countOnly
     ? { mode: "clutter", tabCount: tabs.length, needsPreparation: true }

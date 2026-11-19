@@ -65,10 +65,11 @@ export function createRecommendationService(deps) {
 			await deps.write({ ...state, lastAttemptAt: now(), ...(force ? { lastExplicitAttemptAt: now() } : {}) })
 			return true
 		})
-		if (!reserved) return get()
 		// With AI on, an automatic run that cannot use the AI prepares nothing:
-		// blunt local lists were the trust problem. The last valid AI list stands.
+		// blunt local lists were the trust problem. The last valid AI list stands,
+		// including when a recent run is reused (never a stored local list).
 		const automaticAi = !force && Boolean(settings.llmEnabled)
+		if (!reserved) return automaticAi ? lastAiPlan() : get()
 		if (automaticAi && deps.automaticAiAvailable && !(await deps.automaticAiAvailable())) {
 			await record('suggestion_prepared', { automatic: true, mode: 'heuristic', reason: 'background-limit', discarded: true, durationMs: now() - startedAt, tabCount: snapshot.length })
 			return lastAiPlan()

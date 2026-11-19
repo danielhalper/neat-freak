@@ -5,7 +5,7 @@ import { REMINDER_DELAY_MS, OVER_GOAL_BANDS } from '../src/nudge-cycle.js'
 
 const MIN = 60_000
 
-async function boot(t, h = null) {
+async function boot(t, h = null, settings = {}) {
 	const timers = []
 	const originalTimeout = globalThis.setTimeout
 	globalThis.setTimeout = (fn, ms) => { timers.push({ fn, ms }); return timers.length }
@@ -14,6 +14,7 @@ async function boot(t, h = null) {
 		url: `https://example.test/article/${i}`, lastAccessed: Date.now() - 120 * 60_000,
 	})) })
 	h.data.local.tabAtlasSettings.prepareSuggestions = true
+	Object.assign(h.data.local.tabAtlasSettings, settings)
 	globalThis.chrome = h.chrome
 	t.after(() => { globalThis.setTimeout = originalTimeout; delete globalThis.chrome })
 	await import(`../src/background.js?cycle=${Math.random()}`)
@@ -164,4 +165,20 @@ test('growth of half the goal since the last nudge resets the doubling to the st
 	assert.deepEqual([shown.cycleStart, shown.quietBand, shown.doublingStep, shown.tabCount], ['growth', '100-250', 0, 11])
 	assert.equal(f.cycle.ignoredStreak, 0, 'growth resets the doubling')
 	assert.equal(f.cycle.shownTabCount, 11)
+})
+
+test('with AI on, a local list left by a failed panel-open run is never nudged', async t => {
+	const originalFetch = globalThis.fetch
+	globalThis.fetch = async () => { throw new Error('Simulated offline AI') }
+	t.after(() => { globalThis.fetch = originalFetch })
+	const f = await boot(t, null, { llmEnabled: true })
+	const opened = await f.h.send({ type: 'PREPARE_RECOMMENDATION' })
+	assert.equal(opened.ok, true, opened.error)
+	assert.equal(opened.recommendation.local, true, 'the user-initiated run keeps its local fallback for Review')
+	await f.check()
+	assert.notEqual(f.state?.mode, 'clutter', 'the automatic cycle does not nudge a local list for an AI user')
+	assert.equal(f.cycle.phase, 'quiet')
+	assert.equal(f.cycle.ignoredStreak, 0, 'nothing to show: the cycle ends uncounted')
+	assert.equal(f.plan.mode, 'heuristic', 'the local list stays available in the panel')
+	assert.equal(f.h.data.local.neatFreakDiagnostics.filter(entry => entry.event === 'nudge_shown').length, 0)
 })
