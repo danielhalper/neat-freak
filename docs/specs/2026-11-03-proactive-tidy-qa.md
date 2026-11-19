@@ -321,4 +321,41 @@ Found:
   the small card); checked in headless Chrome, not yet in the reloaded extension.
 
 Not checked live: the folded nudge card's look on a real page, and the
-“ready to tidy” straight close (no AI list arrived). Nothing has been pushed.
+“ready to tidy” straight close (no AI list arrived). Pushed as `bb4fc7c`.
+
+## November 16–17: timeout fix, live check (build proactive-trial-5)
+
+Covers `ca72b99` (compact background request), `2ebe708` (manual Smart uses it
+too) and `c7746f1` (habits log records AI picks). Reloaded unpacked extension.
+Evidence: diagnostics and tab-habits exports on both days, and one panel pass
+on a test tab on Nov 17.
+
+Background runs, Nov 16 10:05 to Nov 17 00:47 PST (19 runs, 36–70 candidates):
+
+- No timeouts. 14 runs used AI and took 1.5–22.2 s (median 7.7 s; the slowest
+  was 3 s inside the 25 s deadline).
+- Only 2 of the 19 runs showed a nudge (10:05 and 10:52). The other 17 were
+  silent refreshes of a list nobody was looking at.
+- 5 runs in a row (13:32–15:48) were local picks with reason
+  `background-limit`: the eight automatic AI attempts per UTC day were used up
+  by early afternoon and came back at 16:00 local. Local lists suggested 29–44
+  of 62–70 candidates; AI lists suggested 1–29 of 36–70.
+- AI picks vary on the same tabs. Six runs at 70 candidates suggested 13, 9, 7,
+  7, 29 and 8. In the 29 run the habits log shows the model picking 40 of the
+  43 tabs it tracked, before the guards.
+- In at least 7 runs the AI picked tabs with unsaved form input. The draft
+  guard held every one back.
+- None of these lists was opened, so there are no outcomes or labels yet and
+  `eval/behavior-rules.js` reports no accuracy.
+
+Manual press, Nov 17 (10 eligible tabs, nothing prepared, review on):
+
+- “Checking your tabs” showed at once and the list opened in 4.6 s: 3 tabs in
+  one named folder, Cancel and Tidy now. Cancel closed the panel; no tab closed.
+- The habits log recorded it as a manual AI run (10 candidates, 3 picked, 3
+  offered) and section 2b of the eval now has rows.
+- The loaded build carries the done-card toggle rule (`:not(.expanded)`).
+
+Not checked live: the folded nudge card with a prepared list (none was
+prepared at 10 tabs), the “ready to tidy” straight close, and the done-card
+toggle on screen (needs a real tidy).
