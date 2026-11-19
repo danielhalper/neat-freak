@@ -585,11 +585,11 @@ function getSkipReason(tab, options) {
   return "";
 }
 
-async function buildSavedTabs(tabs, settings) {
+async function buildSavedTabs(tabs, settings, { signalTimeoutMs } = {}) {
   return mapLimit(tabs, 8, async (tab) => {
     const domain = getDomain(tab.url);
     const signals = !tab.discarded && tab.url?.startsWith("http")
-      ? await getPageSignals(tab.id, settings.collectPageSummaries ? settings.maxSnippetChars : 0).catch(() => ({ summary: "", signalsUnavailable: !tab.discarded }))
+      ? await getPageSignals(tab.id, settings.collectPageSummaries ? settings.maxSnippetChars : 0, signalTimeoutMs).catch(() => ({ summary: "", signalsUnavailable: !tab.discarded }))
       : { summary: "", hasUnsavedInput: false };
 
     return {
@@ -618,10 +618,14 @@ async function buildSavedTabs(tabs, settings) {
   });
 }
 
-async function getPageSignals(tabId, maxChars) {
-  // Cap per-tab extraction at 4 seconds. If a tab is unresponsive (restricted
-  // page, suspended, slow-loading), we'd rather skip its signals than hang the
-  // entire save flow.
+// Suggestion runs wait about 1 second per tab; a tab that does not answer is
+// left off the list (signalsUnavailable). Saves and the check right before
+// closing keep the 4-second wait.
+const SUGGESTION_SIGNAL_TIMEOUT_MS = 1000;
+
+async function getPageSignals(tabId, maxChars, timeoutMs = 4000) {
+  // Cap per-tab extraction. If a tab is unresponsive (restricted page,
+  // suspended, slow-loading), we'd rather skip its signals than hang the flow.
   const scriptPromise = executeScript({
     target: { tabId, allFrames: true },
     func: collectPageSignals,
@@ -632,7 +636,7 @@ async function getPageSignals(tabId, maxChars) {
   try {
     result = await Promise.race([
       scriptPromise,
-      new Promise(resolve => { timer = setTimeout(() => resolve(null), 4000); })
+      new Promise(resolve => { timer = setTimeout(() => resolve(null), timeoutMs); })
     ]);
   } finally { clearTimeout(timer); }
   const signals = result?.find?.(item => item.frameId === 0)?.result;
@@ -1338,8 +1342,9 @@ const recommendations = createRecommendationService({
   write: value => chrome.storage.session.set({ [RECOMMENDATION_KEY]: value }),
   settings: getSettings,
   queryTabs: async () => (await queryTabs({})).filter(tab => !tab.incognito),
-  capture: buildSavedTabs,
+  capture: (tabs, settings) => buildSavedTabs(tabs, settings, { signalTimeoutMs: SUGGESTION_SIGNAL_TIMEOUT_MS }),
   select: selectRecommendation,
+  automaticAiAvailable: () => recommendationBudget.available().catch(() => false),
   record: diagnostics.record,
   prepared: ({ tabs, plan, automatic, live }) => behaviorLog.offerSnapshot(tabs, plan, { automatic, live, signals: heuristicSignals }),
   createId: () => createId("plan")

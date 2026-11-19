@@ -305,3 +305,44 @@ test('LLM proactive request uses the same categorizer, keeps omitted actions, an
 	assert.equal(fallback.saveSet.some(tab => tab.originalTabId === 3), false)
 	assert.equal(fallback.error, 'offline')
 })
+
+test('with AI on, a failed automatic AI run prepares no local list and keeps the last valid AI list', async () => {
+	const h = harness()
+	h.settings = { llmEnabled: true }
+	h.deps.select = async tabs => ({ saveSet: tabs.slice(0, 1), categories: [], mode: 'llm' })
+	const ai = await h.service.refresh()
+	assert.equal(ai.mode, 'llm')
+	h.deps.select = async tabs => ({ saveSet: tabs, categories: [], mode: 'heuristic', error: 'timeout', localReason: 'ai-unavailable' })
+	h.advance(PLAN_REFRESH_MS)
+	h.tabs = [...h.tabs, live(4)]
+	const kept = await h.service.refresh()
+	assert.equal(kept.id, ai.id, 'the last AI list stands')
+	assert.equal(h.state.plan.mode, 'llm')
+	h.advance(PLAN_MAX_AGE_MS)
+	assert.equal(await h.service.refresh(), null, 'an expired AI list is not replaced by a local one')
+	assert.notEqual(h.state.plan?.mode, 'heuristic')
+})
+
+test('with AI on and the automatic cap reached, no pages are inspected and no list is prepared', async () => {
+	const h = harness()
+	h.settings = { llmEnabled: true }
+	let captured = 0
+	const capture = h.deps.capture
+	h.deps.capture = async (...args) => { captured++; return capture(...args) }
+	h.deps.automaticAiAvailable = async () => false
+	assert.equal(await h.service.refresh(), null)
+	assert.equal(captured, 0)
+	assert.equal(h.calls, 0)
+	assert.equal(h.state.plan ?? null, null)
+})
+
+test('explicit runs with AI on, and automatic runs with AI off, still prepare local lists', async () => {
+	const h = harness()
+	h.settings = { llmEnabled: true }
+	h.deps.select = async tabs => ({ saveSet: tabs, categories: [], mode: 'heuristic', localReason: 'ai-unavailable' })
+	const explicit = await h.service.refresh({ force: true })
+	assert.equal(explicit.mode, 'heuristic')
+	assert.equal(explicit.reviewRequired, true)
+	const off = harness()
+	assert.equal((await off.service.refresh()).mode, 'heuristic')
+})

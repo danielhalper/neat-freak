@@ -3,6 +3,12 @@ import {
 	settingsIdentity, excludeFromPlan, tabIdentity, recommendationInputKey, aiPickFields,
 } from './tidy-plan.js'
 
+// Token totals from the AI response (counts only, never content).
+function usageFields(result) {
+	const usage = result?.usage
+	return usage ? { promptTokens: usage.promptTokens, completionTokens: usage.completionTokens } : {}
+}
+
 // Dependency injection keeps MV3 lifecycle, concurrent refreshes and delayed
 // clicks testable without changing the shipped algorithm or mocking its output.
 export function createRecommendationService(deps) {
@@ -60,8 +66,23 @@ export function createRecommendationService(deps) {
 			return true
 		})
 		if (!reserved) return get()
+		// With AI on, an automatic run that cannot use the AI prepares nothing:
+		// blunt local lists were the trust problem. The last valid AI list stands.
+		const automaticAi = !force && Boolean(settings.llmEnabled)
+		if (automaticAi && deps.automaticAiAvailable && !(await deps.automaticAiAvailable())) {
+			await record('suggestion_prepared', { automatic: true, mode: 'heuristic', reason: 'background-limit', discarded: true, durationMs: now() - startedAt })
+			return lastAiPlan()
+		}
 		const tabs = await deps.capture(snapshot.filter(tab => /^https?:/.test(tab.url || '') && !tab.active && !tab.pinned && !tab.incognito), settings)
 		const result = await deps.select(tabs, settings, { automatic: !force })
+		if (automaticAi && result.mode !== 'llm') {
+			await record('suggestion_prepared', {
+				automatic: true, candidateCount: tabs.length, mode: 'heuristic', discarded: true,
+				reason: result.localReason || 'ai-unavailable', errorCode: result.errorCode,
+				durationMs: now() - startedAt, ...usageFields(result),
+			})
+			return lastAiPlan()
+		}
 		const plan = {
 			id: deps.createId(), createdAt: now(), settingsKey: settingsIdentity(settings),
 			snapshot: snapshot.map(tab => ({ id: tab.id, url: tab.url })),
@@ -86,6 +107,11 @@ export function createRecommendationService(deps) {
 			try { deps.prepared?.({ tabs, plan: next, automatic: !force, live: snapshot }) } catch { /* optional */ }
 			return next
 		})
+	}
+
+	async function lastAiPlan() {
+		const plan = await get()
+		return plan && plan.mode === 'llm' && !plan.expired && plan.tabs.length ? plan : null
 	}
 
 	async function refresh({ force = false } = {}) {

@@ -115,3 +115,17 @@ test('a list that could not be shown waits for a usable page instead of re-runni
 	assert.equal(f.cycle.phase, 'nudged')
 	assert.equal(f.h.probes.length, probes)
 })
+
+test('a suggestion run waits about 1 second per tab for page signals; the check before closing still waits 4', async t => {
+	const f = await boot(t)
+	const timers = []
+	const capture = globalThis.setTimeout
+	globalThis.setTimeout = (fn, ms) => { timers.push(ms); return capture(fn, ms) }
+	await f.check()
+	assert.ok(timers.filter(ms => ms === 1000).length >= 7, 'one 1-second wait per inspected tab')
+	assert.equal(timers.filter(ms => ms === 4000).length, 0)
+	await f.h.send({ type: 'REVIEW_RECOMMENDATION', planId: f.plan.id })
+	timers.length = 0
+	await f.h.send({ type: 'EXECUTE_RECOMMENDATION', planId: f.plan.id })
+	assert.ok(timers.filter(ms => ms === 4000).length >= 7, 'the pre-close check keeps 4 seconds')
+})

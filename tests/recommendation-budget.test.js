@@ -25,3 +25,13 @@ test('failed budget storage never grants an automatic AI request or poisons late
 	fail = false
 	assert.equal(await budget.reserve(), true)
 })
+
+test('the automatic AI cap is 12 a day and can be checked without spending an attempt', async () => {
+	let state
+	const budget = createRecommendationBudget({ read: async () => state, write: async value => { state = value }, now: () => Date.UTC(2026, 10, 18, 12) })
+	assert.equal(AUTOMATIC_AI_LIMIT, 12)
+	assert.equal(await budget.available(), true)
+	assert.equal(state, undefined, 'checking spends nothing')
+	for (let i = 0; i < AUTOMATIC_AI_LIMIT; i++) await budget.reserve()
+	assert.equal(await budget.available(), false)
+})

@@ -3,7 +3,7 @@ import assert from 'node:assert/strict'
 import { createChromeHarness } from './helpers/chrome-harness.js'
 import { AUTOMATIC_AI_LIMIT } from '../src/recommendation-budget.js'
 
-test('background AI cap falls back visibly; explicit refresh can still use AI and close the prepared offer', async t => {
+test('background AI cap prepares nothing for AI users; explicit refresh can still use AI and close the prepared offer', async t => {
 	const timers = []
 	const originalTimeout = globalThis.setTimeout
 	const originalFetch = globalThis.fetch
@@ -22,13 +22,12 @@ test('background AI cap falls back visibly; explicit refresh can still use AI an
 	await import(`../src/background.js?policy=${Date.now()}`)
 	await timers.find(timer => timer.ms === 3000).fn()
 	assert.equal(requests, 0)
-	const local = h.data.session.neatFreakPanelState
-	assert.equal(local.local, true)
-	assert.equal(local.localReason, 'background-limit')
-	assert.equal(local.reviewRequired, true)
-	const denied = await h.send({ type: 'EXECUTE_RECOMMENDATION', planId: local.planId })
+	assert.equal(h.probes.length, 0, 'no pages are inspected once the automatic AI cap is reached')
+	assert.equal(h.data.session.neatFreakRecommendation?.plan ?? null, null, 'with AI on, no local list is prepared')
+	assert.notEqual(h.data.session.neatFreakPanelState?.mode, 'clutter', 'and nothing to nudge with')
+	assert.equal(h.data.local.neatFreakNudgeCycle.phase, 'quiet')
+	const denied = await h.send({ type: 'EXECUTE_RECOMMENDATION', planId: 'plan-none' })
 	assert.equal(denied.ok, false)
-	assert.match(denied.error, /Review/)
 	assert.equal(h.removed.length, 0)
 
 	globalThis.fetch = async (url, options) => {
