@@ -1,7 +1,7 @@
 // Local, bounded diagnostics. Never pass arbitrary payloads into the journal.
 import { OVER_GOAL_BANDS } from './nudge-cycle.js'
 export const DIAGNOSTICS_KEY = 'neatFreakDiagnostics'
-export const DIAGNOSTICS_BUILD = 'proactive-trial-7'
+export const DIAGNOSTICS_BUILD = 'proactive-trial-8'
 export const DIAGNOSTICS_LIMIT = 500
 export const DIAGNOSTICS_MAX_AGE_MS = 7 * 24 * 60 * 60_000
 

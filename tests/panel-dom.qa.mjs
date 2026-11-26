@@ -158,7 +158,7 @@ try {
 	settingsDoc.getElementById('export-diagnostics').click()
 	await settle(() => exportedBlob, 'diagnostics download')
 	const report = JSON.parse(await exportedBlob.text())
-	assert.equal(report.build, 'proactive-trial-7')
+	assert.equal(report.build, 'proactive-trial-8')
 	assert.equal(report.extensionVersion, '1.3.0')
 	assert.ok(report.entries.some(entry => entry.event === 'close_finished' && entry.closedCount === 9))
 	assert.doesNotMatch(JSON.stringify(report), /furniture\.example|travel\.example|Current workspace/)
