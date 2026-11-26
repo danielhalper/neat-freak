@@ -1363,18 +1363,18 @@ async function selectRecommendation(tabs, settings, { automatic } = {}) {
       localReason = "background-limit";
     } else resolved = await resolveLlmSettings(settings);
   }
-  // Automatic (nudge) lists stay cautious with no target: "Tidy now" on the
-  // nudge card closes without showing a list. Lists the user asks for (panel
-  // open, Refresh) aim at the tab goal, like a Tidy press.
-  let result;
-  if (automatic) result = await runSmartScope(tabs, resolved, { proactive: true });
-  else {
-    const allOpenTabs = await queryTabs({});
-    const threshold = Number(settings.clutterThreshold) || 0;
-    result = await runSmartScope(tabs, resolved, {
-      minSaveCount: goalTarget(allOpenTabs.length, threshold), totalOpenTabCount: allOpenTabs.length, clutterThreshold: threshold
-    });
-  }
+  // Every list aims at the tab goal, within reason: nudge (automatic) lists
+  // and lists the user asks for (panel open, Refresh) alike. The same limits
+  // apply to both (see smart-scope.js): the top-up adds only tabs idle 3 h+,
+  // never protected or recently used tabs, and stops short when safe tabs run
+  // out. proactive marks a nudge: its request says the user has not pressed
+  // anything, and it never gets the heuristic's 40% fallback.
+  const allOpenTabs = await queryTabs({});
+  const threshold = Number(settings.clutterThreshold) || 0;
+  const result = await runSmartScope(tabs, resolved, {
+    proactive: Boolean(automatic),
+    minSaveCount: goalTarget(allOpenTabs.length, threshold), totalOpenTabCount: allOpenTabs.length, clutterThreshold: threshold
+  });
   return { ...result, localReason, errorCode: result.error ? diagnosticError(result.error) : undefined };
 }
 

@@ -4,8 +4,9 @@ import { runSmartScope, buildCompactRequest, FLOOR_MIN_IDLE_MIN } from '../src/s
 import { buildAssociationGraph } from '../src/categorizer.js'
 import { createChromeHarness } from './helpers/chrome-harness.js'
 
-// Lists the user asks for (panel open, Refresh, Tidy with nothing prepared)
-// aim at the tab goal; automatic nudge lists stay cautious with no target.
+// Every list aims at the tab goal, within reason: lists the user asks for
+// (panel open, Refresh, Tidy with nothing prepared) and automatic nudge lists.
+// Nudge requests say the user has not pressed anything yet.
 
 const NOW = 1_800_000_000_000
 const MIN = 60_000
@@ -57,16 +58,19 @@ test('the top-up ranks stale reading before work surfaces', async t => {
 	assert.deepEqual(ids(result), ['blog', 'search'])
 })
 
-test('user-asked requests aim at the goal; automatic requests stay cautious with no target', () => {
+test('user-asked and nudge requests both aim at the goal; only the opener differs', () => {
 	const tabs = Array.from({ length: 17 }, (_, i) => tab(`t${i}`, 300))
 	const graph = buildAssociationGraph(tabs)
 	const asked = buildCompactRequest(tabs, graph, NOW, { minSaveCount: 11, totalOpenTabCount: 25, clutterThreshold: 15 }).body.messages[0].content
 	assert.match(asked, /The user asked Neat Freak to clear their tab clutter\./)
 	assert.match(asked, /They want to be under their goal of 15 open tabs and have 25 open\. Aim to put away about 11 of these tabs if there are good candidates, finished and stale content first\. Do not add a tab just to reach the number\./)
 	assert.doesNotMatch(asked, /must put away|at least/i)
-	const automatic = buildCompactRequest(tabs, graph, NOW, { proactive: true, minSaveCount: 11, totalOpenTabCount: 25, clutterThreshold: 15 }).body.messages[0].content
-	assert.match(automatic, /optional suggestion/)
-	assert.doesNotMatch(automatic, /Aim to put away|goal of/)
+	const nudge = buildCompactRequest(tabs, graph, NOW, { proactive: true, minSaveCount: 11, totalOpenTabCount: 25, clutterThreshold: 15 }).body.messages[0].content
+	assert.match(nudge, /Neat Freak is preparing a suggestion for the user\. They have not pressed anything yet, but they set a goal for how many tabs to keep open and are over it\./)
+	assert.match(nudge, /They want to be under their goal of 15 open tabs and have 25 open\. Aim to put away about 11 of these tabs/)
+	assert.match(nudge, /Put away read-once and finished content/)
+	assert.match(nudge, /Keep the user's active work/)
+	assert.doesNotMatch(nudge, /When unsure, leave it out|there is no quota|optional suggestion|asked Neat Freak/)
 })
 
 // ---- Service worker ----
@@ -102,19 +106,22 @@ async function bootWorker(t, tabs, settings = {}) {
 const liveTab = (id, minutes, extra = {}) => ({ id, windowId: 1, index: id, active: false, title: `Article ${id}`,
 	url: `https://example.test/article/${id}`, lastAccessed: minutes == null ? undefined : Date.now() - minutes * MIN, ...extra })
 
-test('panel open and Refresh use the target request; the automatic run stays cautious', async t => {
+test('panel open, Refresh and the automatic run all send the goal target; only the opener differs', async t => {
 	const tabs = [liveTab(1, 1, { active: true }), ...Array.from({ length: 9 }, (_, i) => liveTab(i + 2, 120 + i * 30))]
 	const f = await bootWorker(t, tabs)
 	const opened = await f.h.send({ type: 'PREPARE_RECOMMENDATION' })
 	assert.equal(opened.ok, true, opened.error)
 	assert.match(f.prompts.at(-1), /Aim to put away about 6 of these tabs/, '10 open, goal 5: target 10 - 4')
+	assert.match(f.prompts.at(-1), /asked Neat Freak to clear their tab clutter/)
 	const prepared = f.diagnostics.filter(entry => entry.event === 'suggestion_prepared').at(-1)
 	assert.deepEqual([prepared.automatic, prepared.targetCount, prepared.floorAdded], [false, 6, 4], 'the AI picked the two tabs idle about 2 h; the top-up added 4')
 	assert.equal(f.plan.requested, true)
 	await f.check()
-	assert.match(f.prompts.at(-1), /optional suggestion/, 'a target list is never reused for a nudge; the cycle runs its own')
-	assert.doesNotMatch(f.prompts.at(-1), /Aim to put away/)
+	assert.match(f.prompts.at(-1), /They have not pressed anything yet/, 'a list the user asked for is never reused for a nudge; the cycle runs its own')
+	assert.match(f.prompts.at(-1), /Aim to put away about 6 of these tabs/)
 	assert.equal(f.plan.requested, false)
+	const automatic = f.diagnostics.filter(entry => entry.event === 'suggestion_prepared').at(-1)
+	assert.deepEqual([automatic.automatic, automatic.targetCount], [true, 6])
 	f.h.data.session.neatFreakRecommendation.lastExplicitAttemptAt = 0
 	await f.h.send({ type: 'REFRESH_RECOMMENDATION' })
 	assert.match(f.prompts.at(-1), /Aim to put away about 6/)
@@ -150,4 +157,36 @@ test('a Tidy press with nothing prepared and review off closes only the target l
 	assert.equal(saved.ok, true, saved.error)
 	assert.match(f.prompts.at(-1), /Aim to put away about 4 of these tabs/, '8 open, goal 5: target 4')
 	assert.deepEqual([...f.h.removed].sort((a, b) => a - b), [3, 4, 5], 'the AI pick (idle 2 h) plus the top-up (idle 4-5 h); short of 4 by design')
+})
+
+test('a nudge (automatic) run tops up only tabs idle 3 hours, never protected ones', async t => {
+	aiReturns(t, () => [])
+	const result = await runSmartScope(mixed(), ai, { proactive: true, now: NOW, minSaveCount: 9 })
+	assert.deepEqual(ids(result), ['idle4h', 'idle5h'])
+	assert.deepEqual([result.targetCount, result.floorAdded], [9, 2])
+})
+
+test('with AI off, nudge runs get the goal top-up but never the 40% "everything looks recent" fallback', async () => {
+	const recent = Array.from({ length: 10 }, (_, i) => tab(`r${i}`, 10 + i))
+	const asked = await runSmartScope(recent, { llmEnabled: false }, { now: NOW, minSaveCount: 9 })
+	assert.equal(asked.saveSet.length, 4, 'a Smart press still has its 40% fallback')
+	const nudge = await runSmartScope(recent, { llmEnabled: false }, { proactive: true, now: NOW, minSaveCount: 9 })
+	assert.equal(nudge.saveSet.length, 0, 'a nudge does not')
+	const mixedAges = [...recent, tab('old1', 300), tab('old2', 400)]
+	const topped = await runSmartScope(mixedAges, { llmEnabled: false }, { proactive: true, now: NOW, minSaveCount: 9 })
+	assert.deepEqual(ids(topped), ['old1', 'old2'])
+})
+
+test('a nudge run at 65 open tabs with a goal of 15 sends the target, not the cautious text', async t => {
+	const tabs = [liveTab(1, 1, { active: true }), ...Array.from({ length: 64 }, (_, i) => liveTab(i + 2, 200 + i))]
+	const f = await bootWorker(t, tabs, { clutterThreshold: 15 })
+	await f.check()
+	const prompt = f.prompts.at(-1)
+	assert.match(prompt, /They have not pressed anything yet/)
+	assert.match(prompt, /They want to be under their goal of 15 open tabs and have 65 open\. Aim to put away about 51 of these tabs/)
+	assert.doesNotMatch(prompt, /When unsure, leave it out|there is no quota/)
+	const prepared = f.diagnostics.filter(entry => entry.event === 'suggestion_prepared').at(-1)
+	assert.deepEqual([prepared.automatic, prepared.targetCount], [true, 51])
+	assert.ok(prepared.floorAdded > 0, 'the top-up fills in from tabs idle 3 h or more')
+	assert.ok(f.plan.tabs.length <= 51)
 })

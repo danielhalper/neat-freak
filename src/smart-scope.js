@@ -206,7 +206,9 @@ export async function runSmartScope(tabs, settings, opts = {}) {
     return { saveSet: [], keepSet: [], categories: [], mode: "heuristic" };
   }
   const graph = attachTabsToGraph(buildAssociationGraph(tabs), tabs);
-  const minSaveCount = opts.proactive ? 0 : clampMinSaveCount(opts.minSaveCount, tabs.length);
+  // Nudge (proactive) and user-asked runs both aim at the goal; only a Smart
+  // press keeps the heuristic's 40% fallback (applySmartHeuristic).
+  const minSaveCount = clampMinSaveCount(opts.minSaveCount, tabs.length);
 
   let result;
   if (settings.llmEnabled && settings.backendUrl) {
@@ -231,7 +233,7 @@ export async function runSmartScope(tabs, settings, opts = {}) {
   if (minSaveCount > result.saveSet.length) {
     result = enforceMinSaveCount(result, tabs, graph, minSaveCount, now);
   }
-  if (!opts.proactive) result = { ...result, targetCount: minSaveCount, floorAdded: result.floorAdded || 0 };
+  result = { ...result, targetCount: minSaveCount, floorAdded: result.floorAdded || 0 };
 
   // Hard safety net, applied last: never auto-close the tab the user is actively
   // on (active), a tab playing audio, or a tab with unsubmitted form input. The
@@ -603,7 +605,7 @@ function goalTargetLine(target, { totalOpenTabCount, clutterThreshold } = {}) {
 
 export function buildCompactRequest(tabs, graph, now, floorContext = {}) {
   const proactive = Boolean(floorContext.proactive);
-  const minSaveCount = proactive ? 0 : clampMinSaveCount(floorContext.minSaveCount, tabs.length);
+  const minSaveCount = clampMinSaveCount(floorContext.minSaveCount, tabs.length);
   const summaryBudget = tabs.length >= 60 ? 300 : 500;
   const shortIdByTabId = new Map(tabs.map((t, index) => [t.id, String(index + 1)]));
   const clusterIdByTabId = new Map();
@@ -659,16 +661,14 @@ export function buildCompactRequest(tabs, graph, now, floorContext = {}) {
       {
         role: "system",
         content: [
-          ...(proactive ? [
-            "You prepare an optional suggestion: which open Chrome tabs the user could put away now. Put-away tabs are saved into folders and reopen in one click. The user has not asked to close anything.",
-            "Include a tab only when its content and context suggest the user is finished with it. When unsure, leave it out. Including nothing is valid; there is no quota.",
-            "Age alone does not prove a tab is finished. Work surfaces (documents being edited, mail, calendars, dashboards, forms) need stronger evidence than articles, searches, videos, social feeds or completed confirmations and receipts."
-          ] : [
-            "The user asked Neat Freak to clear their tab clutter. Choose which open Chrome tabs to put away now. Put-away tabs are saved into folders and reopen in one click.",
-            "Put away read-once and finished content: articles, searches, videos, social feeds, finished confirmations and receipts, and anything not used for hours.",
-            "Keep the user's active work: documents being written, mail, calendars, dashboards, forms, dev tools and project pages used in the last 60 minutes, and anything they would notice disappearing mid-task. Most people keep 3-5 such tabs.",
-            ...(minSaveCount > 0 ? [goalTargetLine(minSaveCount, floorContext)] : [])
-          ]),
+          // Nudge (automatic) and user-asked lists share the guidance and the
+          // goal target; only the opener says whether the user asked.
+          proactive
+            ? "Neat Freak is preparing a suggestion for the user. They have not pressed anything yet, but they set a goal for how many tabs to keep open and are over it. Choose which open Chrome tabs to put away now. Put-away tabs are saved into folders and reopen in one click."
+            : "The user asked Neat Freak to clear their tab clutter. Choose which open Chrome tabs to put away now. Put-away tabs are saved into folders and reopen in one click.",
+          "Put away read-once and finished content: articles, searches, videos, social feeds, finished confirmations and receipts, and anything not used for hours.",
+          "Keep the user's active work: documents being written, mail, calendars, dashboards, forms, dev tools and project pages used in the last 60 minutes, and anything they would notice disappearing mid-task. Most people keep 3-5 such tabs.",
+          ...(minSaveCount > 0 ? [goalTargetLine(minSaveCount, floorContext)] : []),
           "Never include a tab with unsaved:true, or with minutesAgo null (opened in the background, never looked at).",
           `Tabs with minutesAgo under ${MIN_IDLE_MIN} stay open regardless; do not include them. Use them as context: an older tab in the same workstream as a recently used one may still be needed.`,
           "Group the listed tabs into folders by workstream: shared topic, entity or site first; closeness in minutesAgo is only a tie-breaker. Folder names under 52 characters. Each listed tab appears in exactly one folder. Use the short tab ids given."
