@@ -209,11 +209,10 @@ test("runSmartScope with empty tab list returns empty sets", async () => {
   assert.equal(result.mode, "heuristic");
 });
 
-test("runSmartScope minSaveCount tops up under-threshold smart picks", async () => {
-  // 5 all-recent tabs → heuristic floor doesn't fire (< 8) and the absolute
-  // cutoff saves nothing. Without minSaveCount, this returns 0 saves.
-  // minSaveCount = 3 forces top-up; ranking prefers skim-once content over
-  // active work surfaces.
+test("runSmartScope goal top-up never adds tabs used minutes ago; it stops short instead", async () => {
+  // 5 all-recent tabs: the heuristic saves none, and the top-up only adds tabs
+  // idle 3 hours or more, so a target of 3 is not met. (Ranking for the
+  // top-up is covered in goal-target.test.js.)
   const tabs = [
     { id: "doc",   title: "Doc",   url: "https://docs.google.com/document/d/a/edit", domain: "docs.google.com", lastAccessed: minutesAgo(2) },
     { id: "mail",  title: "Mail",  url: "https://mail.google.com/mail/u/0/#inbox",   domain: "mail.google.com", lastAccessed: minutesAgo(4) },
@@ -224,31 +223,22 @@ test("runSmartScope minSaveCount tops up under-threshold smart picks", async () 
   const result = await runSmartScope(
     tabs, { llmEnabled: false, apiKey: "" }, { now: NOW, minSaveCount: 3 }
   );
-  assert.equal(result.saveSet.length, 3, `expected 3 saves, got ${result.saveSet.length}`);
-  const savedIds = new Set(result.saveSet.map((t) => t.id));
-  for (const blog of ["blog1", "blog2", "blog3"]) {
-    assert.ok(savedIds.has(blog), `expected ${blog} saved`);
-  }
-  for (const surface of ["doc", "mail"]) {
-    assert.ok(!savedIds.has(surface), `expected ${surface} kept`);
-  }
-  // Every saved tab is covered by exactly one category.
-  const categorized = result.categories.flatMap((c) => c.tabIds);
-  for (const id of savedIds) {
-    assert.ok(categorized.includes(id), `expected category coverage for ${id}`);
-  }
+  assert.equal(result.saveSet.length, 0);
+  assert.equal(result.targetCount, 3);
+  assert.equal(result.floorAdded, 0);
 });
 
-test("runSmartScope minSaveCount protects never-activated background tabs", async () => {
+test("runSmartScope goal top-up never adds never-activated or recently used tabs, and stops short", async () => {
   const tabs = [
     { id: "bg", title: "Background article", url: "https://medium.com/blog/background", domain: "medium.com" },
-    { id: "blog1", title: "Blog 1", url: "https://medium.com/blog/post-1", domain: "medium.com", lastAccessed: minutesAgo(20) },
-    { id: "blog2", title: "Blog 2", url: "https://medium.com/blog/post-2", domain: "medium.com", lastAccessed: minutesAgo(25) },
+    { id: "blog1", title: "Blog 1", url: "https://medium.com/blog/post-1", domain: "medium.com", lastAccessed: minutesAgo(200) },
+    { id: "blog2", title: "Blog 2", url: "https://medium.com/blog/post-2", domain: "medium.com", lastAccessed: minutesAgo(250) },
     { id: "doc", title: "Doc", url: "https://docs.google.com/document/d/a/edit", domain: "docs.google.com", lastAccessed: minutesAgo(10) },
   ];
   const result = await runSmartScope(
-    tabs, { llmEnabled: false, apiKey: "" }, { now: NOW, minSaveCount: 2 }
+    tabs, { llmEnabled: false, apiKey: "" }, { now: NOW, minSaveCount: 4 }
   );
+  assert.equal(result.saveSet.length, 2, "stops short of 4 rather than adding bg or doc");
   const savedIds = new Set(result.saveSet.map((tabItem) => tabItem.id));
   assert.ok(savedIds.has("blog1"));
   assert.ok(savedIds.has("blog2"));
@@ -270,13 +260,14 @@ test("runSmartScope minSaveCount of 0 is a no-op", async () => {
 test("runSmartScope minSaveCount caps at total tab count", async () => {
   // Caller asked for more saves than we have tabs — cap, save everything.
   const tabs = [
-    { id: "a", title: "A", url: "https://example.com/a", lastAccessed: minutesAgo(5) },
-    { id: "b", title: "B", url: "https://example.com/b", lastAccessed: minutesAgo(10) },
+    { id: "a", title: "A", url: "https://example.com/a", lastAccessed: minutesAgo(200) },
+    { id: "b", title: "B", url: "https://example.com/b", lastAccessed: minutesAgo(300) },
   ];
   const result = await runSmartScope(
     tabs, { llmEnabled: false, apiKey: "" }, { now: NOW, minSaveCount: 99 }
   );
   assert.equal(result.saveSet.length, 2);
+  assert.equal(result.targetCount, 2);
 });
 
 test("runSmartScope never closes the active tab, even under a maxed-out floor", async () => {
@@ -312,13 +303,13 @@ test("runSmartScope does not undo smart's own picks when floor is small", async 
   assert.ok(result.saveSet.some((t) => t.id === "old"));
 });
 
-test("runSmartScope LLM is told the save floor and keeps floor-added tabs out of unrelated LLM folders", async (t) => {
+test("runSmartScope LLM is told the goal target and keeps topped-up tabs out of unrelated LLM folders", async (t) => {
   const originalFetch = globalThis.fetch;
   t.after(() => { globalThis.fetch = originalFetch; });
 
   globalThis.fetch = async (_url, init) => {
     const body = JSON.parse(init.body);
-    assert.match(body.messages[0].content, /at least 2 of the 3/);
+    assert.match(body.messages[0].content, /Aim to put away about 2 of these tabs/);
 
     return {
       ok: true,
@@ -337,7 +328,7 @@ test("runSmartScope LLM is told the save floor and keeps floor-added tabs out of
 
   const tabs = [
     { id: "doc", title: "Proposal", url: "https://docs.google.com/document/d/p/edit", domain: "docs.google.com", lastAccessed: minutesAgo(240) },
-    { id: "blog", title: "API blog post", url: "https://medium.com/blog/api-post", domain: "medium.com", lastAccessed: minutesAgo(12) },
+    { id: "blog", title: "API blog post", url: "https://medium.com/blog/api-post", domain: "medium.com", lastAccessed: minutesAgo(200) },
     { id: "search", title: "API search", url: "https://www.google.com/search?q=api", domain: "www.google.com", lastAccessed: minutesAgo(8) },
   ];
   const result = await runSmartScope(tabs, { llmEnabled: true, backendUrl: "https://enclave.test/v1/chat/completions", enclaveKey: "tk_test", llmModel: "gpt-oss-120b" }, {

@@ -400,3 +400,68 @@ first nudge and reminder timing, the two resets, no nudge after a restart
 inside a quiet period, the AI-unavailable path, the panel-open run, the 1 s
 capture, and token counts in an export. The deployed backend still has the
 smaller daily token budget.
+
+### Live, Nov 18 23:36 PST (reloaded, goal 15, 30 tabs open)
+
+- Export says `proactive-trial-6`. New fields carry numbers and enums only.
+- First cycle: one AI run (4.3 s, 22 candidates, 5 suggested; 3,339 prompt and
+  254 completion tokens), then a nudge recorded as `first`, band `100-250`,
+  step 0. Tidy now on the card closed 5; none protected or failed.
+- Panel opened with no list at 25 tabs: a run started on open (3.1 s, 17
+  candidates, 2 suggested; 2,731 and 278 tokens). Tidy opened that list.
+- Finding: the panel-open run uses the cautious background prompt with no
+  goal floor. At 25 tabs against a goal of 15 it offered 2, and 13 of the 14
+  tabs it skipped had been idle over 3 hours. A manual Smart press would have
+  been held to at least 11. Fixed in trial-7 (`a1af326`).
+- Tab-habits log to date: 129 tabs put away by Neat Freak, 0 restored.
+
+Still not checked live: the reminder, quiet periods and doubling, restart
+inside a quiet period, the AI-unavailable path.
+
+## November 25: lists aim at the goal (builds proactive-trial-7 and -8)
+
+Live, Nov 23–24, still on trial-6 (read from the extension's storage on disk;
+Chrome not reloaded since Nov 18):
+
+- Nudge runs at 63–67 open tabs, goal 15: 40–44 candidates each, 12, 4, 2 and
+  4 suggested. Tidy now on 3 of 4 nudges; one reminder ignored and retired.
+- Panel run at 78 tabs: 59 candidates, 17 suggested; at least 17 skipped tabs
+  idle over a day.
+- Reminders came only on the first cycle after a reset.
+- Tab-habits log: 164 tabs put away by Neat Freak, 0 restored.
+
+Change: the goal is a target, not a quota. Every AI list (nudge, panel open,
+Refresh, press) is asked for about open tabs minus (goal - 1), finished and
+stale content first. The top-up adds only tabs idle 3 h+, and nothing ever
+adds a tab used in the last 30 min, never viewed, with unsaved input, active,
+audible or pinned. Tabs the AI leaves out stay open; the list stops short when
+safe tabs run out. Nudge requests say the user has not pressed anything. The
+heuristic's 40% fallback stays press-only. Diagnostics record `targetCount`
+and `floorAdded`. Commits `afb9f18` to `d46de25`, PR
+https://github.com/danielhalper/neat-freak/pull/2. 179 tests and four rendered
+runs pass (new: 40-tab nudge card).
+
+Card fixes (`21e55f4`): Review and Hide list are bordered buttons the same
+height as Tidy now, which stays the primary. Text shown before Tidy now says
+"They'll go into a folder you can reopen." instead of "Saved to a folder.",
+and "N kept open. The rest go into folders." The longer subtitle wraps to two
+lines beside the mascot. 179 tests and four rendered runs pass.
+
+### Live, Nov 27–28 (reloaded 16:48 PST, trial-8, goal 15)
+
+Read from the extension's storage on disk.
+
+- 18:14 nudge at 53 tabs: target 35 (all 35 candidates), 22 offered (21 AI
+  picks, 1 top-up) in 6 folders; 4,830 prompt and 437 completion tokens,
+  7.6 s. Review opened after 14 s, then Tidy now closed all 22; none
+  protected or failed. AI picks: 16 idle 3–24 h, 5 idle 1–3 h. Trial-6
+  nudges at this size offered 1–4.
+- 23:02 nudge at 29 tabs: target 13 (all 13 candidates), 3 offered, top-up
+  0, so the other 10 were used in the last 3 h or protected. No response; no
+  reminder; the cycle went quiet at the reminder slot.
+- Tab-habits log: 258 tabs put away by Neat Freak, 0 restored from its
+  folders (reopening by hand from history is not tracked).
+
+Open question: the 3 h top-up limit decided the 23:02 list. Keep it until
+more days of data show whether short lists like that are common.
+

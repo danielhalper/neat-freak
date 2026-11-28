@@ -183,7 +183,7 @@ test('old recommendations expire and incognito/pinned/active tabs never reach th
 	assert.equal((await h.service.get()).expired, true)
 })
 
-test('proactive selection does not enforce either a count quota or the 40% fallback', async () => {
+test('automatic selection skips the 40% fallback and its top-up never adds recently used tabs', async () => {
 	const tabs = Array.from({ length: 10 }, (_, i) => saved(live(i, { lastAccessed: NOW })))
 	const result = await runSmartScope(tabs, { llmEnabled: false }, { proactive: true, minSaveCount: 9, now: NOW })
 	assert.equal(result.saveSet.length, 0)
@@ -285,14 +285,15 @@ test('a tab disappearing during remove is recorded as gone, without aborting the
 	assert.deepEqual(result.closed.map(tab => tab.originalTabId), [2])
 })
 
-test('LLM proactive request uses the same categorizer, keeps omitted actions, and falls back without a quota on failure', async t => {
+test('LLM nudge request aims at the goal, keeps omitted tabs open, and falls back without the 40% fallback on failure', async t => {
 	const original = globalThis.fetch
 	t.after(() => { globalThis.fetch = original })
 	const tabs = [saved(live(1)), saved(live(2)), saved(live(3, { lastAccessed: NOW }))]
 	globalThis.fetch = async (_url, options) => {
 		const request = JSON.parse(options.body)
-		assert.match(request.messages[0].content, /optional suggestion/)
-		assert.match(request.messages[0].content, /there is no quota/)
+		assert.match(request.messages[0].content, /They have not pressed anything yet/)
+		assert.match(request.messages[0].content, /Aim to put away about 3 of these tabs/)
+		assert.doesNotMatch(request.messages[0].content, /there is no quota/)
 		assert.equal('saveFloor' in JSON.parse(request.messages[1].content), false)
 		return { ok: true, json: async () => ({ choices: [{ message: { content: JSON.stringify({ groups: [{ name: 'Research', tabIds: ['1'] }] }) } }] }) }
 	}

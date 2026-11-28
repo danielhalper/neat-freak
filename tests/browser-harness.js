@@ -4,10 +4,13 @@ const groups = [
 	['Neat Freak development', 'https://development.example.com/article/'],
 	['Summer travel', 'https://travel.example.com/article/'],
 ]
-const tabs = Array.from({ length: 13 }, (_, index) => ({
+// ?tabs=N sets the open-tab count (default 13: the current tab plus 12).
+const tabCount = Number(new URL(location.href).searchParams.get('tabs')) || 13
+const group = index => groups[Math.floor((index - 1) / 4) % groups.length]
+const tabs = Array.from({ length: tabCount }, (_, index) => ({
 	id: index + 1, windowId: 1, index, active: index === 0,
-	title: index === 0 ? 'Current workspace' : `${groups[Math.floor((index - 1) / 4)][0]} ${index}`,
-	url: index === 0 ? 'https://workspace.example.com' : `${groups[Math.floor((index - 1) / 4)][1]}${index}`,
+	title: index === 0 ? 'Current workspace' : `${group(index)[0]} ${index}`,
+	url: index === 0 ? 'https://workspace.example.com' : `${group(index)[1]}${index}`,
 	lastAccessed: Date.now() - 120 * 60_000,
 }))
 const baseUrl = new URL('../', location.href).href

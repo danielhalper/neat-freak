@@ -93,7 +93,8 @@ test('the model\'s own picks, before the recency guard, come back as ids for the
 	const original = globalThis.fetch
 	t.after(() => { globalThis.fetch = original })
 	const settings = { llmEnabled: true, backendUrl: 'https://synthetic.invalid' }
-	const tabs = [tab(1), tab(2, { lastAccessed: NOW - 14 * 60_000 }), tab(3, { lastAccessed: undefined }), tab(4)]
+	// 1 and 4 idle 4 h, so the goal top-up may add them (it needs 3 h).
+	const tabs = [tab(1, { lastAccessed: NOW - 240 * 60_000 }), tab(2, { lastAccessed: NOW - 14 * 60_000 }), tab(3, { lastAccessed: undefined }), tab(4, { lastAccessed: NOW - 240 * 60_000 })]
 	globalThis.fetch = answer({ groups: [{ name: 'A', tabIds: ['2', '99', '1'] }, { name: 'B', tabIds: ['1', '3'] }] })
 	const proactive = await runSmartScope(tabs, settings, { proactive: true, now: NOW })
 	assert.deepEqual(proactive.saveSet.map(t => t.originalTabId), [1])
@@ -110,12 +111,13 @@ test('the model\'s own picks, before the recency guard, come back as ids for the
 	assert.equal(local.modelPicks, undefined)
 })
 
-test('manual Smart request is compact too, asks to clear clutter, and states the tab-limit floor', () => {
+test('manual Smart request is compact too, asks to clear clutter, and aims at the goal as a target', () => {
 	const { body } = build([tab(1), tab(2), tab(3)], { minSaveCount: 2 })
 	assert.equal(body.reasoning_effort, 'low')
 	assert.deepEqual(Object.keys(body.response_format.json_schema.schema.properties), ['groups'])
-	assert.match(body.messages[0].content, /clicked Smart/)
-	assert.match(body.messages[0].content, /at least 2 of the 3/)
+	assert.match(body.messages[0].content, /asked Neat Freak to clear their tab clutter/)
+	assert.match(body.messages[0].content, /Aim to put away about 2 of these tabs if there are good candidates/)
+	assert.doesNotMatch(body.messages[0].content, /at least/)
 	assert.doesNotMatch(body.messages[0].content, /optional suggestion/)
 })
 

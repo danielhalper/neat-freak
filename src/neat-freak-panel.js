@@ -686,23 +686,27 @@ function panelMarkup() {
       .card.state-review.offer-collapsed .actions { display: flex; }
       .card.state-review .row[data-clickable-body="true"] { cursor: pointer; }
 
-      /* Review: a quiet text disclosure just left of Tidy now, so the row has
-         one button. margin-left: auto pins the pair to the right of any row.
-         The chevron is a pseudo-element so busy-state text swaps keep it. */
+      /* Review / Hide list: a bordered second button just left of Tidy now.
+         One press can close dozens of tabs, so looking first must read as a
+         real choice. align-self: stretch matches Tidy now's height in its row;
+         margin-left: auto pins the pair to the right. The chevron is a
+         pseudo-element so busy-state text swaps keep it. */
       .offer-toggle {
         margin-left: auto;
-        margin-right: 6px;
+        align-self: stretch;
         display: inline-flex;
         align-items: center;
         gap: 6px;
-        padding: 8px 4px;
-        border: 0;
-        border-radius: 6px;
-        background: none;
-        color: #33413b;
-        font: 600 13px/1 inherit;
+        padding: 8px 14px;
+        border: 1px solid #c9d3ce;
+        border-radius: 8px;
+        background: #ffffff;
+        color: #1a2421;
+        font-size: 13px;
+        font-weight: 600;
         font-family: inherit;
         cursor: pointer;
+        transition: border-color 0.12s ease, color 0.12s ease;
       }
       .offer-toggle::after {
         content: "";
@@ -714,7 +718,7 @@ function panelMarkup() {
         transition: transform 160ms ease;
       }
       .offer-toggle[aria-expanded="true"]::after { transform: translateY(1px) rotate(-135deg); }
-      .offer-toggle:hover { color: #0f766e; }
+      .offer-toggle:hover { color: #0f766e; border-color: #0f766e; }
       .offer-toggle:focus-visible { outline: 2px solid #0f766e; outline-offset: 2px; }
       .review-meta {
         flex-basis: 100%;
@@ -2113,9 +2117,10 @@ function readyTitle(count) {
   return `${count} ${count === 1 ? "tab" : "tabs"} ready to tidy`;
 }
 
+// Shown before Tidy now, so it says what will happen, not what has.
 function offerReassurance(folderCount) {
   const folders = Number(folderCount) || 0;
-  return folders > 1 ? `Saved into ${folders} folders.` : "Saved to a folder.";
+  return folders > 1 ? `They'll go into ${folders} folders you can reopen.` : "They'll go into a folder you can reopen.";
 }
 
 // "Picked 12 min ago", so a list made earlier reads as earlier. Local picks
@@ -2126,9 +2131,9 @@ function pickedAgo(recommendation) {
   return `Picked ${minutes < 1 ? "just now" : `${minutes} min ago`}${recommendation?.local ? " without AI" : ""}`;
 }
 
-// Review sits to the left of Tidy now. It is a text disclosure for the list
-// of tabs ("Hide list" once open); the chevron is CSS so busy-state text
-// swaps can't drop it.
+// Review sits to the left of Tidy now as a bordered second button that opens
+// the list of tabs ("Hide list" once open); the chevron is CSS so busy-state
+// text swaps can't drop it.
 function offerActions(open) {
   return `
     <button class="offer-toggle" data-action="toggle-offer-list" type="button" aria-expanded="${open ? "true" : "false"}">${open ? "Hide list" : "Review"}</button>
@@ -2227,7 +2232,7 @@ function updateReviewConfirmCount(host) {
     .filter(group => group.querySelector(".review-item:not(.removed)")).length;
   titleEl.textContent = remaining ? readyTitle(remaining) : "Keeping every tab open";
   subEl.textContent = remaining === 0 ? "Nothing will close."
-    : removed > 0 ? `${removed} kept open. The rest are saved.`
+    : removed > 0 ? `${removed} kept open. The rest go into ${folders > 1 ? "folders" : "a folder"}.`
     : offer && offerTidyPendingPlanId === currentState.planId ? "Check the list, then press Tidy now."
     : offerReassurance(folders);
   if (offer) {

@@ -1,13 +1,13 @@
 // Local, bounded diagnostics. Never pass arbitrary payloads into the journal.
 import { OVER_GOAL_BANDS } from './nudge-cycle.js'
 export const DIAGNOSTICS_KEY = 'neatFreakDiagnostics'
-export const DIAGNOSTICS_BUILD = 'proactive-trial-6'
+export const DIAGNOSTICS_BUILD = 'proactive-trial-8'
 export const DIAGNOSTICS_LIMIT = 500
 export const DIAGNOSTICS_MAX_AGE_MS = 7 * 24 * 60 * 60_000
 
 const events = new Set(['action', 'suggestion_prepared', 'suggestion_pruned', 'nudge_shown', 'nudge_retired', 'review_opened', 'keep_changed', 'close_finished', 'restore_finished', 'background_error'])
 const actions = new Set(['REFRESH_RECOMMENDATION', 'REVIEW_RECOMMENDATION', 'EXECUTE_RECOMMENDATION', 'PANEL_DISMISS', 'PANEL_TIDY_NOW', 'PANEL_CONFIRM_REVIEW', 'PANEL_DISCARD_REVIEW', 'SAVE_TABS', 'CLOSE_SAVED_TABS', 'RESTORE_TAB', 'RESTORE_GROUP', 'RESTORE_SESSION', 'RESTORE_ALL_SESSIONS', 'TEST_LLM', 'OPEN_PANEL_FROM_ICON'])
-const counts = ['candidateCount', 'suggestedCount', 'folderCount', 'previousCount', 'keptCount', 'closedCount', 'protectedCount', 'failedCount', 'goneCount', 'restoredCount', 'durationMs', 'ageMs', 'promptTokens', 'completionTokens', 'tabCount', 'doublingStep']
+const counts = ['candidateCount', 'suggestedCount', 'folderCount', 'previousCount', 'keptCount', 'closedCount', 'protectedCount', 'failedCount', 'goneCount', 'restoredCount', 'durationMs', 'ageMs', 'promptTokens', 'completionTokens', 'tabCount', 'doublingStep', 'targetCount', 'floorAdded']
 const enums = {
 	action: actions,
 	mode: new Set(['llm', 'heuristic']),

@@ -36,7 +36,8 @@ try {
 	const tidySub = () => shadow()?.getElementById('tidy-cta-sub')
 	const tidyArea = () => shadow().getElementById('tidy-area')
 	const offerLine = text => tidySub()?.classList.contains('ready') && tidySub().textContent === text
-	const savedLine = /^Saved (into \d+ folders|to a folder)\.$/
+	// Shown before anything is saved, so future tense.
+	const savedLine = /^They'll go into (\d+ folders|a folder) you can reopen\.$/
 	// The popup opens on the panel; a page gets the nudge card.
 	await settle(() => popup ? offerLine('12 tabs ready to review')
 		: shadow()?.getElementById('title').textContent === '12 tabs ready to tidy', 'prepared offer')
@@ -118,6 +119,7 @@ try {
 	click('.review-remove')
 	await settle(() => shadow()?.querySelectorAll('.review-item.removed').length === 1, 'keep choice')
 	assert.equal(shadow().getElementById('title').textContent, '11 tabs ready to tidy')
+	assert.equal(shadow().getElementById('sub').textContent, '1 kept open. The rest go into a folder.')
 	assert.equal(shadow().querySelector('.review-remove').getAttribute('aria-checked'), 'false')
 	assert.equal(shadow().querySelector('.review-group-keep').getAttribute('aria-checked'), 'mixed')
 	const body = shadow().getElementById('review-body')
@@ -158,7 +160,7 @@ try {
 	settingsDoc.getElementById('export-diagnostics').click()
 	await settle(() => exportedBlob, 'diagnostics download')
 	const report = JSON.parse(await exportedBlob.text())
-	assert.equal(report.build, 'proactive-trial-6')
+	assert.equal(report.build, 'proactive-trial-8')
 	assert.equal(report.extensionVersion, '1.3.0')
 	assert.ok(report.entries.some(entry => entry.event === 'close_finished' && entry.closedCount === 9))
 	assert.doesNotMatch(JSON.stringify(report), /furniture\.example|travel\.example|Current workspace/)

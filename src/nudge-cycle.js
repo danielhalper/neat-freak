@@ -40,9 +40,7 @@ export const GROWTH_RESET_SHARE = 0.5
 // ---- end of pacing ----
 
 export const RUN_STALE_MS = 2 * 60_000
-// The panel re-checks a list older than this when opened, unless a nudge
-// showed that exact list in the last SHOWN_LIST_FRESH_MS (so clicking a
-// reminder opens the list it showed instead of re-running).
+// Freshness for opening the panel (see needsIntentRun).
 export const LIST_FRESH_MS = 30 * 60_000
 export const SHOWN_LIST_FRESH_MS = 15 * 60_000
 
@@ -169,9 +167,14 @@ export function endCycle(cycle, at, { counted }) {
 	}
 }
 
+// Opening the panel shows a list aimed at the goal. A list a nudge showed in
+// the last SHOWN_LIST_FRESH_MS is reused, so clicking a nudge opens its list
+// at once; a list the user asked for (plan.requested) is reused while it is
+// under LIST_FRESH_MS old. Anything else, including a fresh automatic list,
+// gets a new run.
 export function needsIntentRun({ aiOn, plan, now, cycle }) {
 	if (!aiOn) return false
 	if (!plan || plan.expired) return true
-	if (now - plan.createdAt <= LIST_FRESH_MS) return false
-	return !(cycle.shownPlanId === plan.id && now - cycle.shownAt <= SHOWN_LIST_FRESH_MS)
+	if (cycle.shownPlanId === plan.id && now - cycle.shownAt <= SHOWN_LIST_FRESH_MS) return false
+	return !(plan.requested && now - plan.createdAt <= LIST_FRESH_MS)
 }
